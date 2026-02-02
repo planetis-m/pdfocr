@@ -99,14 +99,29 @@ jobs:
           Write-Host "=== Checking MSYS2 directory ==="
           if (Test-Path "C:/msys64") {
             Write-Host "MSYS2 exists at C:/msys64"
-            Get-ChildItem "C:/msys64/ucrt64/include" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*jpeg*" } | Write-Host
-            Get-ChildItem "C:/msys64/ucrt64/lib" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*jpeg*" } | Write-Host
+            Write-Host ""
+            Write-Host "=== Checking ucrt64/include ==="
+            if (Test-Path "C:/msys64/ucrt64/include") {
+              Get-ChildItem "C:/msys64/ucrt64/include" | Select-Object -First 20 Name
+            } else {
+              Write-Host "ucrt64/include not found"
+            }
+            Write-Host ""
+            Write-Host "=== Checking ucrt64/lib for jpeg ==="
+            if (Test-Path "C:/msys64/ucrt64/lib") {
+              Get-ChildItem "C:/msys64/ucrt64/lib" | Where-Object { $_.Name -match "jpeg" } | Select-Object Name
+            } else {
+              Write-Host "ucrt64/lib not found"
+            }
+            Write-Host ""
+            Write-Host "=== Checking mingw64 as fallback ==="
+            if (Test-Path "C:/msys64/mingw64/include") {
+              Write-Host "mingw64/include exists"
+              Get-ChildItem "C:/msys64/mingw64/include" | Where-Object { $_.Name -match "jpeg" } | Select-Object Name
+            }
           } else {
             Write-Host "MSYS2 not found at C:/msys64"
           }
-          Write-Host ""
-          Write-Host "=== Checking PATH ==="
-          echo $env:PATH
 
       - name: Run Tests
         working-directory: tests
