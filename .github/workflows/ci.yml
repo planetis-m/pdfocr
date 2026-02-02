@@ -92,7 +92,10 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          $env:PATH = "C:\ProgramData\chocolatey\lib\curl\tools\curl-8.18.0_1-win64-mingw\bin;" + $env:PATH
+          $curlRoot = Get-ChildItem -Path "C:\ProgramData\chocolatey\lib\curl\tools" -Directory | Select-Object -First 1
+          if ($null -eq $curlRoot) { throw "curl root not found under tools" }
+          "CURL_ROOT=$($curlRoot.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $env:PATH = "$($curlRoot.FullName)\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
           nim c -r test_jpeglib.nim
