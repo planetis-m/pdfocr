@@ -21,7 +21,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Dependencies
-        run: sudo apt-get install -y libjpeg-dev
+        run: sudo apt-get install -y libjpeg-dev libcurl4-openssl-dev
 
       - name: Download PDFium
         run: |
@@ -36,6 +36,7 @@ jobs:
           cp ../third_party/pdfium/lib/libpdfium.so ./
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
+          nim c -r test_curl_bindings.nim
 
   macos:
     runs-on: macos-latest
@@ -50,7 +51,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Dependencies
-        run: brew install jpeg-turbo
+        run: brew install jpeg-turbo curl
 
       - name: Download PDFium
         run: |
@@ -65,6 +66,7 @@ jobs:
           cp ../third_party/pdfium/lib/libpdfium.dylib ./
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
+          nim c -r test_curl_bindings.nim
 
   windows:
     runs-on: windows-latest
@@ -79,7 +81,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install libjpeg-turbo (MinGW)
-        run: choco install libjpeg-turbo -y
+        run: choco install libjpeg-turbo curl -y
 
       - name: Download PDFium
         run: |
@@ -94,3 +96,7 @@ jobs:
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
+          $curlDll = Get-ChildItem -Path "C:\ProgramData\chocolatey\lib\curl\tools" -Recurse -Filter "libcurl*.dll" | Select-Object -First 1
+          if ($null -eq $curlDll) { throw "libcurl DLL not found in curl package" }
+          Copy-Item $curlDll.FullName .
+          nim c -r test_curl_bindings.nim
