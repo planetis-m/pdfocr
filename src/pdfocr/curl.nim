@@ -32,7 +32,7 @@ proc initEasy*(): CurlEasy =
 proc close*(easy: var CurlEasy) =
   if pointer(easy.raw) != nil:
     curl_easy_cleanup(easy.raw)
-    easy.raw = cast[CURL](nil)
+    easy.raw = CURL(nil)
     easy.postData.setLen(0)
     easy.errorBuf = default(array[256, char])
 

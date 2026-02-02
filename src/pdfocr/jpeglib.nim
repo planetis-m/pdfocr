@@ -46,7 +46,7 @@ proc writeRgb*(comp: var JpegCompressor; buffer: openArray[byte]) =
   var rowPointer: JSAMPROW
   while comp.cinfo.next_scanline < comp.cinfo.image_height:
     let offset = comp.cinfo.next_scanline.int * comp.rowStride
-    rowPointer = cast[JSAMPROW](unsafeAddr buffer[offset])
+    rowPointer = cast[JSAMPROW](addr buffer[offset])
     discard jpeg_write_scanlines(addr comp.cinfo, addr rowPointer, 1)
 
 proc initJpegCompressorBgrx*(path: string; width, height: int; quality: int = 90): JpegCompressor =
@@ -82,7 +82,7 @@ proc writeBgrx*(comp: var JpegCompressor; buffer: pointer; stride: int) =
     raise newException(ValueError, "invalid stride")
 
   var rowPointer: JSAMPROW
-  let raw = cast[ByteAddress](buffer)
+  let raw = cast[uint](buffer)
   while comp.cinfo.next_scanline < comp.cinfo.image_height:
     let offset = comp.cinfo.next_scanline.int * stride
     rowPointer = cast[JSAMPROW](raw + offset)

@@ -31,14 +31,14 @@ proc main() =
       writeBgrx(comp, buffer(bitmap), stride(bitmap))
     finally:
       finish(comp)
-           
+
     echo "Saved to ", outputFile
 
     # 2. Extract Text
     echo "\n--- Extracted Text ---"
     echo extractText(page)
     echo "----------------------"
-  
+
   finally:
     destroy(bitmap)
     close(page)
