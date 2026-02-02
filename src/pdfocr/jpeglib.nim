@@ -84,7 +84,7 @@ proc writeBgrx*(comp: var JpegCompressor; buffer: pointer; stride: int) =
   var rowPointer: JSAMPROW
   let raw = cast[uint](buffer)
   while comp.cinfo.next_scanline < comp.cinfo.image_height:
-    let offset = comp.cinfo.next_scanline.int * stride
+    let offset = comp.cinfo.next_scanline.uint * stride.uint
     rowPointer = cast[JSAMPROW](raw + offset)
     discard jpeg_write_scanlines(addr comp.cinfo, addr rowPointer, 1)
 
