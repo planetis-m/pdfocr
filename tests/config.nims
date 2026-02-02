@@ -19,8 +19,10 @@ when defined(macosx):
   switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
 elif defined(windows):
+  # Windows with MSYS2/UCRT64 - jpeg-turbo is in the MSYS2 installation
+  switch("passC", "-IC:/msys64/ucrt64/include")
+  switch("passL", "-LC:/msys64/ucrt64/lib")
   # Windows doesn't use rpath; DLLs are found via PATH or alongside executable
-  discard
 else:
   # Linux and other Unix-like systems - use $ORIGIN for relocatable rpath
   switch("passL", "-Wl,-rpath,\\$ORIGIN/../third_party/pdfium/lib")
