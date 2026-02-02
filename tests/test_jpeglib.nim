@@ -20,7 +20,7 @@ proc createTestImage(width, height: int, outputPath: string): bool =
   if not open(outfile, outputPath, fmWrite):
     echo "ERROR: Could not open output file"
     return false
-  
+
   try:
     # Set output destination
     jpeg_stdio_dest(addr cinfo, outfile)
@@ -84,7 +84,8 @@ proc createTestImage(width, height: int, outputPath: string): bool =
     echo &"ERROR during JPEG creation: {e.msg}"
     return false
   finally:
-    close(outfile)
+    if outfile != nil:
+      close(outfile)
 
 proc testBasicFunctionality() =
   echo "\n=== Testing Basic JPEG Functionality ==="
