@@ -35,33 +35,6 @@ jobs:
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
 
-  macos-x64:
-    runs-on: macos-13
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Nim
-        uses: jiro4989/setup-nim-action@v2
-        with:
-          nim-version: stable
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Dependencies
-        run: brew install libjpeg
-
-      - name: Download PDFium
-        run: |
-          mkdir -p third_party/pdfium
-          curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz -o pdfium-mac-x64.tgz
-          tar -xf pdfium-mac-x64.tgz -C third_party/pdfium
-
-      - name: Run Tests
-        working-directory: tests
-        run: |
-          nim c -r test_jpeglib.nim
-          nim c -r test_pdfium_bindings.nim input.pdf
-
   macos-arm64:
     runs-on: macos-latest
     steps:
@@ -108,7 +81,7 @@ jobs:
             git
             curl
             tar
-            mingw-w64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
 
       - name: Install Nim
         uses: jiro4989/setup-nim-action@v2
