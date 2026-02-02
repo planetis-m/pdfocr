@@ -19,9 +19,9 @@
   - Use repository-relative paths (e.g., `third_party/...`) to keep builds hermetic.
 
 ## Runtime and Portability Assumptions
-- Prefer colocating required shared libraries next to the executable at runtime.
-- Do not rely on environment variables (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, `PATH`) for runtime resolution.
-- On Linux, add rpath to the executable directory:
+- For local/third-party libs (e.g., PDFium), colocate the shared library next to the executable at runtime.
+- For system-installed libs (e.g., curl), do not copy DLLs; rely on environment variables (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, `PATH`) for runtime resolution.
+- On Linux, add rpath only for tests/apps that load colocated shared libs:
   - `--passL:"-Wl,-rpath,\\$ORIGIN"`
 
 ## CI-Driven Constraints (Generalized)
@@ -60,7 +60,7 @@
   - `--passL:"-l<systemlib>"`
   - `--passL:"<local_lib_dir>/<name>.dll.lib"` (for DLL import libraries)
 - Runtime: copy required `.dll` files next to the executable.
-- Incompatible: MSYS2 toolchains.
+- Incompatible: MSYS2 toolchains or guessing dependency paths.
 
 ## How to Locate Include/Lib Directories
 - Use explicit, deterministic paths:
