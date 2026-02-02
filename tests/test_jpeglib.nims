@@ -11,10 +11,13 @@ when defined(macosx):
   switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
 elif defined(windows):
-  # Windows: MinGW-Builds + libjpeg-turbo from chocolatey
+  # Windows: MinGW-Builds + libjpeg-turbo from vcpkg
   switch("gcc.path", "C:/mingw64/bin")
-  switch("passC", "-IC:/libjpeg-turbo64/include")
-  switch("passL", "-LC:/libjpeg-turbo64/lib")
+  let vcpkgRoot = getEnv("VCPKG_ROOT", "C:/vcpkg")
+  let vcpkgTriplet = getEnv("VCPKG_DEFAULT_TRIPLET", "x64-mingw")
+  let vcpkgInstalled = vcpkgRoot & "/installed/" & vcpkgTriplet
+  switch("passC", "-I" & vcpkgInstalled & "/include")
+  switch("passL", "-L" & vcpkgInstalled & "/lib")
 else:
   # Linux: system libjpeg
   discard
