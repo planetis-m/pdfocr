@@ -12,12 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nim
-        uses: jiro4989/setup-nim-action@v1
+        uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dependencies
+        run: sudo apt-get install -y libjpeg-dev
 
       - name: Download PDFium
         run: |
@@ -29,18 +33,22 @@ jobs:
         working-directory: tests
         run: |
           nim c -r test_jpeglib.nim
-          nim c -r test_pdfium_bindings.nim ../input.pdf
+          nim c -r test_pdfium_bindings.nim input.pdf
 
   macos-x64:
     runs-on: macos-13
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nim
-        uses: jiro4989/setup-nim-action@v1
+        uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dependencies
+        run: brew install libjpeg
 
       - name: Download PDFium
         run: |
@@ -52,18 +60,22 @@ jobs:
         working-directory: tests
         run: |
           nim c -r test_jpeglib.nim
-          nim c -r test_pdfium_bindings.nim ../input.pdf
+          nim c -r test_pdfium_bindings.nim input.pdf
 
   macos-arm64:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nim
-        uses: jiro4989/setup-nim-action@v1
+        uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dependencies
+        run: brew install libjpeg
 
       - name: Download PDFium
         run: |
@@ -75,7 +87,7 @@ jobs:
         working-directory: tests
         run: |
           nim c -r test_jpeglib.nim
-          nim c -r test_pdfium_bindings.nim ../input.pdf
+          nim c -r test_pdfium_bindings.nim input.pdf
 
   windows:
     runs-on: windows-latest
@@ -84,7 +96,7 @@ jobs:
         shell: msys2 {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install MSYS2
         uses: msys2/setup-msys2@v2
@@ -96,11 +108,13 @@ jobs:
             git
             curl
             tar
+            libjpeg-turbo
 
       - name: Install Nim
-        uses: jiro4989/setup-nim-action@v1
+        uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: stable
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download PDFium
         run: |
@@ -112,4 +126,4 @@ jobs:
         working-directory: tests
         run: |
           nim c -r test_jpeglib.nim
-          nim c -r test_pdfium_bindings.nim ../input.pdf
+          nim c -r test_pdfium_bindings.nim input.pdf
