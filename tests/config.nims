@@ -7,22 +7,21 @@ switch("path", "$projectdir/../src")
 # JPEG library
 switch("passL", "-ljpeg")
 
-# --- Link Settings for PDFium ---
-# Library is in third_party/pdfium/lib relative to project root
-# When building from tests/, use ../third_party/pdfium/lib
-switch("passL", "-L../third_party/pdfium/lib -lpdfium")
-
+# --- Platform-specific settings ---
 when defined(macosx):
-  # macOS uses @loader_path for rpath in executables
-  switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
-  # jpeg-turbo from Homebrew
+  # macOS: set rpath before linking, and jpeg-turbo from Homebrew
   switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
+  # PDFium: rpath must come before -lpdfium for dyld to find it at runtime
+  switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
+  switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
-  # Windows with MSYS2/UCRT64 - jpeg-turbo is in the MSYS2 installation
+  # Windows with MSYS2/UCRT64 - jpeg-turbo paths
   switch("passC", "-IC:/msys64/ucrt64/include")
   switch("passL", "-LC:/msys64/ucrt64/lib")
-  # Windows doesn't use rpath; DLLs are found via PATH or alongside executable
+  # PDFium on Windows
+  switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 else:
-  # Linux and other Unix-like systems - use $ORIGIN for relocatable rpath
+  # Linux and other Unix-like systems
   switch("passL", "-Wl,-rpath,\\$ORIGIN/../third_party/pdfium/lib")
+  switch("passL", "-L../third_party/pdfium/lib -lpdfium")
