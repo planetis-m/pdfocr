@@ -116,7 +116,7 @@ No thread may access another thread’s owned objects directly; communication is
 - Retry jitter MUST be applied.
 
 ### 6.5 Curl Wait Behavior
-- Network worker uses `curl_multi_wait()` (not `curl_multi_poll()`).
+- Network worker uses `curl_multi_poll()` (or `curl_multi_wait()`).
 - `MULTI_WAIT_MAX_MS` (default: 250–1000ms; configurable)
   - MUST be finite to ensure periodic checks for new tasks and retry timers.
 
@@ -254,7 +254,7 @@ This prevents throughput collapse and ensures in-flight requests continue to be 
 ### 9.7 Curl Multi Loop Requirements
 
 #### 9.7.1 Waiting
-The worker SHALL call `curl_multi_wait()` with a finite timeout:
+The worker SHALL call `curl_multi_poll()` with a finite timeout:
 - `timeout_ms = min(MULTI_WAIT_MAX_MS, time_until_next_retry_due)`
 - This ensures it wakes to:
   - check for newly arrived tasks (without requiring external wake FDs)

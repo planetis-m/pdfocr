@@ -1,0 +1,20 @@
+# config.nims for test_jpeglib.nim
+
+# Add the src directory to the import path so tests can find the modules
+switch("path", "$projectdir/../src")
+
+# JPEG library
+switch("passL", "-ljpeg")
+
+when defined(macosx):
+  # macOS: jpeg-turbo from Homebrew
+  switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
+  switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
+elif defined(windows):
+  # Windows: MinGW-Builds + libjpeg-turbo from chocolatey
+  switch("gcc.path", "C:/mingw64/bin")
+  switch("passC", "-IC:/libjpeg-turbo64/include")
+  switch("passL", "-LC:/libjpeg-turbo64/lib")
+else:
+  # Linux: system libjpeg
+  switch("passL", "-Wl,-rpath,\\$ORIGIN")
