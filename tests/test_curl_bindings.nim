@@ -8,7 +8,7 @@ proc main() =
   doAssert globalCode == CURLE_OK
 
   let easy = curl_easy_init()
-  doAssert cast[pointer](easy) != nil
+  doAssert pointer(easy) != nil
 
   var errbuf: array[256, char]
   let url = cstring("https://example.com")
@@ -20,7 +20,7 @@ proc main() =
   discard curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, clong(len($body)))
   discard curl_easy_setopt(easy, CURLOPT_ERRORBUFFER, addr errbuf[0])
   discard curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, writeSink)
-  discard curl_easy_setopt(easy, CURLOPT_WRITEDATA, cast[pointer](nil))
+  discard curl_easy_setopt(easy, CURLOPT_WRITEDATA, nil)
   discard curl_easy_setopt(easy, CURLOPT_NOSIGNAL, clong(1))
   discard curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, clong(1000))
   discard curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS, clong(1000))
@@ -30,7 +30,7 @@ proc main() =
   discard curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers)
 
   let multi = curl_multi_init()
-  doAssert cast[pointer](multi) != nil
+  doAssert pointer(multi) != nil
   discard curl_multi_add_handle(multi, easy)
   discard curl_multi_remove_handle(multi, easy)
   discard curl_multi_cleanup(multi)
