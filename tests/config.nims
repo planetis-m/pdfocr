@@ -4,6 +4,9 @@
 # Add the src directory to the import path so tests can find the modules
 switch("path", "$projectdir/../src")
 
+# JPEG library
+switch("passL", "-ljpeg")
+
 # --- Link Settings for PDFium ---
 # Library is in third_party/pdfium/lib relative to project root
 # When building from tests/, use ../third_party/pdfium/lib
