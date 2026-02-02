@@ -1,7 +1,7 @@
 # Ergonomic PDFium helpers built on top of the raw bindings.
 
 import std/strformat
-import ./wrappers/pdfium
+import ./bindings/pdfium
 
 type
   PdfDocument* = object

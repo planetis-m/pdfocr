@@ -1,4 +1,4 @@
-import pdfocr/wrappers/curl
+import pdfocr/bindings/curl
 
 proc writeSink(buffer: ptr char, size: csize_t, nitems: csize_t, outstream: pointer): csize_t {.cdecl.} =
   result = size * nitems

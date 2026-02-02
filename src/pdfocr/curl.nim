@@ -1,6 +1,6 @@
 # Ergonomic libcurl helpers built on top of the raw bindings.
 
-import ./wrappers/curl
+import ./bindings/curl
 
 type
   CurlEasy* = object
