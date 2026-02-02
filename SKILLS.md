@@ -19,9 +19,9 @@
   - Use repository-relative paths (e.g., `third_party/...`) to keep builds hermetic.
 
 ## Runtime and Portability Assumptions
-- For local/third-party libs (PDFium), colocate the shared library next to the executable at runtime.
-- For system-installed libs (curl), do not copy DLLs; on Windows CI, ensure `PATH` includes `CURL_ROOT\bin`.
-- On Linux, add rpath only for tests/apps that load colocated shared libs:
+- Prefer colocating required shared libraries next to the executable at runtime.
+- Do not rely on environment variables (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, `PATH`) for runtime resolution.
+- On Linux, add rpath to the executable directory:
   - `--passL:"-Wl,-rpath,\\$ORIGIN"`
 
 ## CI-Driven Constraints (Generalized)
@@ -53,33 +53,23 @@
 
 ### Windows
 - Toolchain: MinGW64 as used by Nim on CI.
-- System deps: install via Chocolatey with fixed install roots.
+- System deps: install via a package manager (e.g., Chocolatey) with fixed install roots.
 - Include/link flags (typical):
   - `--passC:"-I<dep_root>/include"`
   - `--passL:"-L<dep_root>/lib"`
   - `--passL:"-l<systemlib>"`
   - `--passL:"<local_lib_dir>/<name>.dll.lib"` (for DLL import libraries)
-- Runtime:
-  - PDFium: copy `pdfium.dll` next to the executable in CI.
-  - curl: do not copy; add `CURL_ROOT\bin` to `PATH` in CI before running tests.
+- Runtime: copy required `.dll` files next to the executable.
 - Incompatible: MSYS2 toolchains.
 
 ## How to Locate Include/Lib Directories
 - Use explicit, deterministic paths:
   - Linux: package manager default locations (`/usr/include`, `/usr/lib`) via toolchain search.
   - macOS: resolve prefixes via `staticExec("<pkg-manager> --prefix <formula>")`.
-- Windows: use `CURL_ROOT` env (set in CI) for curl, and fixed Chocolatey roots for jpeg-turbo (`C:/libjpeg-turbo64`).
+- Windows: use the known install root from the package manager (avoid probing `PATH`).
 - For vendored libs, always prefer repository-relative paths under `third_party/`.
-
-## Do’s and Don’ts from Commit History
-- ✅ Split test configs: create per-test `.nims` files (e.g., `tests/test_curl_bindings.nims`) so each test links only required libs.
-- ✅ For Windows curl, set `CURL_ROOT` in CI using a simple `cmd` glob under `C:\ProgramData\chocolatey\lib\curl\tools\curl-*`.
-- ✅ Prepend `CURL_ROOT\bin` to `PATH` for runtime execution of curl tests.
-- ❌ Do not copy curl DLLs next to the executable.
-- ❌ Do not use MSYS2 for Windows builds.
-- ❌ Do not hardcode versioned curl paths in source configs.
 
 ## Anti-Patterns
 - Embedding `-l<name>` inside `-L...` strings.
-- Relying on environment variables for runtime discovery except the CI-mandated `CURL_ROOT\bin` for curl on Windows.
+- Relying on environment variables for runtime library discovery.
 - Using build-tree-only rpaths or absolute paths to shared libraries.
