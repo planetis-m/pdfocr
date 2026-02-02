@@ -80,6 +80,7 @@ jobs:
             curl
             tar
             mingw-w64-x86_64-libjpeg-turbo
+          path-type: inherit
 
       - name: Install Nim
         uses: jiro4989/setup-nim-action@v2
