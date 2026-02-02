@@ -59,6 +59,7 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
+          export DYLD_LIBRARY_PATH="$PWD/../third_party/pdfium/lib:$DYLD_LIBRARY_PATH"
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
 
