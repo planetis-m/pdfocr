@@ -32,9 +32,9 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          nim c -r test_jpeglib.nim
           # Copy pdfium library next to exe for portability
           cp ../third_party/pdfium/lib/libpdfium.so ./
+          nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
 
   macos:
@@ -61,9 +61,9 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          nim c -r test_jpeglib.nim
           # Copy pdfium library next to exe for portability
           cp ../third_party/pdfium/lib/libpdfium.dylib ./
+          nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
 
   windows:
@@ -90,8 +90,7 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          $env:PATH = "C:\libjpeg-turbo64\bin;$env:PATH"
-          nim c -r test_jpeglib.nim
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
+          nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
