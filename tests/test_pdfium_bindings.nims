@@ -12,13 +12,10 @@ when defined(macosx):
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
-  # Windows: MinGW-Builds + libjpeg-turbo from vcpkg
+  # Windows: MinGW-Builds + libjpeg-turbo from chocolatey
   switch("gcc.path", "C:/mingw64/bin")
-  let vcpkgRoot = getEnv("VCPKG_ROOT", "C:/vcpkg")
-  let vcpkgTriplet = getEnv("VCPKG_DEFAULT_TRIPLET", "x64-mingw")
-  let vcpkgInstalled = vcpkgRoot & "/installed/" & vcpkgTriplet
-  switch("passC", "-I" & vcpkgInstalled & "/include")
-  switch("passL", "-L" & vcpkgInstalled & "/lib")
+  switch("passC", "-IC:/libjpeg-turbo64/include")
+  switch("passL", "-LC:/libjpeg-turbo64/lib")
   # Windows: PDFium library is pdfium.dll.lib
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
