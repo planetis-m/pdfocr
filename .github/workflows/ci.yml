@@ -95,7 +95,6 @@ jobs:
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
       - name: Run Tests
-        shell: msys2 {0}
         working-directory: tests
         run: |
           nim c -r test_jpeglib.nim
