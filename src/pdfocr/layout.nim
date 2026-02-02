@@ -3,6 +3,9 @@ import ./pdfium
 
 # Case-object based layout implementation (static dispatch).
 
+const
+  INF = 2147483647.0
+
 type
   Rect* = tuple[x0, y0, x1, y1: float]
 
@@ -84,11 +87,11 @@ proc newAnno(text: string): Item =
   Item(kind: ikAnno, bbox: (0.0, 0.0, 0.0, 0.0), text: text, items: @[], wordMargin: 0.0)
 
 proc newTextLine(wordMargin: float): Item =
-  Item(kind: ikTextLine, bbox: (1e30, 1e30, -1e30, -1e30), text: "", items: @[],
-       wordMargin: wordMargin, lastX1: 1e30, lastY0: -1e30)
+  Item(kind: ikTextLine, bbox: (INF, INF, -INF, -INF), text: "", items: @[],
+       wordMargin: wordMargin, lastX1: INF, lastY0: -INF)
 
 proc newTextBox(): Item =
-  Item(kind: ikTextBox, bbox: (1e30, 1e30, -1e30, -1e30), text: "", items: @[],
+  Item(kind: ikTextBox, bbox: (INF, INF, -INF, -INF), text: "", items: @[],
        wordMargin: 0.0)
 
 proc textOf(items: seq[Item]; idx: int): string =
