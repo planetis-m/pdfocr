@@ -1,4 +1,4 @@
-import pdfocr/wrappers/jpeglib
+import pdfocr/bindings/jpeglib
 import std/[os, strformat, strutils]
 
 proc createTestImage(width, height: int, outputPath: string): bool =

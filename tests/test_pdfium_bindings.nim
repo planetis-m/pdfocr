@@ -1,5 +1,5 @@
 import std/[os, strformat]
-import pdfocr/wrappers/pdfium  # Import your pdfium bindings
+import pdfocr/bindings/pdfium  # Import your pdfium bindings
 
 # --- Helper Procedures ---
 

@@ -1,7 +1,7 @@
 # Ergonomic libjpeg helpers built on top of the raw bindings.
 
 import std/strformat
-import ./wrappers/jpeglib
+import ./bindings/jpeglib
 
 type
   JpegCompressor* = object
