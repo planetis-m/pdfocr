@@ -92,6 +92,13 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
+          Write-Host "==== Debug: curl install layout ===="
+          Get-ChildItem -Path "C:\ProgramData\chocolatey\lib\curl\tools" -Recurse | Select-Object FullName
+          Write-Host "==== Debug: PATH (before) ===="
+          Write-Host $env:PATH
+          $env:PATH = "C:\ProgramData\chocolatey\lib\curl\tools\bin;" + $env:PATH
+          Write-Host "==== Debug: PATH (after) ===="
+          Write-Host $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
           nim c -r test_jpeglib.nim
