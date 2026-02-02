@@ -52,7 +52,7 @@ proc loadDocument*(path: string; password: string = ""): PdfDocument =
 proc close*(doc: var PdfDocument) =
   if pointer(doc.raw) != nil:
     FPDF_CloseDocument(doc.raw)
-    doc.raw = cast[FPDF_DOCUMENT](nil)
+    doc.raw = FPDF_DOCUMENT(nil)
 
 proc pageCount*(doc: PdfDocument): int =
   int(FPDF_GetPageCount(doc.raw))
@@ -65,7 +65,7 @@ proc loadPage*(doc: PdfDocument; index: int): PdfPage =
 proc close*(page: var PdfPage) =
   if pointer(page.raw) != nil:
     FPDF_ClosePage(page.raw)
-    page.raw = cast[FPDF_PAGE](nil)
+    page.raw = FPDF_PAGE(nil)
 
 proc pageSize*(page: PdfPage): tuple[width, height: float] =
   (float(FPDF_GetPageWidth(page.raw)), float(FPDF_GetPageHeight(page.raw)))
@@ -80,7 +80,7 @@ proc createBitmap*(width, height: int; alpha: bool = false): PdfBitmap =
 proc destroy*(bitmap: var PdfBitmap) =
   if pointer(bitmap.raw) != nil:
     FPDFBitmap_Destroy(bitmap.raw)
-    bitmap.raw = cast[FPDF_BITMAP](nil)
+    bitmap.raw = FPDF_BITMAP(nil)
     bitmap.width = 0
     bitmap.height = 0
 
