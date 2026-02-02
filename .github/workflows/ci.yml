@@ -93,6 +93,21 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
+      - name: Debug MSYS2
+        shell: pwsh
+        run: |
+          Write-Host "=== Checking MSYS2 directory ==="
+          if (Test-Path "C:/msys64") {
+            Write-Host "MSYS2 exists at C:/msys64"
+            Get-ChildItem "C:/msys64/ucrt64/include" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*jpeg*" } | Write-Host
+            Get-ChildItem "C:/msys64/ucrt64/lib" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*jpeg*" } | Write-Host
+          } else {
+            Write-Host "MSYS2 not found at C:/msys64"
+          }
+          Write-Host ""
+          Write-Host "=== Checking PATH ==="
+          echo $env:PATH
+
       - name: Run Tests
         working-directory: tests
         run: |

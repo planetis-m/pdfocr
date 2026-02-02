@@ -9,6 +9,7 @@ when defined(macosx):
   # macOS: set rpath before linking, and jpeg-turbo from Homebrew
   switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
+  switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
 elif defined(windows):
   # Windows with MSYS2/UCRT64 - jpeg-turbo paths (must come before -ljpeg)
   switch("passC", "-IC:/msys64/ucrt64/include")
