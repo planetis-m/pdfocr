@@ -25,11 +25,14 @@ proc raisePdfiumError*(context: string) =
   let code = lastErrorCode()
   var detail = "unknown"
   case code
-  of 1: detail = "file not found or could not be opened"
-  of 2: detail = "file format error"
-  of 3: detail = "password error"
-  of 4: detail = "security error"
-  of 5: detail = "page not found or content error"
+  of 0: detail = "no error"
+  of 1: detail = "unknown error"
+  of 2: detail = "file not found or could not be opened"
+  of 3: detail = "file not in PDF format or corrupted"
+  of 4: detail = "password required or incorrect password"
+  of 5: detail = "unsupported security scheme"
+  of 6: detail = "page not found or content error"
+  of 1001: detail = "operation blocked by license restrictions"
   else: discard
   raise newException(IOError, &"{context}: {detail} (code {code})")
 
@@ -123,8 +126,9 @@ proc extractText*(page: PdfPage): string =
   if count <= 0:
     return ""
 
-  var wStr = newWideCString(count)
-  discard FPDFText_GetText(textPage.raw, 0, count, cast[ptr uint16](toWideCString(wStr)))
+  # Pdfium expects buffer size including the null terminator.
+  var wStr = newWideCString(count + 1)
+  discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
   result = $wStr
 
 proc charCount*(textPage: PdfTextPage): int =
@@ -133,7 +137,8 @@ proc charCount*(textPage: PdfTextPage): int =
 proc getTextRange*(textPage: PdfTextPage; startIndex, count: int): string =
   if count <= 0:
     return ""
-  var wStr = newWideCString(count)
+  # Pdfium expects buffer size including the null terminator.
+  var wStr = newWideCString(count + 1)
   discard FPDFText_GetText(textPage.raw, startIndex.cint, count.cint, cast[ptr uint16](toWideCString(wStr)))
   result = $wStr
 

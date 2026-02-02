@@ -67,11 +67,14 @@ proc vDistance(a, b: Rect): float =
   if isVoverlap(a, b): 0.0
   else: min(abs(a.y0 - b.y1), abs(a.y1 - b.y0))
 
+proc rectDistance(a, b: Rect): float =
+  hDistance(a, b) + vDistance(a, b)
+
 proc hOverlap(a, b: Rect): float =
-  if isHoverlap(a, b): min(abs(a.x0 - b.x1), abs(a.x1 - b.x0)) else: 0.0
+  if isHoverlap(a, b): max(0.0, min(a.x1, b.x1) - max(a.x0, b.x0)) else: 0.0
 
 proc vOverlap(a, b: Rect): float =
-  if isVoverlap(a, b): min(abs(a.y0 - b.y1), abs(a.y1 - b.y0)) else: 0.0
+  if isVoverlap(a, b): max(0.0, min(a.y1, b.y1) - max(a.y0, b.y0)) else: 0.0
 
 proc addItem(items: var seq[Item]; parentIdx, childIdx: int) =
   items[parentIdx].items.add(childIdx)
@@ -92,24 +95,8 @@ proc newTextBox(): Item =
   Item(kind: ikTextBox, bbox: (INF, INF, -INF, -INF), text: "", items: @[],
        wordMargin: 0.0)
 
-proc textOf(items: seq[Item]; idx: int): string =
-  let it = items[idx]
-  case it.kind
-  of ikChar, ikAnno:
-    it.text
-  of ikTextLine, ikTextBox:
-    var textOut = ""
-    for child in it.items:
-      textOut.add(textOf(items, child))
-    textOut
-
 proc addToTextLine(items: var seq[Item]; lineIdx, charIdx: int) =
   let charBox = items[charIdx].bbox
-  if items[charIdx].kind == ikChar and items[lineIdx].wordMargin != 0:
-    let margin = items[lineIdx].wordMargin * max(width(charBox), height(charBox))
-    if items[lineIdx].lastX1 < charBox.x0 - margin:
-      items.add(newAnno(" "))
-      addItem(items, lineIdx, items.len - 1)
   items[lineIdx].lastX1 = charBox.x1
   addItem(items, lineIdx, charIdx)
 
@@ -193,6 +180,22 @@ proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams): seq[int
       if m notin seen:
         seen.incl(m)
         uniqMembers.add(m)
+    # Follow pdfium text order: preserve the earliest character index per line.
+    var ordered: seq[(int, int)] = @[]
+    for m in uniqMembers:
+      var minChar = high(int)
+      for child in items[m].items:
+        if items[child].kind == ikChar and child < minChar:
+          minChar = child
+      ordered.add((minChar, m))
+    ordered.sort(proc(a, b: (int, int)): int =
+      if a < b: return -1
+      if a > b: return 1
+      0
+    )
+    uniqMembers.setLen(0)
+    for entry in ordered:
+      uniqMembers.add(entry[1])
 
     for m in uniqMembers:
       addItem(items, boxIdx, m)
@@ -220,12 +223,13 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
   var items: seq[Item] = @[]
   for i in 0 ..< count:
     let (left, right, bottom, top) = getCharBox(textPage, i)
-    if right <= left or top <= bottom:
-      continue
     let ch = getTextRange(textPage, i, 1)
     if ch.len == 0:
       continue
-    items.add(newChar((left, bottom, right, top), ch))
+    if right <= left or top <= bottom:
+      items.add(newAnno(ch))
+    else:
+      items.add(newChar((left, bottom, right, top), ch))
 
   var charIdxs: seq[int] = @[]
   for i in 0 ..< items.len:
@@ -233,9 +237,6 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
       charIdxs.add(i)
 
   let lines = groupObjects(charIdxs, items, p)
-  for lineIdx in lines:
-    items.add(newAnno("\n"))
-    addItem(items, lineIdx, items.len - 1)
 
   var nonEmpty: seq[int] = @[]
   for lineIdx in lines:
@@ -252,9 +253,68 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
     0
   )
 
+  # Assign each stream item to the textbox based on its line membership.
+  var assignedBox = newSeq[int](items.len)
+  for i in 0 ..< assignedBox.len:
+    assignedBox[i] = -1
+  var charToLine = newSeq[int](items.len)
+  for i in 0 ..< charToLine.len:
+    charToLine[i] = -1
+  for lineIdx in lines:
+    for child in items[lineIdx].items:
+      if items[child].kind == ikChar:
+        charToLine[child] = lineIdx
+
+  var lineToBox = initTable[int, int]()
+  for b in sortedBoxes:
+    for lineIdx in items[b].items:
+      lineToBox[lineIdx] = b
+
+  for i in 0 ..< items.len:
+    if items[i].kind != ikChar:
+      continue
+    let lineIdx = charToLine[i]
+    if lineIdx != -1 and lineToBox.hasKey(lineIdx):
+      assignedBox[i] = lineToBox[lineIdx]
+    elif lineIdx != -1:
+      # No box for this line: fall back to nearest textbox.
+      var nearest = sortedBoxes[0]
+      var bestDist = rectDistance(items[i].bbox, items[nearest].bbox)
+      for b in sortedBoxes:
+        let dist = rectDistance(items[i].bbox, items[b].bbox)
+        if dist < bestDist:
+          bestDist = dist
+          nearest = b
+      assignedBox[i] = nearest
+
+  # Attach generated chars to the nearest assigned line in stream order.
+  for i in 0 ..< items.len:
+    if items[i].kind != ikAnno or assignedBox[i] != -1:
+      continue
+    var target = -1
+    var j = i + 1
+    while j < items.len:
+      if assignedBox[j] != -1:
+        target = assignedBox[j]
+        break
+      inc j
+    if target == -1:
+      j = i - 1
+      while j >= 0:
+        if assignedBox[j] != -1:
+          target = assignedBox[j]
+          break
+        dec j
+    if target != -1:
+      assignedBox[i] = target
+
   var outBoxes: seq[LTTextBox] = @[]
   for b in sortedBoxes:
-    outBoxes.add(LTTextBox(bbox: items[b].bbox, text: textOf(items, b)))
+    var textOut = ""
+    for i in 0 ..< items.len:
+      if assignedBox[i] == b:
+        textOut.add(items[i].text)
+    outBoxes.add(LTTextBox(bbox: items[b].bbox, text: textOut))
 
   LTPage(pageid: 0, bbox: (0.0, 0.0, w, h), textboxes: outBoxes)
 

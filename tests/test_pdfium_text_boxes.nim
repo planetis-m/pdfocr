@@ -75,7 +75,7 @@ proc renderWithParams(page: PdfPage; pageWidth, pageHeight: float; dpiScale: flo
     destroy(bitmap)
 
 proc main() =
-  let inputFile = "tests/input.pdf"
+  let inputFile = "tests/slides.pdf"
   let dpiScale = 2.0
 
   initPdfium()
@@ -87,7 +87,7 @@ proc main() =
 
   try:
     doc = loadDocument(inputFile)
-    page = loadPage(doc, 0)
+    page = loadPage(doc, 15)
     textPage = loadTextPage(page)
     let (pageWidth, pageHeight) = pageSize(page)
     var zeroBoxes = 0
