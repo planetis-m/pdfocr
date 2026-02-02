@@ -93,18 +93,6 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
-      - name: Debug
-        run: |
-          echo "=== MSYS2 paths ==="
-          ls -la C:/msys64/ucrt64/include/ | grep -i jpeg || echo "jpeg headers not found"
-          ls -la C:/msys64/ucrt64/lib/ | grep -i jpeg || echo "jpeg libs not found"
-          echo ""
-          echo "=== PDFium files ==="
-          ls -la third_party/pdfium/lib/
-          echo ""
-          echo "=== PATH ==="
-          echo $PATH
-
       - name: Run Tests
         working-directory: tests
         run: |
