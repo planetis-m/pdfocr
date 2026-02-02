@@ -104,5 +104,5 @@ jobs:
           export C_INCLUDE_PATH=/mingw64/include
           export CPLUS_INCLUDE_PATH=/mingw64/include
           export LIBRARY_PATH=/mingw64/lib
-          nim c -r test_jpeglib.nim
+          nim c test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
