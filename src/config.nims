@@ -1,3 +1,5 @@
+import strutils
+
 # config.nims for src/
 # This file configures Nim compiler options for the main application
 
@@ -19,8 +21,9 @@ elif defined(windows):
   switch("gcc.path", "C:/mingw64/bin")
   switch("passC", "-IC:/libjpeg-turbo64/include")
   switch("passL", "-LC:/libjpeg-turbo64/lib")
-  switch("passC", "-IC:/ProgramData/chocolatey/lib/curl/tools/include")
-  switch("passL", "-LC:/ProgramData/chocolatey/lib/curl/tools/lib")
+  let curlRoot = staticExec("powershell -NoProfile -Command \"(Get-ChildItem 'C:/ProgramData/chocolatey/lib/curl/tools' -Directory | Select-Object -First 1).FullName\"").strip()
+  switch("passC", "-I" & curlRoot & "/include")
+  switch("passL", "-L" & curlRoot & "/lib")
   # Windows: PDFium library is pdfium.dll.lib
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
