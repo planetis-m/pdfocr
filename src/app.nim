@@ -19,7 +19,7 @@ proc main() =
 
     let width = int(pageWidth * dpiScale)
     let height = int(pageHeight * dpiScale)
-  
+
     echo "Rendering ", width, "x", height
 
     bitmap = createBitmap(width, height, alpha = false)

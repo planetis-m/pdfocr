@@ -15,6 +15,9 @@ type
     width*: int
     height*: int
 
+  PdfTextPage* = object
+    raw*: FPDF_TEXTPAGE
+
 proc lastErrorCode*(): culong =
   FPDF_GetLastError()
 
@@ -62,10 +65,20 @@ proc loadPage*(doc: PdfDocument; index: int): PdfPage =
   if pointer(result.raw) == nil:
     raisePdfiumError("FPDF_LoadPage failed")
 
+proc loadTextPage*(page: PdfPage): PdfTextPage =
+  result.raw = FPDFText_LoadPage(page.raw)
+  if pointer(result.raw) == nil:
+    raisePdfiumError("FPDFText_LoadPage failed")
+
 proc close*(page: var PdfPage) =
   if pointer(page.raw) != nil:
     FPDF_ClosePage(page.raw)
     page.raw = FPDF_PAGE(nil)
+
+proc close*(textPage: var PdfTextPage) =
+  if pointer(textPage.raw) != nil:
+    FPDFText_ClosePage(textPage.raw)
+    textPage.raw = FPDF_TEXTPAGE(nil)
 
 proc pageSize*(page: PdfPage): tuple[width, height: float] =
   (float(FPDF_GetPageWidth(page.raw)), float(FPDF_GetPageHeight(page.raw)))
@@ -103,15 +116,30 @@ proc stride*(bitmap: PdfBitmap): int =
   int(FPDFBitmap_GetStride(bitmap.raw))
 
 proc extractText*(page: PdfPage): string =
-  let textPage = FPDFText_LoadPage(page.raw)
-  if pointer(textPage) == nil:
-    return ""
-  defer: FPDFText_ClosePage(textPage)
+  var textPage = loadTextPage(page)
+  defer: close(textPage)
 
-  let count = FPDFText_CountChars(textPage)
+  let count = FPDFText_CountChars(textPage.raw)
   if count <= 0:
     return ""
 
   var wStr = newWideCString(count)
-  discard FPDFText_GetText(textPage, 0, count, cast[ptr uint16](toWideCString(wStr)))
+  discard FPDFText_GetText(textPage.raw, 0, count, cast[ptr uint16](toWideCString(wStr)))
   result = $wStr
+
+proc charCount*(textPage: PdfTextPage): int =
+  int(FPDFText_CountChars(textPage.raw))
+
+proc getTextRange*(textPage: PdfTextPage; startIndex, count: int): string =
+  if count <= 0:
+    return ""
+  var wStr = newWideCString(count)
+  discard FPDFText_GetText(textPage.raw, startIndex.cint, count.cint, cast[ptr uint16](toWideCString(wStr)))
+  result = $wStr
+
+proc getCharBox*(textPage: PdfTextPage; index: int): tuple[left, right, bottom, top: float] =
+  var left, right, bottom, top: cdouble
+  let ok = FPDFText_GetCharBox(textPage.raw, index.cint, addr left, addr right, addr bottom, addr top)
+  if ok == 0:
+    return (0.0, 0.0, 0.0, 0.0)
+  (left.float, right.float, bottom.float, top.float)
