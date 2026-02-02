@@ -84,22 +84,9 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
-      - name: Debug paths
-        run: |
-          Write-Host "=== Checking MinGW ==="
-          if (Test-Path "C:\mingw64\bin\gcc.exe") {
-            Write-Host "MinGW gcc found at C:\mingw64\bin\gcc.exe"
-            & "C:\mingw64\bin\gcc.exe" --version | Select-Object -First 1
-          } else {
-            Write-Host "MinGW gcc NOT found"
-          }
-          Write-Host ""
-          Write-Host "=== Checking libjpeg-turbo ==="
-          Get-ChildItem "C:\tools" -ErrorAction SilentlyContinue
-          Get-ChildItem "C:\Program Files" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*jpeg*" }
-
       - name: Run Tests
         working-directory: tests
         run: |
+          $env:PATH = "C:\libjpeg-turbo64\bin;..\third_party\pdfium\bin;$env:PATH"
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
