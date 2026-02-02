@@ -8,15 +8,14 @@ switch("path", "$projectdir/../src")
 when defined(macosx):
   # macOS: set rpath before linking, and jpeg-turbo from Homebrew
   switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
-  switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
-  switch("passL", "-ljpeg")
+  switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib -ljpeg")
   switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
   # Windows: MSYS2 MINGW64 - use Unix paths
-  switch("gcc.path", "/c/msys64/mingw64/bin")
-  switch("passC", "-I/c/msys64/mingw64/include")
-  switch("passL", "-L/c/msys64/mingw64/lib -ljpeg")
+  switch("gcc.path", "/mingw64/bin")
+  switch("passC", "-I/mingw64/include")
+  switch("passL", "-L/mingw64/lib -ljpeg")
   # PDFium library is named pdfium.dll.lib on Windows
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
