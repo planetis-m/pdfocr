@@ -34,9 +34,12 @@ jobs:
         run: |
           # Copy pdfium library next to exe for portability
           cp ../third_party/pdfium/lib/libpdfium.so ./
-          nim c -r test_jpeglib.nim
+          nim c -r test_jpeglib_bindings.nim
+          nim c -r test_jpeglib_wrapper.nim
           nim c -r test_pdfium_bindings.nim input.pdf
+          nim c -r test_pdfium_wrapper.nim input.pdf
           nim c -r test_curl_bindings.nim
+          nim c -r test_curl_wrapper.nim
 
   macos:
     runs-on: macos-latest
@@ -64,9 +67,12 @@ jobs:
         run: |
           # Copy pdfium library next to exe for portability
           cp ../third_party/pdfium/lib/libpdfium.dylib ./
-          nim c -r test_jpeglib.nim
+          nim c -r test_jpeglib_bindings.nim
+          nim c -r test_jpeglib_wrapper.nim
           nim c -r test_pdfium_bindings.nim input.pdf
+          nim c -r test_pdfium_wrapper.nim input.pdf
           nim c -r test_curl_bindings.nim
+          nim c -r test_curl_wrapper.nim
 
   windows:
     runs-on: windows-latest
@@ -102,6 +108,9 @@ jobs:
           $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
-          nim c -r test_jpeglib.nim
+          nim c -r test_jpeglib_bindings.nim
+          nim c -r test_jpeglib_wrapper.nim
           nim c -r test_pdfium_bindings.nim input.pdf
+          nim c -r test_pdfium_wrapper.nim input.pdf
           nim c -r test_curl_bindings.nim
+          nim c -r test_curl_wrapper.nim

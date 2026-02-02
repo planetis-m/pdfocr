@@ -81,6 +81,7 @@ proc curl_global_init*(flags: culong): CURLcode
 proc curl_global_cleanup*()
 
 proc curl_easy_init*(): CURL
+proc curl_easy_perform*(curl: CURL): CURLcode
 proc curl_easy_cleanup*(curl: CURL)
 proc curl_easy_reset*(curl: CURL)
 proc curl_easy_setopt*(curl: CURL, option: CURLoption): CURLcode {.varargs.}

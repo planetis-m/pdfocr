@@ -44,8 +44,8 @@
 - Toolchain: Apple Clang on the CI image.
 - System deps: install via the platform’s package manager (e.g., Homebrew).
 - Include/link flags (typical):
-  - `--passC:"-I" & staticExec("<pkg-manager> --prefix <formula>") & "/include"`
-  - `--passL:"-L" & staticExec("<pkg-manager> --prefix <formula>") & "/lib"`
+  - `--passC:"-I" & staticExec("brew --prefix <formula>") & "/include"`
+  - `--passL:"-L" & staticExec("brew --prefix <formula>") & "/lib"`
   - `--passL:"-l<systemlib>"`
   - `--passL:"-L<local_lib_dir> -l<locallib>"`
 - Runtime: copy local shared libraries next to the executable.
@@ -65,7 +65,7 @@
 ## How to Locate Include/Lib Directories
 - Use explicit, deterministic paths:
   - Linux: package manager default locations (`/usr/include`, `/usr/lib`) via toolchain search.
-  - macOS: resolve prefixes via `staticExec("<pkg-manager> --prefix <formula>")`.
+  - macOS: resolve prefixes via `staticExec("brew --prefix <formula>")`.
 - Windows: use the known install root from the package manager (avoid probing `PATH`).
 - For vendored libs, always prefer repository-relative paths under `third_party/`.
 
