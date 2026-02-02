@@ -15,12 +15,8 @@ when defined(macosx):
 elif defined(windows):
   # Windows: Configure Nim to use MSYS2 MINGW64 gcc toolchain
   # This ensures consistent C runtime between Nim stdlib and external libraries
-  switch("gcc.path", "C:/msys64/mingw64/bin")
-  switch("gcc.exe", "gcc.exe")
-  switch("gcc.linkerexe", "gcc.exe")
-  # Add include and lib paths for MSYS2 libraries
-  switch("passC", "-IC:/msys64/mingw64/include")
-  switch("passL", "-LC:/msys64/mingw64/lib")
+  switch("gcc.options.always", "-IC:/msys64/mingw64/include")
+  switch("gcc.options.linker", "-LC:/msys64/mingw64/lib")
   switch("passL", "-ljpeg")
   # PDFium library is named pdfium.dll.lib on Windows
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
