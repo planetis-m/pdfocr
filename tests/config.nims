@@ -15,6 +15,9 @@ switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 when defined(macosx):
   # macOS uses @loader_path for rpath in executables
   switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
+  # jpeg-turbo from Homebrew
+  switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
+  switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
 elif defined(windows):
   # Windows doesn't use rpath; DLLs are found via PATH or alongside executable
   discard
