@@ -35,7 +35,7 @@ const
   JPEG_LIB_VERSION* = 62
 
 # --- Function Imports ---
-{.push importc, cdecl, header: "<jpeglib.h>".}
+{.push importc, callconv: cdecl, header: "<jpeglib.h>".}
 
 # Standard API
 proc jpeg_std_error*(err: ptr jpeg_error_mgr): ptr jpeg_error_mgr
