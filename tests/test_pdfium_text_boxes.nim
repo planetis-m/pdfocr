@@ -27,11 +27,6 @@ proc drawRectBgrx(buf: pointer; stride, width, height: int;
     base[(y * stride + minX * 4) div 4] = color
     base[(y * stride + maxX * 4) div 4] = color
 
-proc collectTextBoxes(items: seq[LTItem]; boxes: var seq[LTTextBox]) =
-  for item in items:
-    if item of LTTextBox:
-      boxes.add(LTTextBox(item))
-
 proc main() =
   let inputFile = "tests/input.pdf"
   let outputFile = "tests/test_output_text_boxes.jpg"
@@ -79,24 +74,22 @@ proc main() =
     echo "Char boxes: count=", totalChars, " zero=", zeroBoxes, " minW=", minW, " minH=", minH, " maxW=", maxW, " maxH=", maxH, " minY=", minY, " maxY=", maxY
 
     let layout = buildTextPageLayout(page, newLAParams(wordMargin = 0.3, boxesFlowEnabled = false))
-    var boxes: seq[LTTextBox] = @[]
-    collectTextBoxes(layout.items, boxes)
+    var boxes = layout.textboxes
     if boxes.len == 0:
       # fallback: draw full-page box if no groups were produced
-      boxes.add(newLTTextBoxHorizontal())
-      boxes[^1].setBBox((0.0, 0.0, pageWidth, pageHeight))
+      boxes.add(LTTextBox(bbox: (0.0, 0.0, pageWidth, pageHeight), text: ""))
 
     for box in boxes:
-      let x0 = int(box.x0 * dpiScale)
-      let x1 = int(box.x1 * dpiScale)
-      let y0 = int((pageHeight - box.y1) * dpiScale)
-      let y1 = int((pageHeight - box.y0) * dpiScale)
+      let x0 = int(box.bbox.x0 * dpiScale)
+      let x1 = int(box.bbox.x1 * dpiScale)
+      let y0 = int((pageHeight - box.bbox.y1) * dpiScale)
+      let y1 = int((pageHeight - box.bbox.y0) * dpiScale)
       drawRectBgrx(buffer(bitmap), stride(bitmap), width, height, x0, y0, x1, y1, 0xFF0000FF'u32)
 
     let rawText = extractText(page)
     var layoutText = ""
     for box in boxes:
-      layoutText.add(box.getText())
+      layoutText.add(box.text)
     echo "--- Pdfium extractText ---"
     echo rawText
     echo "--- Layout text ---"
