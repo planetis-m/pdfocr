@@ -80,7 +80,6 @@ jobs:
             curl
             tar
             mingw-w64-x86_64-libjpeg-turbo
-          path-type: inherit
 
       - name: Install Nim
         uses: jiro4989/setup-nim-action@v2
@@ -93,19 +92,6 @@ jobs:
           mkdir -p third_party/pdfium
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
-
-      - name: Debug jpeg headers
-        shell: msys2 {0}
-        run: |
-          echo "=== Which gcc is being used ==="
-          which gcc
-          gcc --version | head -1
-          echo ""
-          echo "=== Finding jpeglib.h ==="
-          find /mingw64/include -name "jpeglib.h" 2>/dev/null || echo "Not found in /mingw64/include"
-          echo ""
-          echo "=== List include directories ==="
-          ls -la /mingw64/include/ | head -20
 
       - name: Run Tests
         shell: msys2 {0}
