@@ -1,4 +1,4 @@
-import pdfocr/[jpeglib, pdfium]
+import pdfocr/[jpeglib, pdfium, layout]
 
 # --- Main ---
 proc main() =
@@ -34,10 +34,20 @@ proc main() =
 
     echo "Saved to ", outputFile
 
-    # 2. Extract Text
-    echo "\n--- Extracted Text ---"
-    echo extractText(page)
-    echo "----------------------"
+    # 2. Extract Text via layout analysis (very-loose-both params)
+    let params = newLAParams(
+      lineOverlap = 0.35,
+      charMargin = 4.0,
+      lineMargin = 1.1,
+      wordMargin = 0.3
+    )
+    let layoutPage = buildTextPageLayout(page, params)
+    var layoutText = ""
+    for box in layoutPage.textboxes:
+      layoutText.add(box.text)
+    echo "\n--- Layout Text ---"
+    echo layoutText
+    echo "-------------------"
 
   finally:
     destroy(bitmap)

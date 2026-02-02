@@ -21,7 +21,7 @@ proc main() =
     doc = loadDocument(pdfPath)
     page = loadPage(doc, 0)
 
-    let params = newLAParams(wordMargin = 0.3, boxesFlowEnabled = false)
+    let params = newLAParams(wordMargin = 0.3)
 
     for _ in 0 ..< warmups:
       discard buildTextPageLayout(page, params)

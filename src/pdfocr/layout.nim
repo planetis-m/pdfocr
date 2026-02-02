@@ -42,10 +42,8 @@ proc newLAParams*(
   charMargin: float = 2.0,
   lineMargin: float = 0.5,
   wordMargin: float = 0.1,
-  detectVertical: bool = false,
-  boxesFlowEnabled: bool = false
+  detectVertical: bool = false
 ): LAParams =
-  # boxesFlowEnabled exists for API compatibility; case layout always uses simple ordering.
   LAParams(lineOverlap: lineOverlap, charMargin: charMargin, lineMargin: lineMargin,
            wordMargin: wordMargin, detectVertical: detectVertical)
 
