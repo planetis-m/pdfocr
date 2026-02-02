@@ -9,8 +9,8 @@ when defined(macosx):
   # macOS: set rpath before linking, and jpeg-turbo from Homebrew
   switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib -ljpeg")
-  switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
-  switch("passL", "-L../third_party/pdfium/lib -lpdfium")
+  # Link pdfium with full path to avoid rpath issues
+  switch("passL", "../third_party/pdfium/lib/libpdfium.dylib")
 elif defined(windows):
   # Windows: Use pre-installed MinGW-Builds at C:\mingw64
   # libjpeg-turbo from chocolatey is at C:\libjpeg-turbo64

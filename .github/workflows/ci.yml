@@ -59,19 +59,8 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          export DYLD_LIBRARY_PATH="$PWD/../third_party/pdfium/lib:$DYLD_LIBRARY_PATH"
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
-
-      - name: Debug rpath
-        working-directory: tests
-        run: |
-          nim c test_jpeglib.nim
-          echo "=== Linked libraries and rpath ==="
-          otool -L test_jpeglib | grep -E "(pdfium|rpath|@loader_path)"
-          echo ""
-          echo "=== All rpaths ==="
-          otool -l test_jpeglib | grep -A 3 LC_RPATH
 
   windows:
     runs-on: windows-latest
