@@ -108,7 +108,7 @@ jobs:
             git
             curl
             tar
-            libjpeg-turbo
+            mingw-w64-libjpeg-turbo
 
       - name: Install Nim
         uses: jiro4989/setup-nim-action@v2
