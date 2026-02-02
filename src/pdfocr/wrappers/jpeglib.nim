@@ -1,7 +1,6 @@
 # We rely on the system's C header for the actual size/layout during compilation.
 
 {.passC: "-include stdio.h".}
-{.passL: "-ljpeg".}
 
 # Standard JPEGLib types
 type

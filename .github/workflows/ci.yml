@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: stable
+
+      - name: Download PDFium
+        run: |
+          mkdir -p third_party/pdfium
+          curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz -o pdfium-linux-x64.tgz
+          tar -xf pdfium-linux-x64.tgz -C third_party/pdfium
+
+      - name: Run Tests
+        working-directory: tests
+        run: |
+          nim c -r test_jpeglib.nim
+          nim c -r test_pdfium_bindings.nim ../input.pdf
+
+  macos-x64:
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: stable
+
+      - name: Download PDFium
+        run: |
+          mkdir -p third_party/pdfium
+          curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz -o pdfium-mac-x64.tgz
+          tar -xf pdfium-mac-x64.tgz -C third_party/pdfium
+
+      - name: Run Tests
+        working-directory: tests
+        run: |
+          nim c -r test_jpeglib.nim
+          nim c -r test_pdfium_bindings.nim ../input.pdf
+
+  macos-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: stable
+
+      - name: Download PDFium
+        run: |
+          mkdir -p third_party/pdfium
+          curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz -o pdfium-mac-arm64.tgz
+          tar -xf pdfium-mac-arm64.tgz -C third_party/pdfium
+
+      - name: Run Tests
+        working-directory: tests
+        run: |
+          nim c -r test_jpeglib.nim
+          nim c -r test_pdfium_bindings.nim ../input.pdf
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            git
+            curl
+            tar
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: stable
+
+      - name: Download PDFium
+        run: |
+          mkdir -p third_party/pdfium
+          curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
+          tar -xf pdfium-win-x64.tgz -C third_party/pdfium
+
+      - name: Run Tests
+        working-directory: tests
+        run: |
+          nim c -r test_jpeglib.nim
+          nim c -r test_pdfium_bindings.nim ../input.pdf
