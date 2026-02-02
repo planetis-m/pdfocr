@@ -80,7 +80,7 @@ jobs:
           nim-version: stable
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install libjpeg-turbo (MinGW)
+      - name: Install Dependencies
         run: choco install libjpeg-turbo curl -y
 
       - name: Download PDFium

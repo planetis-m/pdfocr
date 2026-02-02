@@ -4,7 +4,7 @@ import std/[os, widestrs]
 # --- Clean Text Extraction using widestrs ---
 proc extractText(page: FPDF_PAGE): string =
   let textPage = FPDFText_LoadPage(page)
-  if cast[pointer](textPage) == nil: return ""
+  if pointer(textPage) == nil: return ""
   
   # Ensure we clean up the text page when this function exits
   defer: FPDFText_ClosePage(textPage)
@@ -85,7 +85,7 @@ proc main() =
   FPDF_InitLibraryWithConfig(addr config)
 
   let doc = FPDF_LoadDocument(inputFile, nil)
-  if cast[pointer](doc) == nil:
+  if pointer(doc) == nil:
     quit("Failed to load PDF")
     
   let page = FPDF_LoadPage(doc, 0)
