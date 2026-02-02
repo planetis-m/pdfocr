@@ -13,10 +13,10 @@ when defined(macosx):
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
   # Windows: Use pre-installed MinGW-Builds at C:\mingw64
-  # libjpeg-turbo from chocolatey is at C:\tools\jpeg-turbo
-  switch("gcc.path", "C/mingw64/bin")
-  switch("passC", "-Ic/tools/jpeg-turbo/include")
-  switch("passL", "-Lc/tools/jpeg-turbo/lib -ljpeg")
+  # libjpeg-turbo from chocolatey is at C:\libjpeg-turbo64
+  switch("gcc.path", "C:/mingw64/bin")
+  switch("passC", "-IC:/libjpeg-turbo64/include")
+  switch("passL", "-LC:/libjpeg-turbo64/lib -ljpeg")
   # PDFium library is named pdfium.dll.lib on Windows
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
