@@ -98,11 +98,5 @@ jobs:
         shell: msys2 {0}
         working-directory: tests
         run: |
-          # Use MSYS2 gcc and set include/lib paths
-          export CC=/mingw64/bin/gcc
-          export CXX=/mingw64/bin/g++
-          export C_INCLUDE_PATH=/mingw64/include
-          export CPLUS_INCLUDE_PATH=/mingw64/include
-          export LIBRARY_PATH=/mingw64/lib
-          nim c test_jpeglib.nim
+          nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
