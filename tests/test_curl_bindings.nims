@@ -12,7 +12,7 @@ when defined(macosx):
 elif defined(windows):
   # Windows: MinGW-Builds + curl from chocolatey
   switch("gcc.path", "C:/mingw64/bin")
-  let curlRoot = getEnv("CURL_ROOT", "C:/ProgramData/chocolatey/lib/curl/tools")
+  let curlRoot = "C:/ProgramData/chocolatey/lib/curl/tools/curl-8.18.0_1-win64-mingw"
   switch("passC", "-I" & curlRoot & "/include")
   switch("passL", "-L" & curlRoot & "/lib")
 else:

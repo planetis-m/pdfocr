@@ -1,7 +1,5 @@
 # config.nims for test_pdfium_bindings.nim
 
-import strutils
-
 # Add the src directory to the import path so tests can find the modules
 switch("path", "$projectdir/../src")
 
