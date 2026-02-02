@@ -36,7 +36,7 @@ jobs:
           cp ../third_party/pdfium/lib/libpdfium.so ./
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
-          nim c -r test_curl_bindings.nim
+          nim c -d:curl_only -r test_curl_bindings.nim
 
   macos:
     runs-on: macos-latest
@@ -66,7 +66,7 @@ jobs:
           cp ../third_party/pdfium/lib/libpdfium.dylib ./
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
-          nim c -r test_curl_bindings.nim
+          nim c -d:curl_only -r test_curl_bindings.nim
 
   windows:
     runs-on: windows-latest
@@ -99,4 +99,4 @@ jobs:
           $curlDll = Get-ChildItem -Path "C:\ProgramData\chocolatey\lib\curl\tools" -Recurse -Filter "libcurl*.dll" | Select-Object -First 1
           if ($null -eq $curlDll) { throw "libcurl DLL not found in curl package" }
           Copy-Item $curlDll.FullName .
-          nim c -r test_curl_bindings.nim
+          nim c -d:curl_only -r test_curl_bindings.nim
