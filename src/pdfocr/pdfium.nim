@@ -1,6 +1,6 @@
 # Ergonomic PDFium helpers built on top of the raw bindings.
 
-import std/strformat
+import std/[strformat, widestrs]
 import ./bindings/pdfium
 
 type
@@ -101,3 +101,17 @@ proc buffer*(bitmap: PdfBitmap): pointer =
 
 proc stride*(bitmap: PdfBitmap): int =
   int(FPDFBitmap_GetStride(bitmap.raw))
+
+proc extractText*(page: PdfPage): string =
+  let textPage = FPDFText_LoadPage(page.raw)
+  if pointer(textPage) == nil:
+    return ""
+  defer: FPDFText_ClosePage(textPage)
+
+  let count = FPDFText_CountChars(textPage)
+  if count <= 0:
+    return ""
+
+  var wStr = newWideCString(count)
+  discard FPDFText_GetText(textPage, 0, count, cast[ptr uint16](toWideCString(wStr)))
+  result = $wStr
