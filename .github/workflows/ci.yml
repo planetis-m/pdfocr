@@ -48,7 +48,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Dependencies
-        run: brew install libjpeg
+        run: brew install jpeg-turbo
 
       - name: Download PDFium
         run: |
