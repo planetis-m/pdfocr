@@ -1,40 +1,5 @@
-import wrappers/[jpeglib, pdfium]
+import pdfocr/wrappers/[jpeglib, pdfium]
 import std/[os, widestrs]
-
-# --- New: Iterate Sections ---
-proc extractSections(page: FPDF_PAGE) =
-  # We still need the "TextPage" map to decode fonts correctly
-  let textPage = FPDFText_LoadPage(page)
-  if cast[pointer](textPage) == nil: return
-  defer: FPDFText_ClosePage(textPage)
-
-  # 1. Count Objects on the page
-  let objCount = FPDFPage_CountObjects(page)
-  echo "Found ", objCount, " objects on page."
-
-  for i in 0 ..< objCount:
-    # 2. Get Object
-    let obj = FPDFPage_GetObject(page, i)
-    
-    # 3. Check if it is TEXT (Type == 1)
-    if FPDFPageObj_GetType(obj) == FPDF_PAGEOBJECT_TEXT:
-      
-      # 4. Get Size of text in this object
-      # Passing nil buffer returns the required length (bytes)
-      let size = FPDFTextObj_GetText(obj, textPage, nil, 0)
-      
-      if size > 0:
-        # Allocate buffer (size is in bytes, UTF-16LE)
-        # We need size/2 characters for the WideCString
-        var wStr = newWideCString("", (size.int div 2))
-        
-        # 5. Fetch the text
-        discard FPDFTextObj_GetText(obj, textPage, cast[ptr uint16](toWideCString(wStr)), size)
-        
-        # 6. Print Section
-        let sectionText = $wStr
-        if sectionText.len > 0:
-          echo "[Section ", i, "]: ", sectionText
 
 # --- Clean Text Extraction using widestrs ---
 proc extractText(page: FPDF_PAGE): string =
@@ -145,11 +110,6 @@ proc main() =
   echo "\n--- Extracted Text ---"
   echo extractText(page)
   echo "----------------------"
-  
-  # --- Run the new Section Extractor ---
-  echo "--- Text Sections ---"
-  extractSections(page)
-  echo "---------------------"
   
   FPDFBitmap_Destroy(bitmap)
   FPDF_ClosePage(page)

@@ -1,10 +1,4 @@
-# --- 1. Link Settings ---
-# We link against the shared libraries directly.
-# Ensure your LD_LIBRARY_PATH or rpath includes the location of libpdfium.so
-{.passL: "-L./pdfium/lib -lpdfium".}
-{.passL: "-Wl,-rpath,./pdfium/lib".}
-
-# --- 2. Type Definitions ---
+# --- Type Definitions ---
 type
   FPDF_DOCUMENT* = distinct pointer
   FPDF_PAGE* = distinct pointer
@@ -57,10 +51,10 @@ proc FPDF_RenderPageBitmap*(bitmap: FPDF_BITMAP, page: FPDF_PAGE,
                             rotate, flags: cint) {.importc, cdecl.}
 
 # Text Extraction
-proc FPDFText_LoadPage*(page: FPDF_PAGE): FPDF_TEXTPAGE
-proc FPDFText_ClosePage*(text_page: FPDF_TEXTPAGE)
-proc FPDFText_CountChars*(text_page: FPDF_TEXTPAGE): cint
-proc FPDFText_GetText*(text_page: FPDF_TEXTPAGE, start_index, count: cint, buffer: pointer): cint
+proc FPDFText_LoadPage*(page: FPDF_PAGE): FPDF_TEXTPAGE {.importc, cdecl.}
+proc FPDFText_ClosePage*(text_page: FPDF_TEXTPAGE) {.importc, cdecl.}
+proc FPDFText_CountChars*(text_page: FPDF_TEXTPAGE): cint {.importc, cdecl.}
+proc FPDFText_GetText*(text_page: FPDF_TEXTPAGE, start_index, count: cint, buffer: pointer): cint {.importc, cdecl.}
 # Get the bounding box of a specific character index
 proc FPDFText_GetCharBox*(text_page: FPDF_TEXTPAGE, index: cint, 
                           left, right, bottom, top: ptr cdouble): cint {.importc, cdecl.}
