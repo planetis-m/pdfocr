@@ -13,10 +13,10 @@ when defined(macosx):
   switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
-  # Windows: MSYS2 MINGW64 - must use MSYS2 gcc, not the pre-installed MinGW
-  switch("gcc.path", "C:/msys64/mingw64/bin")
-  switch("passC", "-IC:/msys64/mingw64/include")
-  switch("passL", "-LC:/msys64/mingw64/lib -ljpeg")
+  # Windows: MSYS2 MINGW64 - use Unix paths
+  switch("gcc.path", "/c/msys64/mingw64/bin")
+  switch("passC", "-I/c/msys64/mingw64/include")
+  switch("passL", "-L/c/msys64/mingw64/lib -ljpeg")
   # PDFium library is named pdfium.dll.lib on Windows
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
