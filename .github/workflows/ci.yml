@@ -89,17 +89,9 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
-      - name: Set CURL_ROOT
-        shell: cmd
-        run: |
-          for /d %%D in (C:\ProgramData\chocolatey\lib\curl\tools\curl-*) do set CURL_ROOT=%%D
-          if "%CURL_ROOT%"=="" exit /b 1
-          echo CURL_ROOT=%CURL_ROOT%>> %GITHUB_ENV%
-
       - name: Run Tests
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
           nim c -r test_jpeglib.nim
