@@ -33,7 +33,8 @@ jobs:
         working-directory: tests
         run: |
           # Copy pdfium library next to exe for portability
-          cp ../third_party/pdfium/lib/libpdfium.so ./
+          cp -v ../third_party/pdfium/lib/libpdfium.so ./ || echo "Copy failed"
+          ls -la libpdfium.so || echo "File not found after copy"
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
 
