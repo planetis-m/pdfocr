@@ -59,6 +59,7 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
+          export DYLD_LIBRARY_PATH="$PWD/../third_party/pdfium/lib:$DYLD_LIBRARY_PATH"
           nim c -r test_jpeglib.nim
           nim c -r test_pdfium_bindings.nim input.pdf
 
@@ -71,14 +72,14 @@ jobs:
       - name: Install MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: MINGW64
           update: true
           install: >-
             base-devel
             git
             curl
             tar
-            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-x86_64-libjpeg-turbo
           path-type: inherit
 
       - name: Install Nim
@@ -93,37 +94,8 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
-      - name: Debug MSYS2
-        shell: pwsh
-        run: |
-          Write-Host "=== Checking MSYS2 directory ==="
-          if (Test-Path "C:/msys64") {
-            Write-Host "MSYS2 exists at C:/msys64"
-            Write-Host ""
-            Write-Host "=== Checking ucrt64/include ==="
-            if (Test-Path "C:/msys64/ucrt64/include") {
-              Get-ChildItem "C:/msys64/ucrt64/include" | Select-Object -First 20 Name
-            } else {
-              Write-Host "ucrt64/include not found"
-            }
-            Write-Host ""
-            Write-Host "=== Checking ucrt64/lib for jpeg ==="
-            if (Test-Path "C:/msys64/ucrt64/lib") {
-              Get-ChildItem "C:/msys64/ucrt64/lib" | Where-Object { $_.Name -match "jpeg" } | Select-Object Name
-            } else {
-              Write-Host "ucrt64/lib not found"
-            }
-            Write-Host ""
-            Write-Host "=== Checking mingw64 as fallback ==="
-            if (Test-Path "C:/msys64/mingw64/include") {
-              Write-Host "mingw64/include exists"
-              Get-ChildItem "C:/msys64/mingw64/include" | Where-Object { $_.Name -match "jpeg" } | Select-Object Name
-            }
-          } else {
-            Write-Host "MSYS2 not found at C:/msys64"
-          }
-
       - name: Run Tests
+        shell: msys2 {0}
         working-directory: tests
         run: |
           nim c -r test_jpeglib.nim

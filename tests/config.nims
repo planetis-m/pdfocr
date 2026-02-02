@@ -11,9 +11,9 @@ when defined(macosx):
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
   switch("passL", "-Wl,-rpath,@loader_path/../third_party/pdfium/lib")
 elif defined(windows):
-  # Windows with MSYS2/UCRT64 - jpeg-turbo paths (must come before -ljpeg)
-  switch("passC", "-IC:/msys64/ucrt64/include")
-  switch("passL", "-LC:/msys64/ucrt64/lib")
+  # Windows with MSYS2/MINGW64 - jpeg-turbo paths (must come before -ljpeg)
+  switch("passC", "-IC:/msys64/mingw64/include")
+  switch("passL", "-LC:/msys64/mingw64/lib")
 else:
   # Linux and other Unix-like systems
   switch("passL", "-Wl,-rpath,\\$ORIGIN/../third_party/pdfium/lib")
