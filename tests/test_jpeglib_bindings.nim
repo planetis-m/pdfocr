@@ -53,7 +53,7 @@ proc createTestImage(width, height: int, outputPath: string): bool =
         let offset = y * rowStride + x * 3
         imageBuffer[offset + 0] = byte((x * 255) div width)      # R
         imageBuffer[offset + 1] = byte((y * 255) div height)     # G
-        imageBuffer[offset + 2] = byte(128)                       # B (constant)
+        imageBuffer[offset + 2] = byte(128)                      # B (constant)
     
     echo "  Image buffer created with gradient pattern"
     
@@ -161,7 +161,7 @@ proc testStructAccess() =
 
 proc main() =
   echo "╔════════════════════════════════════════╗"
-  echo "║  LibJPEG Bindings Test Suite          ║"
+  echo "║  LibJPEG Bindings Test Suite           ║"
   echo "╚════════════════════════════════════════╝"
   
   try:
