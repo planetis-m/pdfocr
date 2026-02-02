@@ -70,6 +70,10 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_TRIPLET: x64-mingw
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -80,8 +84,16 @@ jobs:
           nim-version: stable
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install libjpeg-turbo (MinGW)
-        run: choco install libjpeg-turbo curl -y
+      - name: Install vcpkg
+        run: |
+          if (!(Test-Path "$env:VCPKG_ROOT")) {
+            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          }
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Install vcpkg dependencies
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install libjpeg-turbo curl --triplet $env:VCPKG_DEFAULT_TRIPLET
 
       - name: Download PDFium
         run: |
@@ -89,17 +101,10 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
-      - name: Set CURL_ROOT
-        shell: cmd
-        run: |
-          for /d %%D in (C:\ProgramData\chocolatey\lib\curl\tools\curl-*) do set CURL_ROOT=%%D
-          if "%CURL_ROOT%"=="" exit /b 1
-          echo CURL_ROOT=%CURL_ROOT%>> %GITHUB_ENV%
-
       - name: Run Tests
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:VCPKG_ROOT\\installed\\$env:VCPKG_DEFAULT_TRIPLET\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
           nim c -r test_jpeglib.nim
