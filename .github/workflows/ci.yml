@@ -69,24 +69,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel
-            git
-            curl
-            tar
-            mingw-w64-x86_64-libjpeg-turbo
-          path-type: inherit
-
       - name: Install Nim
         uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: stable
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install libjpeg-turbo (MinGW)
+        run: choco install libjpeg-turbo -y
 
       - name: Download PDFium
         run: |
@@ -94,18 +84,19 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
-      - name: Debug MSYS2 paths
+      - name: Debug paths
         run: |
-          Write-Host "=== Checking C:\msys64 ==="
-          if (Test-Path "C:\msys64") {
-            Write-Host "C:\msys64 exists"
-            Get-ChildItem "C:\msys64"
+          Write-Host "=== Checking MinGW ==="
+          if (Test-Path "C:\mingw64\bin\gcc.exe") {
+            Write-Host "MinGW gcc found at C:\mingw64\bin\gcc.exe"
+            & "C:\mingw64\bin\gcc.exe" --version | Select-Object -First 1
           } else {
-            Write-Host "C:\msys64 does NOT exist"
+            Write-Host "MinGW gcc NOT found"
           }
           Write-Host ""
-          Write-Host "=== Checking PATH for msys2 ==="
-          echo $env:PATH -split ';' | Select-String -Pattern "msys" | Select-Object -First 5
+          Write-Host "=== Checking libjpeg-turbo ==="
+          Get-ChildItem "C:\tools" -ErrorAction SilentlyContinue
+          Get-ChildItem "C:\Program Files" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*jpeg*" }
 
       - name: Run Tests
         working-directory: tests
