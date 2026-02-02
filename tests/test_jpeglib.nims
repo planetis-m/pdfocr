@@ -16,5 +16,4 @@ elif defined(windows):
   switch("passC", "-IC:/libjpeg-turbo64/include")
   switch("passL", "-LC:/libjpeg-turbo64/lib")
 else:
-  # Linux: system libjpeg
-  switch("passL", "-Wl,-rpath,\\$ORIGIN")
+  # Linux: system libjpeg (no extra flags needed)

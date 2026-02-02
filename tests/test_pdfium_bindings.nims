@@ -23,5 +23,4 @@ elif defined(windows):
 else:
   # Linux: system libjpeg
   switch("passL", "-Wl,-rpath,\\$ORIGIN")
-  let testDir = staticExec("pwd").strip()
-  switch("passL", "-L" & testDir & " -lpdfium")
+  switch("passL", "-L../third_party/pdfium/lib -lpdfium")
