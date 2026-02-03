@@ -21,7 +21,7 @@ type
 proc lastErrorCode*(): culong =
   FPDF_GetLastError()
 
-proc raisePdfiumError*(context: string) {.noinline, noreturn.} =
+proc raisePdfiumError*(context: string) {.noinline.} =
   let code = lastErrorCode()
   var detail = "unknown"
   case code

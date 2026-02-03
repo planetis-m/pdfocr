@@ -66,7 +66,7 @@ proc defaultConfig*(seed: Config = Config()): Config =
     maxQueuedImageBytes: seed.maxQueuedImageBytes
   )
 
-proc validateConfig*(cfg: Config) =
+proc validateConfig*(cfg: Config) {.noinline.} =
   if cfg.maxInflight < 1:
     raise newException(ValueError, "MAX_INFLIGHT must be >= 1")
   if cfg.highWater < cfg.lowWater:

@@ -252,6 +252,6 @@ Returns the last error code from PDFium.
 
 ### `raisePdfiumError()`
 ```nim
-proc raisePdfiumError(context: string) {.noinline, noreturn, raises: [IOError], tags: [], forbids: [].}
+proc raisePdfiumError(context: string) {.noinline, raises: [IOError], tags: [], forbids: [].}
 ```
-Raises an IOError with PDFium error information. This procedure never returns.
+Raises an IOError with PDFium error information.
