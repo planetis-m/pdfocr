@@ -1,4 +1,4 @@
-import std/[math, tables, sets, algorithm, heapqueue]
+import std/[math, tables, sets, algorithm, heapqueue, options]
 import ./pdfium
 
 const
@@ -12,14 +12,14 @@ type
     charMargin*: float
     lineMargin*: float
     wordMargin*: float
-    boxesFlow*: float  # Added: -1.0 to +1.0, or use Option[float] for None
+    boxesFlow*: Option[float]  # None disables hierarchical grouping
     detectVertical*: bool
     allTexts*: bool
 
   LTTextBox* = object
     bbox*: Rect
     text*: string
-    index*: int  # Added for sorting after hierarchical grouping
+    index*: int
 
   LTPage* = object
     pageid*: int
@@ -29,11 +29,12 @@ type
   ItemKind = enum
     ikChar
     ikAnno
-    ikTextLineHorizontal  # Split from ikTextLine
-    ikTextLineVertical    # Added for vertical text
-    ikTextBoxHorizontal   # Split from ikTextBox
-    ikTextBoxVertical     # Added for vertical text boxes
-    ikTextGroup           # Added for hierarchical grouping
+    ikTextLineHorizontal
+    ikTextLineVertical
+    ikTextBoxHorizontal
+    ikTextBoxVertical
+    ikTextGroupLRTB       # Horizontal group (left-right, top-bottom)
+    ikTextGroupTBRL       # Vertical group (top-bottom, right-left)
 
   Item = object
     kind: ItemKind
@@ -41,9 +42,9 @@ type
     text: string
     wordMargin: float
     items: seq[int]
-    lastX1: float  # For horizontal text lines
-    lastY0: float  # For vertical text lines
-    index: int     # For final sorting after grouping
+    lastX1: float
+    lastY0: float
+    index: int
 
   # Priority queue element for hierarchical grouping
   DistElement = object
@@ -55,7 +56,6 @@ type
     idx2: int
 
 proc `<`(a, b: DistElement): bool =
-  # Priority queue: smallest distance first
   if a.dist != b.dist: return a.dist < b.dist
   if a.id1 != b.id1: return a.id1 < b.id1
   return a.id2 < b.id2
@@ -65,7 +65,7 @@ proc newLAParams*(
   charMargin: float = 2.0,
   lineMargin: float = 0.5,
   wordMargin: float = 0.1,
-  boxesFlow: float = 0.5,  # Changed: now has default value (was None in Python)
+  boxesFlow: Option[float] = some(0.5),
   detectVertical: bool = false,
   allTexts: bool = false
 ): LAParams =
@@ -134,9 +134,17 @@ proc newTextBoxVertical(): Item =
   Item(kind: ikTextBoxVertical, bbox: (INF, INF, -INF, -INF), text: "", 
        items: @[], wordMargin: 0.0, index: -1)
 
-proc newTextGroup(): Item =
-  Item(kind: ikTextGroup, bbox: (INF, INF, -INF, -INF), text: "", 
+proc newTextGroupLRTB(): Item =
+  Item(kind: ikTextGroupLRTB, bbox: (INF, INF, -INF, -INF), text: "", 
        items: @[], wordMargin: 0.0, index: -1)
+
+proc newTextGroupTBRL(): Item =
+  Item(kind: ikTextGroupTBRL, bbox: (INF, INF, -INF, -INF), text: "", 
+       items: @[], wordMargin: 0.0, index: -1)
+
+proc isVerticalItem(items: seq[Item]; idx: int): bool =
+  ## Check if an item is vertical (vertical box or TBRL group)
+  items[idx].kind in {ikTextBoxVertical, ikTextGroupTBRL}
 
 proc textOf(items: seq[Item]; idx: int): string =
   let it = items[idx]
@@ -144,7 +152,7 @@ proc textOf(items: seq[Item]; idx: int): string =
   of ikChar, ikAnno:
     it.text
   of ikTextLineHorizontal, ikTextLineVertical, ikTextBoxHorizontal, 
-     ikTextBoxVertical, ikTextGroup:
+     ikTextBoxVertical, ikTextGroupLRTB, ikTextGroupTBRL:
     var textOut = ""
     for child in it.items:
       textOut.add(textOf(items, child))
@@ -172,6 +180,11 @@ proc addToTextLineVertical(items: var seq[Item]; lineIdx, charIdx: int) =
 
 proc groupObjects(chars: seq[int]; items: var seq[Item]; p: LAParams): seq[int] =
   result = @[]
+  
+  # Handle empty input
+  if chars.len == 0:
+    return result
+  
   var prevIdx = -1
   var lineIdx = -1
   
@@ -224,8 +237,7 @@ proc groupObjects(chars: seq[int]; items: var seq[Item]; p: LAParams): seq[int] 
   if lineIdx == -1:
     items.add(newTextLineHorizontal(p.wordMargin))
     lineIdx = items.len - 1
-    if prevIdx != -1:
-      addToTextLineHorizontal(items, lineIdx, prevIdx)
+    addToTextLineHorizontal(items, lineIdx, prevIdx)
   result.add(lineIdx)
 
 proc findNeighborsHorizontal(lines: seq[int]; items: seq[Item]; 
@@ -375,7 +387,7 @@ proc boxDistance(items: seq[Item]; idx1, idx2: int): float =
   let y1 = max(b1.y1, b2.y1)
   return (x1 - x0) * (y1 - y0) - width(b1) * height(b1) - width(b2) * height(b2)
 
-proc hasObjectBetween(items: seq[Item]; boxes: seq[int]; 
+proc hasObjectBetween(items: seq[Item]; activeBoxes: HashSet[int]; 
                       idx1, idx2: int): bool =
   ## Check if any box exists between idx1 and idx2
   let b1 = items[idx1].bbox
@@ -385,7 +397,7 @@ proc hasObjectBetween(items: seq[Item]; boxes: seq[int];
   let x1 = max(b1.x1, b2.x1)
   let y1 = max(b1.y1, b2.y1)
   
-  for boxIdx in boxes:
+  for boxIdx in activeBoxes:
     if boxIdx == idx1 or boxIdx == idx2:
       continue
     let b = items[boxIdx].bbox
@@ -421,14 +433,13 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
   while heap.len > 0:
     let elem = heap.pop()
     
-    # Skip if objects were already merged
+    # Skip objects that were already merged
     if elem.idx1 notin activeBoxes or elem.idx2 notin activeBoxes:
       continue
     
     # Check if objects between (unless we already checked)
     if not elem.skipIsany:
-      let boxList = toSeq(activeBoxes)
-      if hasObjectBetween(items, boxList, elem.idx1, elem.idx2):
+      if hasObjectBetween(items, activeBoxes, elem.idx1, elem.idx2):
         # Re-add with skip flag
         heap.push(DistElement(
           skipIsany: true,
@@ -441,11 +452,15 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
         continue
     
     # Determine group type based on box types
-    let isVertical = items[elem.idx1].kind in {ikTextBoxVertical, ikTextGroup} or
-                     items[elem.idx2].kind in {ikTextBoxVertical, ikTextGroup}
+    # Use TBRL if either is vertical box or TBRL group
+    let isVertical = isVerticalItem(items, elem.idx1) or 
+                     isVerticalItem(items, elem.idx2)
     
-    # Create group
-    items.add(newTextGroup())
+    # Create appropriate group type
+    if isVertical:
+      items.add(newTextGroupTBRL())
+    else:
+      items.add(newTextGroupLRTB())
     let groupIdx = items.len - 1
     addItem(items, groupIdx, elem.idx1)
     addItem(items, groupIdx, elem.idx2)
@@ -476,48 +491,57 @@ proc assignIndices(items: var seq[Item]; idx: int; counter: var int) =
   if items[idx].kind in {ikTextBoxHorizontal, ikTextBoxVertical}:
     items[idx].index = counter
     counter += 1
-  elif items[idx].kind == ikTextGroup:
+  elif items[idx].kind in {ikTextGroupLRTB, ikTextGroupTBRL}:
     for child in items[idx].items:
       assignIndices(items, child, counter)
 
-proc analyzeGroup(items: var seq[Item]; groupIdx: int; p: LAParams) =
+proc analyzeGroup(items: var seq[Item]; groupIdx: int; boxesFlow: float) =
   ## Recursively analyze groups and sort contents
-  if items[groupIdx].kind == ikTextGroup:
+  if items[groupIdx].kind in {ikTextGroupLRTB, ikTextGroupTBRL}:
     # First analyze children
     for child in items[groupIdx].items:
-      analyzeGroup(items, child, p)
+      analyzeGroup(items, child, boxesFlow)
     
-    # Then sort based on boxes_flow
-    # Determine if vertical group
-    let isVertical = items[items[groupIdx].items[0]].kind in 
-                     {ikTextBoxVertical, ikTextGroup}
-    
-    if isVertical:
-      # TBRL ordering
+    # Then sort based on group type and boxes_flow
+    if items[groupIdx].kind == ikTextGroupTBRL:
+      # TBRL ordering: top-right to bottom-left
       items[groupIdx].items.sort(proc(a, b: int): int =
         let ba = items[a].bbox
         let bb = items[b].bbox
-        let ka = -(1.0 + p.boxesFlow) * (ba.x0 + ba.x1) - 
-                 (1.0 - p.boxesFlow) * ba.y1
-        let kb = -(1.0 + p.boxesFlow) * (bb.x0 + bb.x1) - 
-                 (1.0 - p.boxesFlow) * bb.y1
+        let ka = -(1.0 + boxesFlow) * (ba.x0 + ba.x1) - 
+                 (1.0 - boxesFlow) * ba.y1
+        let kb = -(1.0 + boxesFlow) * (bb.x0 + bb.x1) - 
+                 (1.0 - boxesFlow) * bb.y1
         if ka < kb: return -1
         if ka > kb: return 1
         return 0
       )
     else:
-      # LRTB ordering
+      # LRTB ordering: top-left to bottom-right
       items[groupIdx].items.sort(proc(a, b: int): int =
         let ba = items[a].bbox
         let bb = items[b].bbox
-        let ka = (1.0 - p.boxesFlow) * ba.x0 - 
-                 (1.0 + p.boxesFlow) * (ba.y0 + ba.y1)
-        let kb = (1.0 - p.boxesFlow) * bb.x0 - 
-                 (1.0 + p.boxesFlow) * (bb.y0 + bb.y1)
+        let ka = (1.0 - boxesFlow) * ba.x0 - 
+                 (1.0 + boxesFlow) * (ba.y0 + ba.y1)
+        let kb = (1.0 - boxesFlow) * bb.x0 - 
+                 (1.0 + boxesFlow) * (bb.y0 + bb.y1)
         if ka < kb: return -1
         if ka > kb: return 1
         return 0
       )
+
+proc isEmptyText(items: seq[Item]; idx: int): bool =
+  ## Check if text line is empty (empty bbox or whitespace-only text)
+  if isEmpty(items[idx].bbox):
+    return true
+  let text = textOf(items, idx)
+  # Match Python's isspace() behavior: empty string returns false
+  if text.len == 0:
+    return false
+  for c in text:
+    if c notin {' ', '\t', '\n', '\r', '\f', '\v'}:
+      return false
+  return true
 
 proc buildLayout(page: PdfPage; p: LAParams): LTPage =
   var textPage = loadTextPage(page)
@@ -543,6 +567,10 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
     if items[i].kind == ikChar:
       charIdxs.add(i)
 
+  # Handle empty input
+  if charIdxs.len == 0:
+    return LTPage(pageid: 0, bbox: (0.0, 0.0, w, h), textboxes: @[])
+
   # Group characters into lines
   let lines = groupObjects(charIdxs, items, p)
   
@@ -554,8 +582,7 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
   # Filter empty lines
   var nonEmpty: seq[int] = @[]
   for lineIdx in lines:
-    if not isEmpty(items[lineIdx].bbox) and 
-       not textOf(items, lineIdx).strip().len == 0:
+    if not isEmptyText(items, lineIdx):
       nonEmpty.add(lineIdx)
 
   # Group lines into boxes
@@ -568,34 +595,8 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
   # Sort or group boxes based on boxes_flow
   var sortedBoxes: seq[int]
   
-  # Simple geometric sorting (when boxes_flow not used for grouping)
-  # For now, always use hierarchical grouping if boxesFlow is set
-  let useHierarchical = true  # Can make this conditional
-  
-  if useHierarchical and boxes.len > 1:
-    # Hierarchical grouping
-    let groups = groupTextboxes(boxes, items, p)
-    
-    # Analyze groups
-    for groupIdx in groups:
-      analyzeGroup(items, groupIdx, p)
-    
-    # Assign indices
-    var counter = 0
-    for groupIdx in groups:
-      assignIndices(items, groupIdx, counter)
-    
-    # Collect all boxes sorted by index
-    sortedBoxes = @[]
-    for boxIdx in boxes:
-      sortedBoxes.add(boxIdx)
-    sortedBoxes.sort(proc(a, b: int): int =
-      if items[a].index < items[b].index: return -1
-      if items[a].index > items[b].index: return 1
-      return 0
-    )
-  else:
-    # Simple positional sorting
+  if p.boxesFlow.isNone:
+    # Simple geometric sorting (no hierarchical grouping)
     sortedBoxes = boxes
     sortedBoxes.sort(proc(a, b: int): int =
       let isVertA = items[a].kind == ikTextBoxVertical
@@ -607,19 +608,43 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
         return 1
       elif isVertA:
         # Both vertical: sort by -x1, then -y0
-        let ka = (0, -items[a].bbox.x1, -items[a].bbox.y0)
-        let kb = (0, -items[b].bbox.x1, -items[b].bbox.y0)
-        if ka < kb: return -1
-        if ka > kb: return 1
+        if items[a].bbox.x1 > items[b].bbox.x1: return -1
+        if items[a].bbox.x1 < items[b].bbox.x1: return 1
+        if items[a].bbox.y0 > items[b].bbox.y0: return -1
+        if items[a].bbox.y0 < items[b].bbox.y0: return 1
         return 0
       else:
         # Both horizontal: sort by -y0, then x0
-        let ka = (1, -items[a].bbox.y0, items[a].bbox.x0)
-        let kb = (1, -items[b].bbox.y0, items[b].bbox.x0)
-        if ka < kb: return -1
-        if ka > kb: return 1
+        if items[a].bbox.y0 > items[b].bbox.y0: return -1
+        if items[a].bbox.y0 < items[b].bbox.y0: return 1
+        if items[a].bbox.x0 < items[b].bbox.x0: return -1
+        if items[a].bbox.x0 > items[b].bbox.x0: return 1
         return 0
     )
+  elif boxes.len > 1:
+    # Hierarchical grouping
+    let groups = groupTextboxes(boxes, items, p)
+    let boxesFlow = p.boxesFlow.get()
+    
+    # Analyze groups
+    for groupIdx in groups:
+      analyzeGroup(items, groupIdx, boxesFlow)
+    
+    # Assign indices
+    var counter = 0
+    for groupIdx in groups:
+      assignIndices(items, groupIdx, counter)
+    
+    # Collect all boxes sorted by index
+    sortedBoxes = boxes
+    sortedBoxes.sort(proc(a, b: int): int =
+      if items[a].index < items[b].index: return -1
+      if items[a].index > items[b].index: return 1
+      return 0
+    )
+  else:
+    # Single box or empty - no grouping needed
+    sortedBoxes = boxes
 
   # Build output
   var outBoxes: seq[LTTextBox] = @[]
@@ -634,4 +659,3 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
 
 proc buildTextPageLayout*(page: PdfPage; laparams: LAParams = newLAParams()): LTPage =
   buildLayout(page, laparams)
-
