@@ -1,6 +1,10 @@
 import std/[os, parseopt, strutils]
 import threading/channels
-import pdfocr/[config, logging, types, producer, network_worker, output_writer, page_ranges]
+import pdfocr/[config, logging, types, producer, output_writer, page_ranges]
+when defined(threadSanitizer) or defined(addressSanitizer):
+  import pdfocr/network_stub as network_impl
+else:
+  import pdfocr/network_worker as network_impl
 import pdfocr/[curl, pdfium]
 
 type
@@ -184,7 +188,7 @@ proc main() =
     inputChan: inputChan,
     outputChan: outputChan
   )
-  let networkCtx = NetworkContext(
+  let networkCtx = network_impl.NetworkContext(
     apiKey: opts.apiKey,
     config: opts.config,
     inputChan: inputChan,
@@ -201,7 +205,7 @@ proc main() =
   )
 
   createThread(producerThread, runProducer, producerCtx)
-  createThread(networkThread, runNetworkWorker, networkCtx)
+  createThread(networkThread, network_impl.runNetworkWorker, networkCtx)
   createThread(outputThread, runOutputWriter, outputCtx)
 
   joinThread(producerThread)

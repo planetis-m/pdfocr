@@ -1,9 +1,10 @@
-import std/[strformat, times]
+import std/strformat
+import std/times
 import ./config
 
 proc logLine(level: string; message: string) =
-  let ts = getTime().utc.format("yyyy-MM-dd'T'HH:mm:ss'Z'")
-  echo &"{ts} [{level}] {message}"
+  let tsMs = getTime().toUnix() * 1000
+  echo &"{tsMs} [{level}] {message}"
 
 proc logInfo*(message: string) =
   logLine("INFO", message)

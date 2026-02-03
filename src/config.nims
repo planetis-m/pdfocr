@@ -41,4 +41,13 @@ when not defined(windows) and defined(threadSanitizer):
   switch("debugger", "native")
   switch("define", "noSignalHandler")
   switch("define", "useMalloc")
-  switch("define", "danger")
+
+# Address sanitizer (non-Windows only)
+when not defined(windows) and defined(addressSanitizer):
+  switch("cc", "clang")
+  switch("passC", "-fsanitize=address -fno-omit-frame-pointer")
+  switch("passL", "-fsanitize=address -fno-omit-frame-pointer")
+  switch("debugger", "native")
+  switch("define", "noSignalHandler")
+  switch("define", "useMalloc")
+

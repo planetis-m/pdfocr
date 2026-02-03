@@ -8,4 +8,5 @@ bin           = @["app"]
 requires "nim >= 1.6.0"
 requires "threading"
 requires "mimalloc"
+requires "eminim"
 

@@ -1,4 +1,4 @@
-import std/[algorithm, json, os, strformat, tables, monotimes]
+import std/[algorithm, os, strformat, tables, monotimes]
 import threading/channels
 import ./[config, logging, output_format, types]
 
@@ -15,13 +15,13 @@ type
 proc writeResult(outputDir: string; cfg: Config; jsonlFile: var File; res: Result; base: MonoTime) =
   if cfg.outputFormat == ofJsonl:
     let node = resultToJson(res, base)
-    jsonlFile.writeLine($node)
+    jsonlFile.writeLine(toJsonString(node))
   else:
     let textPath = pageTextPath(outputDir, res.pageNumberUser)
     let metaPath = pageMetaPath(outputDir, res.pageNumberUser)
     writeFile(textPath, res.text)
     let metaNode = resultToMetadataJson(res, base)
-    writeFile(metaPath, pretty(metaNode))
+    writeFile(metaPath, toJsonString(metaNode))
 
 proc runOutputWriter*(ctx: OutputContext) {.thread.} =
   createDir(ctx.outputDir)
@@ -121,6 +121,6 @@ proc runOutputWriter*(ctx: OutputContext) {.thread.} =
 
   manifest.finishedAtUnixMs = nowUnixMs()
   let manifestNode = manifestToJson(manifest)
-  writeFile(manifestPath(ctx.outputDir), pretty(manifestNode))
+  writeFile(manifestPath(ctx.outputDir), toJsonString(manifestNode))
 
   ctx.summaryChan.send(summary)

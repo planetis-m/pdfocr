@@ -1,4 +1,5 @@
-import std/[base64, deques, heapqueue, json, monotimes, random, strformat, tables, times]
+import std/[base64, deques, heapqueue, monotimes, options, random, strformat, tables, times, streams]
+import eminim
 import threading/channels
 import ./bindings/curl
 import ./[config, curl, logging, types]
@@ -23,6 +24,34 @@ type
     due: MonoTime
     task: Task
     attempt: int
+
+  ImageUrl = object
+    url: string
+
+  ContentItem = object
+    `type`: string
+    image_url: Option[ImageUrl]
+    text: Option[string]
+
+  ChatMessage = object
+    role: string
+    content: seq[ContentItem]
+
+  ChatRequest = object
+    model: string
+    max_tokens: int
+    messages: seq[ChatMessage]
+
+  ChatChoice = object
+    index: int
+    message: ChatMessageOut
+
+  ChatMessageOut = object
+    role: string
+    content: string
+
+  ChatResponse = object
+    choices: seq[ChatChoice]
 
 proc `<`(a, b: RetryItem): bool =
   a.due < b.due
@@ -50,51 +79,45 @@ proc base64FromBytes(data: seq[byte]): string =
   copyMem(addr raw[0], unsafeAddr data[0], data.len)
   encode(raw)
 
+proc toJsonString[T](value: T): string =
+  var s = newStringStream()
+  s.storeJson(value)
+  result = s.data
+
 proc buildRequestBody(task: Task): string =
   let b64 = base64FromBytes(task.jpegBytes)
-  let payload = %*{
-    "model": "allenai/olmOCR-2-7B-1025",
-    "max_tokens": 4092,
-    "messages": [
-      %*{
-        "role": "user",
-        "content": [
-          %*{
-            "type": "text",
-            "text": "Extract the text exactly as UTF-8. Return only plain text (no JSON, no markup) and do not include any NUL characters."
-          },
-          %*{
-            "type": "image_url",
-            "image_url": %*{
-              "url": "data:image/jpeg;base64," & b64
-            }
-          }
+  let request = ChatRequest(
+    model: "allenai/olmOCR-2-7B-1025",
+    max_tokens: 4092,
+    messages: @[
+      ChatMessage(
+        role: "user",
+        content: @[
+          ContentItem(
+            `type`: "text",
+            image_url: none(ImageUrl),
+            text: some("Extract the text exactly as UTF-8. Return only plain text (no JSON, no markup) and do not include any NUL characters.")
+          ),
+          ContentItem(
+            `type`: "image_url",
+            image_url: some(ImageUrl(url: "data:image/jpeg;base64," & b64)),
+            text: none(string)
+          )
         ]
-      }
+      )
     ]
-  }
-  $payload
+  )
+  toJsonString(request)
 
 proc parseOcrText(body: string): tuple[ok: bool, text: string, err: string] =
   try:
-    let node = parseJson(body)
-    if node.kind == JObject:
-      if node.hasKey("choices") and node["choices"].kind == JArray and node["choices"].len > 0:
-        let choice = node["choices"][0]
-        if choice.kind == JObject and choice.hasKey("message"):
-          let message = choice["message"]
-          if message.kind == JObject and message.hasKey("content") and message["content"].kind == JString:
-            return (true, message["content"].getStr(), "")
-      if node.hasKey("text") and node["text"].kind == JString:
-        return (true, node["text"].getStr(), "")
-      if node.hasKey("output") and node["output"].kind == JString:
-        return (true, node["output"].getStr(), "")
-      if node.hasKey("results") and node["results"].kind == JArray and node["results"].len > 0:
-        let first = node["results"][0]
-        if first.kind == JObject and first.hasKey("text") and first["text"].kind == JString:
-          return (true, first["text"].getStr(), "")
-        if first.kind == JObject and first.hasKey("generated_text") and first["generated_text"].kind == JString:
-          return (true, first["generated_text"].getStr(), "")
+    let s = newStringStream(body)
+    let resp = s.jsonTo(ChatResponse)
+    if resp.choices.len == 0:
+      return (false, "", "missing choices")
+    let message = resp.choices[0].message
+    if message.content.len > 0:
+      return (true, message.content, "")
   except CatchableError as err:
     return (false, "", err.msg)
   (false, "", "missing expected text field")
