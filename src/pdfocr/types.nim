@@ -59,3 +59,11 @@ type
     successCount*: int
     failureCount*: int
     totalCount*: int
+
+proc `$`*(res: Result): string =
+  $res.status & " page_id=" & $res.pageId &
+    " page_number=" & $res.pageNumberUser &
+    " error_kind=" & $res.errorKind &
+    " http_status=" & $res.httpStatus &
+    " attempts=" & $res.attemptCount &
+    " message=" & res.errorMessage

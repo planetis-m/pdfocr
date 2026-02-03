@@ -62,9 +62,7 @@ proc runOutputWriter*(ctx: OutputContext) {.thread.} =
         seen[res.pageId] = true
         receivedCount.inc
     if res.status == rsFailure:
-      logError(&"page failed page_id={res.pageId} page_number={res.pageNumberUser} " &
-               &"error_kind={res.errorKind} http_status={res.httpStatus} " &
-               &"attempts={res.attemptCount} message={res.errorMessage}")
+      logError("page failed " & $res)
     manifest.pages.add(PageSummary(
       pageId: res.pageId,
       pageNumberUser: res.pageNumberUser,
