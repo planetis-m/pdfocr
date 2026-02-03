@@ -1,6 +1,6 @@
-import std/[algorithm, json, os, tables, monotimes]
+import std/[algorithm, json, os, strformat, tables, monotimes]
 import threading/channels
-import ./[config, output_format, types]
+import ./[config, logging, output_format, types]
 
 type
   OutputContext* = object
@@ -48,8 +48,19 @@ proc runOutputWriter*(ctx: OutputContext) {.thread.} =
 
   var pendingOrdered = initTable[int, Result]()
   var nextExpected = 0
+  let expectedTotal = max(0, ctx.pageEndUser - ctx.pageStartUser + 1)
+  var seen = newSeq[bool](expectedTotal)
+  var receivedCount = 0
 
   proc recordResult(res: Result) =
+    if res.pageId < 0 or res.pageId >= expectedTotal:
+      logError(&"result out of range page_id={res.pageId} expected=0..{expectedTotal - 1}")
+    else:
+      if seen[res.pageId]:
+        logError(&"duplicate result for page_id={res.pageId}")
+      else:
+        seen[res.pageId] = true
+        receivedCount.inc
     manifest.pages.add(PageSummary(
       pageId: res.pageId,
       pageNumberUser: res.pageNumberUser,
@@ -101,6 +112,12 @@ proc runOutputWriter*(ctx: OutputContext) {.thread.} =
 
   if ctx.config.outputFormat == ofJsonl:
     close(jsonlFile)
+
+  if receivedCount != expectedTotal:
+    let missing = expectedTotal - receivedCount
+    if missing > 0:
+      logError(&"missing results count={missing} expected={expectedTotal} received={receivedCount}")
+      summary.failureCount.inc(missing)
 
   manifest.finishedAtUnixMs = nowUnixMs()
   let manifestNode = manifestToJson(manifest)

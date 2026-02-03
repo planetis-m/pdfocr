@@ -27,6 +27,11 @@ type
 proc `<`(a, b: RetryItem): bool =
   a.due < b.due
 
+proc responseExcerpt(body: string; limit: int = 200): string =
+  if body.len <= limit:
+    return body
+  body[0 ..< limit] & "..."
+
 proc writeCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer): csize_t {.cdecl.} =
   let total = int(size * nitems)
   if total <= 0:
@@ -73,7 +78,7 @@ proc parseOcrText(body: string): tuple[ok: bool, text: string, err: string] =
     return (false, "", err.msg)
   (false, "", "missing expected text field")
 
-proc computeBackoffMs(attempt: int; baseMs: int; maxMs: int): int =
+proc computeBackoffMs*(attempt: int; baseMs: int; maxMs: int): int =
   if attempt <= 0:
     return baseMs
   var delay = baseMs shl (attempt - 1)
@@ -97,6 +102,19 @@ proc flushPending(ctx: NetworkContext; pending: var seq[OutputMessage]) =
       pending.setLen(0)
     else:
       pending = pending[idx..^1]
+
+proc refillReservoir*(reservoir: var Deque[Task]; inputChan: Chan[InputMessage];
+                      lowWater: int; highWater: int; inputDone: var bool) =
+  if reservoir.len >= lowWater:
+    return
+  var msg: InputMessage
+  while reservoir.len < highWater and inputChan.tryRecv(msg):
+    case msg.kind
+    of imTaskBatch:
+      for task in msg.tasks:
+        reservoir.addLast(task)
+    of imInputDone:
+      inputDone = true
 
 proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
   randomize()
@@ -123,18 +141,6 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
   var delayed = initHeapQueue[RetryItem]()
   var pendingResults: seq[OutputMessage] = @[]
   var inputDone = false
-
-  proc refillReservoir() =
-    if reservoir.len >= ctx.config.lowWater:
-      return
-    var msg: InputMessage
-    while reservoir.len < ctx.config.highWater and ctx.inputChan.tryRecv(msg):
-      case msg.kind
-      of imTaskBatch:
-        for task in msg.tasks:
-          reservoir.addLast(task)
-      of imInputDone:
-        inputDone = true
 
   proc scheduleRetry(task: Task; attempt: int) =
     let delayMs = computeBackoffMs(attempt, ctx.config.retryBaseDelayMs, ctx.config.retryMaxDelayMs)
@@ -199,7 +205,7 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
         errorKind = ekTimeout
       else:
         errorKind = ekNetworkError
-      errorMsg = "curl error"
+      errorMsg = &"curl error {int(code)}"
     else:
       if httpStatus >= 200 and httpStatus < 300:
         let parsed = parseOcrText(stateRef.response)
@@ -251,6 +257,9 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
         errorMsg = "http 4xx"
 
     if retryable:
+      let excerpt = responseExcerpt(stateRef.response)
+      logWarn(&"retry page={stateRef.task.pageId} attempt={stateRef.attempt} http={httpStatus} " &
+              &"reason={errorMsg} body='{excerpt}'")
       if stateRef.attempt >= ctx.config.maxRetries:
         enqueueResult(ctx, pendingResults, OutputMessage(
           kind: omPageResult,
@@ -271,6 +280,9 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
         let nextAttempt = stateRef.attempt + 1
         scheduleRetry(stateRef.task, nextAttempt)
     else:
+      let excerpt = responseExcerpt(stateRef.response)
+      logError(&"failed page={stateRef.task.pageId} attempt={stateRef.attempt} http={httpStatus} " &
+               &"reason={errorMsg} body='{excerpt}'")
       enqueueResult(ctx, pendingResults, OutputMessage(
         kind: omPageResult,
         result: Result(
@@ -300,9 +312,11 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
 
   var msg: CURLMsg
   var msgsInQueue = 0
+  var lastProgress = getMonoTime()
+  var completed = 0
 
   while true:
-    refillReservoir()
+    refillReservoir(reservoir, ctx.inputChan, ctx.config.lowWater, ctx.config.highWater, inputDone)
     drainDueRetries()
     dispatchTasks()
     flushPending(ctx, pendingResults)
@@ -330,6 +344,13 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
       multi.removeHandle(easy)
       easy.reset()
       freeHandles.add(easy)
+      completed.inc
+
+    let now = getMonoTime()
+    if now - lastProgress >= initDuration(seconds = 5):
+      logInfo(&"progress completed={completed} inflight={inflight.len} " &
+              &"reservoir={reservoir.len} retryQueue={delayed.len} pendingResults={pendingResults.len}")
+      lastProgress = now
 
     if inputDone and reservoir.len == 0 and delayed.len == 0 and inflight.len == 0 and pendingResults.len == 0:
       break
