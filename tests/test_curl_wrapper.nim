@@ -8,6 +8,7 @@ proc main() =
 
   var easy = initEasy()
   var headers: CurlSlist
+  var multi = initMulti()
 
   setUrl(easy, "https://example.com")
   setPostFields(easy, "{\"ok\":true}")
@@ -20,7 +21,14 @@ proc main() =
   addHeader(headers, "Content-Type: application/json")
   setHeaders(easy, headers)
 
+  addHandle(multi, easy)
+  discard poll(multi, 0)
+  var msgsInQueue = 0
+  discard infoRead(multi, msgsInQueue)
+  removeHandle(multi, easy)
+
   free(headers)
+  close(multi)
   close(easy)
   cleanupCurlGlobal()
 

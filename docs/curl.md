@@ -22,6 +22,13 @@ CurlSlist = object
 ```
 Represents a list of HTTP headers.
 
+### CurlMulti
+```nim
+CurlMulti = object
+  raw*: CURLM
+```
+Represents a multi handle for multiplexing multiple easy handles.
+
 ## Procedures
 
 ### Global Initialization
@@ -42,6 +49,20 @@ proc cleanupCurlGlobal() {.raises: [], tags: [], forbids: [].}
 ```
 Cleans up global libcurl resources.
 
+### Error Handling
+
+#### `checkCurl()`
+```nim
+proc checkCurl(code: CURLcode; context: string) {.raises: [IOError], tags: [], forbids: [].}
+```
+Checks a CURLcode and raises an IOError if it indicates an error.
+
+#### `checkCurlMulti()`
+```nim
+proc checkCurlMulti(code: CURLMcode; context: string) {.raises: [IOError], tags: [], forbids: [].}
+```
+Checks a CURLMcode and raises an IOError if it indicates an error.
+
 ### Easy Handle Management
 
 #### `initEasy()`
@@ -58,6 +79,50 @@ Creates a new easy handle for making HTTP requests.
 proc close(easy: var CurlEasy) {.raises: [], tags: [], forbids: [].}
 ```
 Closes and cleans up an easy handle.
+
+### Multi Handle Management
+
+#### `initMulti()`
+```nim
+proc initMulti(): CurlMulti {.raises: [IOError], tags: [], forbids: [].}
+```
+Creates a new multi handle for managing concurrent easy handles.
+
+#### `close()`
+```nim
+proc close(multi: var CurlMulti) {.raises: [IOError], tags: [], forbids: [].}
+```
+Closes and cleans up a multi handle.
+
+#### `addHandle()`
+```nim
+proc addHandle(multi: var CurlMulti; easy: CurlEasy) {.raises: [IOError], tags: [], forbids: [].}
+```
+Adds an easy handle to a multi handle.
+
+#### `removeHandle()`
+```nim
+proc removeHandle(multi: var CurlMulti; easy: CurlEasy) {.raises: [IOError], tags: [], forbids: [].}
+```
+Removes an easy handle from a multi handle.
+
+#### `perform()`
+```nim
+proc perform(multi: var CurlMulti): int {.raises: [IOError], tags: [], forbids: [].}
+```
+Performs transfers on all added handles and returns the number of running handles.
+
+#### `poll()`
+```nim
+proc poll(multi: var CurlMulti; timeoutMs: int): int {.raises: [IOError], tags: [], forbids: [].}
+```
+Waits for activity and returns the number of file descriptors with activity.
+
+#### `infoRead()`
+```nim
+proc infoRead(multi: var CurlMulti; msgsInQueue: var int): ptr CURLMsg {.raises: [], tags: [], forbids: [].}
+```
+Reads completed transfer messages and updates `msgsInQueue`.
 
 ### Request Configuration
 
@@ -149,18 +214,6 @@ proc free(list: var CurlSlist) {.raises: [], tags: [], forbids: [].}
 ```
 Frees the header list and its resources.
 
-## Error Handling
-
-### `checkCurl()`
-```nim
-proc checkCurl(code: CURLcode; context: string) {.raises: [IOError], tags: [], forbids: [].}
-```
-Checks a CURLcode and raises an IOError if it indicates an error.
-
-- **Parameters:**
-  - `code`: The CURLcode to check
-  - `context`: Context description for error messages
-
 ## Usage Example
 
 ```nim
@@ -168,6 +221,7 @@ Checks a CURLcode and raises an IOError if it indicates an error.
 initCurlGlobal()
 
 var easy = initEasy()
+var multi = initMulti()
 easy.setUrl("https://example.com")
 easy.setTimeoutMs(5000)
 
@@ -176,12 +230,16 @@ var headers: CurlSlist
 headers.addHeader("Content-Type: application/json")
 easy.setHeaders(headers)
 
-# Perform request
+# Add to multi and poll
+multi.addHandle(easy)
+discard multi.poll(0)
 easy.perform()
 let code = easy.responseCode()
+multi.removeHandle(easy)
 
 # Cleanup
 easy.close()
+multi.close()
 headers.free()
 cleanupCurlGlobal()
 ```
