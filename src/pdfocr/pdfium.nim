@@ -128,16 +128,17 @@ proc stride*(bitmap: PdfBitmap): int =
 
 proc extractText*(page: PdfPage): string =
   var textPage = loadTextPage(page)
-  defer: close(textPage)
+  try:
+    let count = FPDFText_CountChars(textPage.raw)
+    if count <= 0:
+      return ""
 
-  let count = FPDFText_CountChars(textPage.raw)
-  if count <= 0:
-    return ""
-
-  # Pdfium expects buffer size including the null terminator.
-  var wStr = newWideCString(count + 1)
-  discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
-  result = $wStr
+    # Pdfium expects buffer size including the null terminator.
+    var wStr = newWideCString(count + 1)
+    discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
+    result = $wStr
+  finally:
+    close(textPage)
 
 proc charCount*(textPage: PdfTextPage): int =
   int(FPDFText_CountChars(textPage.raw))

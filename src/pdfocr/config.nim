@@ -43,26 +43,33 @@ const
   DefaultMaxQueuedImageBytes* = 0
 
 proc defaultConfig*(seed: Config = Config()): Config =
-  let maxInflight = if seed.maxInflight > 0: seed.maxInflight else: DefaultMaxInflight
-  let highWater = if seed.highWater > 0: seed.highWater else: maxInflight * DefaultHighWaterMultiplier
-  let lowWater = if seed.lowWater > 0: seed.lowWater else: maxInflight * DefaultLowWaterMultiplier
-  let producerBatch = if seed.producerBatch > 0: seed.producerBatch else: highWater - lowWater
+  template pickPos(val, fallback: untyped): untyped =
+    (if val > 0: val else: fallback)
+  template pickOrdering(val: OrderingMode): OrderingMode =
+    (if val != omInputOrder: val else: DefaultOrderingMode)
+  template pickOutput(val: OutputFormat): OutputFormat =
+    (if val != ofJsonl: val else: DefaultOutputFormat)
+
+  let maxInflight = pickPos(seed.maxInflight, DefaultMaxInflight)
+  let highWater = pickPos(seed.highWater, maxInflight * DefaultHighWaterMultiplier)
+  let lowWater = pickPos(seed.lowWater, maxInflight * DefaultLowWaterMultiplier)
+  let producerBatch = pickPos(seed.producerBatch, highWater - lowWater)
   result = Config(
     maxInflight: maxInflight,
     highWater: highWater,
     lowWater: lowWater,
     producerBatch: producerBatch,
-    connectTimeoutMs: if seed.connectTimeoutMs > 0: seed.connectTimeoutMs else: DefaultConnectTimeoutMs,
-    totalTimeoutMs: if seed.totalTimeoutMs > 0: seed.totalTimeoutMs else: DefaultTotalTimeoutMs,
-    maxRetries: if seed.maxRetries > 0: seed.maxRetries else: DefaultMaxRetries,
-    retryBaseDelayMs: if seed.retryBaseDelayMs > 0: seed.retryBaseDelayMs else: DefaultRetryBaseDelayMs,
-    retryMaxDelayMs: if seed.retryMaxDelayMs > 0: seed.retryMaxDelayMs else: DefaultRetryMaxDelayMs,
-    multiWaitMaxMs: if seed.multiWaitMaxMs > 0: seed.multiWaitMaxMs else: DefaultMultiWaitMaxMs,
-    renderDpi: if seed.renderDpi > 0: seed.renderDpi else: DefaultRenderDpi,
-    renderScale: if seed.renderScale > 0: seed.renderScale else: DefaultRenderScale,
-    jpegQuality: if seed.jpegQuality > 0: seed.jpegQuality else: DefaultJpegQuality,
-    orderingMode: if seed.orderingMode != low(OrderingMode): seed.orderingMode else: DefaultOrderingMode,
-    outputFormat: if seed.outputFormat != low(OutputFormat): seed.outputFormat else: DefaultOutputFormat,
+    connectTimeoutMs: pickPos(seed.connectTimeoutMs, DefaultConnectTimeoutMs),
+    totalTimeoutMs: pickPos(seed.totalTimeoutMs, DefaultTotalTimeoutMs),
+    maxRetries: pickPos(seed.maxRetries, DefaultMaxRetries),
+    retryBaseDelayMs: pickPos(seed.retryBaseDelayMs, DefaultRetryBaseDelayMs),
+    retryMaxDelayMs: pickPos(seed.retryMaxDelayMs, DefaultRetryMaxDelayMs),
+    multiWaitMaxMs: pickPos(seed.multiWaitMaxMs, DefaultMultiWaitMaxMs),
+    renderDpi: pickPos(seed.renderDpi, DefaultRenderDpi),
+    renderScale: pickPos(seed.renderScale, DefaultRenderScale),
+    jpegQuality: pickPos(seed.jpegQuality, DefaultJpegQuality),
+    orderingMode: pickOrdering(seed.orderingMode),
+    outputFormat: pickOutput(seed.outputFormat),
     maxQueuedImageBytes: seed.maxQueuedImageBytes
   )
 
