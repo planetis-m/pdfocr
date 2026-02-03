@@ -1,5 +1,6 @@
 # config.nims for src/
 # This file configures Nim compiler options for the main application
+import mimalloc/config
 
 # threading/channels requires ARC/ORC.
 switch("mm", "arc")

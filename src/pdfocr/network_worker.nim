@@ -54,9 +54,24 @@ proc buildRequestBody(task: Task): string =
   let b64 = base64FromBytes(task.jpegBytes)
   let payload = %*{
     "model": "allenai/olmOCR-2-7B-1025",
-    "input": %*{
-      "image": "data:image/jpeg;base64," & b64
-    }
+    "max_tokens": 4092,
+    "messages": [
+      %*{
+        "role": "user",
+        "content": [
+          %*{
+            "type": "text",
+            "text": "Extract the text exactly as UTF-8. Return only plain text (no JSON, no markup) and do not include any NUL characters."
+          },
+          %*{
+            "type": "image_url",
+            "image_url": %*{
+              "url": "data:image/jpeg;base64," & b64
+            }
+          }
+        ]
+      }
+    ]
   }
   $payload
 
@@ -64,6 +79,12 @@ proc parseOcrText(body: string): tuple[ok: bool, text: string, err: string] =
   try:
     let node = parseJson(body)
     if node.kind == JObject:
+      if node.hasKey("choices") and node["choices"].kind == JArray and node["choices"].len > 0:
+        let choice = node["choices"][0]
+        if choice.kind == JObject and choice.hasKey("message"):
+          let message = choice["message"]
+          if message.kind == JObject and message.hasKey("content") and message["content"].kind == JString:
+            return (true, message["content"].getStr(), "")
       if node.hasKey("text") and node["text"].kind == JString:
         return (true, node["text"].getStr(), "")
       if node.hasKey("output") and node["output"].kind == JString:
@@ -169,7 +190,7 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
       easy.reset()
       easy.setSslVerify(true, true)
       easy.setAcceptEncoding("gzip, deflate")
-      easy.setUrl("https://api.deepinfra.com/v1/inference/allenai/olmOCR-2-7B-1025")
+      easy.setUrl("https://api.deepinfra.com/v1/openai/chat/completions")
       easy.setHeaders(state.headers)
       easy.setConnectTimeoutMs(ctx.config.connectTimeoutMs)
       easy.setTimeoutMs(ctx.config.totalTimeoutMs)
