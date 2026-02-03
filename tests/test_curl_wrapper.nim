@@ -24,7 +24,8 @@ proc main() =
   addHandle(multi, easy)
   discard poll(multi, 0)
   var msgsInQueue = 0
-  discard infoRead(multi, msgsInQueue)
+  var msg: CURLMsg
+  discard tryInfoRead(multi, msg, msgsInQueue)
   removeHandle(multi, easy)
 
   free(headers)

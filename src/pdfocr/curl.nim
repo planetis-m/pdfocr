@@ -73,10 +73,14 @@ proc poll*(multi: var CurlMulti; timeoutMs: int): int =
   )
   int(numfds)
 
-proc infoRead*(multi: var CurlMulti; msgsInQueue: var int): ptr CURLMsg =
+proc tryInfoRead*(multi: var CurlMulti; msg: var CURLMsg; msgsInQueue: var int): bool =
   var queue: cint
-  result = curl_multi_info_read(multi.raw, addr queue)
+  let msgPtr = curl_multi_info_read(multi.raw, addr queue)
   msgsInQueue = int(queue)
+  if msgPtr.isNil:
+    return false
+  msg = msgPtr[]
+  true
 
 proc setUrl*(easy: var CurlEasy; url: string) =
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_URL, url.cstring), "CURLOPT_URL failed")

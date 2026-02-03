@@ -118,11 +118,11 @@ proc poll(multi: var CurlMulti; timeoutMs: int): int {.raises: [IOError], tags: 
 ```
 Waits for activity and returns the number of file descriptors with activity.
 
-#### `infoRead()`
+#### `tryInfoRead()`
 ```nim
-proc infoRead(multi: var CurlMulti; msgsInQueue: var int): ptr CURLMsg {.raises: [], tags: [], forbids: [].}
+proc tryInfoRead(multi: var CurlMulti; msg: var CURLMsg; msgsInQueue: var int): bool {.raises: [], tags: [], forbids: [].}
 ```
-Reads completed transfer messages and updates `msgsInQueue`.
+Reads a completed transfer message into `msg`, updates `msgsInQueue`, and returns `true` if a message was read.
 
 ### Request Configuration
 
@@ -233,6 +233,10 @@ easy.setHeaders(headers)
 # Add to multi and poll
 multi.addHandle(easy)
 discard multi.poll(0)
+var msgs = 0
+var msg: CURLMsg
+while multi.tryInfoRead(msg, msgs):
+  discard msg
 easy.perform()
 let code = easy.responseCode()
 multi.removeHandle(easy)
