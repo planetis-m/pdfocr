@@ -23,17 +23,17 @@ proc lastErrorCode*(): culong =
 
 proc raisePdfiumError*(context: string) {.noinline.} =
   let code = lastErrorCode()
-  var detail = "unknown"
-  case code
-  of 0: detail = "no error"
-  of 1: detail = "unknown error"
-  of 2: detail = "file not found or could not be opened"
-  of 3: detail = "file not in PDF format or corrupted"
-  of 4: detail = "password required or incorrect password"
-  of 5: detail = "unsupported security scheme"
-  of 6: detail = "page not found or content error"
-  of 1001: detail = "operation blocked by license restrictions"
-  else: discard
+  let detail =
+    case code
+    of 0: "no error"
+    of 1: "unknown error"
+    of 2: "file not found or could not be opened"
+    of 3: "file not in PDF format or corrupted"
+    of 4: "password required or incorrect password"
+    of 5: "unsupported security scheme"
+    of 6: "page not found or content error"
+    of 1001: "operation blocked by license restrictions"
+    else: "unknown"
   raise newException(IOError, &"{context}: {detail} (code {code})")
 
 proc initPdfium*() =
@@ -50,8 +50,7 @@ proc destroyPdfium*() =
   FPDF_DestroyLibrary()
 
 proc loadDocument*(path: string; password: string = ""): PdfDocument =
-  let passPtr = if password.len == 0: nil else: password.cstring
-  result.raw = FPDF_LoadDocument(path.cstring, passPtr)
+  result.raw = FPDF_LoadDocument(path.cstring, cstring(password))
   if pointer(result.raw) == nil:
     raisePdfiumError("FPDF_LoadDocument failed")
 
@@ -87,7 +86,7 @@ proc pageSize*(page: PdfPage): tuple[width, height: float] =
   (float(FPDF_GetPageWidth(page.raw)), float(FPDF_GetPageHeight(page.raw)))
 
 proc createBitmap*(width, height: int; alpha: bool = false): PdfBitmap =
-  result.raw = FPDFBitmap_Create(width.cint, height.cint, if alpha: 1 else: 0)
+  result.raw = FPDFBitmap_Create(width.cint, height.cint, alpha.cint)
   result.width = width
   result.height = height
   if pointer(result.raw) == nil:
@@ -134,7 +133,7 @@ proc extractText*(page: PdfPage): string =
       return ""
 
     # Pdfium expects buffer size including the null terminator.
-    var wStr = newWideCString(count + 1)
+    var wStr = newWideCString(count)
     discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
     result = $wStr
   finally:
@@ -147,7 +146,7 @@ proc getTextRange*(textPage: PdfTextPage; startIndex, count: int): string =
   if count <= 0:
     return ""
   # Pdfium expects buffer size including the null terminator.
-  var wStr = newWideCString(count + 1)
+  var wStr = newWideCString(count)
   discard FPDFText_GetText(textPage.raw, startIndex.cint, count.cint, cast[ptr uint16](toWideCString(wStr)))
   result = $wStr
 

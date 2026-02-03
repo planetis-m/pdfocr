@@ -192,9 +192,10 @@ If a macro depends on `sizeof` or expressions with side effects, prefer a Nim te
 
 **Raw signatures must match C exactly.**
 
-### Example: create/destroy
+### Example: create/destroy (Automatic Resource Management)
 
 C:
+
 ```c
 typedef struct LIB_Handle LIB_Handle;
 LIB_Handle* LIB_Create(int width, int height);
@@ -202,6 +203,7 @@ void LIB_Destroy(LIB_Handle* h);
 ```
 
 Raw Nim:
+
 ```nim
 type
   LibHandle* {.importc: "LIB_Handle".} = object
@@ -212,21 +214,29 @@ proc libDestroy*(h: ptr LibHandle)
   {.importc: "LIB_Destroy", cdecl.}
 ```
 
-Ergonomic Nim:
+Ergonomic Nim (Move-Only):
+
 ```nim
 type
   Handle* = object
-    raw*: ptr LibHandle
+    raw: ptr LibHandle
+
+proc `=destroy`(h: Handle) =
+  if h.raw != nil:
+    libDestroy(h.raw)
+
+proc `=wasMoved`(h: var Handle) = h.raw = nil
+
+proc `=sink`(dest: var Handle; src: Handle) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+
+proc `=copy`(dest: var Handle; src: Handle) {.error: "Handle cannot be copied".}
 
 proc initHandle*(width, height: int): Handle =
   result.raw = libCreate(cint width, cint height)
   if result.raw.isNil:
     raise newException(ValueError, "Failed to create handle")
-
-proc destroy*(h: var Handle) =
-  if not h.raw.isNil:
-    libDestroy(h.raw)
-    h.raw = nil
 ```
 
 ### Example: in/out parameters
@@ -318,22 +328,13 @@ proc setLogCallback*(fn: LibLogFn; userdata: pointer) =
 
 **Define ownership clearly:**
 
-- **Borrowed**: C owns memory, caller must not free.
-- **Owned**: Nim wrapper takes responsibility to free.
+* **Owned (Move-Only)**: Use the destructor pattern. The Nim object "owns" the C pointer. Use `ensureMove` to transfer ownership.
+* **Borrowed**: C owns memory; caller must not free. Return a raw `ptr` or thin wrapper without a `=destroy` hook.
 
-**Copy when needed:**
+**When to use `{.error.}` on `=copy` hook:**
 
-- Convert `cstring` output to Nim `string` if C may free/modify the buffer.
-
-**Resource management patterns:**
-
-- Explicit `destroy`/`free` procs.
-- Optional RAII-like wrappers if C rules are stable and thread-safe.
-
-**Avoid leaks and double-free:**
-
-- Set pointers to `nil` after freeing.
-- Don’t free memory you did not allocate.
+* **No C Copy Mechanism**: Because the C library offers no way to copy the object, the wrapper does not offer it either.
+* **Pointer Stability**: To prevent multiple Nim objects from managing the same C pointer, which causes double-free crashes.
 
 ---
 
@@ -363,10 +364,10 @@ Keep error behavior predictable and testable.
 
 ## 11. Testing & Verification Checklist
 
-- **Compile check**: ensure Nim compiles with the library headers.
-- **Link check**: confirm the library links (static or dynamic).
+* **Compile check**: Ensure Nim compiles with library headers.
+* **Link check**: Confirm library links (static or dynamic).
 - **Smoke test**: call one simple function.
-- **ABI checks**: `sizeof`, `alignof`, field offsets if possible.
+* **ABI checks**: `sizeof`, `alignof`, field offsets.
 - **Runtime checks**: verify ownership rules and callback invocation.
 
 **Common failure symptoms:**
@@ -441,15 +442,17 @@ proc read*(h: Handle; buf: var openArray[byte]): int =
   int rc
 ```
 
-### C. Create / destroy resource
+### C. Create / destroy resource (Move-Only)
 
 C:
+
 ```c
 LIB_Handle* LIB_Open(const char* path);
 void LIB_Close(LIB_Handle* h);
 ```
 
 Raw Nim:
+
 ```nim
 proc libOpen*(path: cstring): ptr LibHandle
   {.importc: "LIB_Open", cdecl.}
@@ -458,19 +461,68 @@ proc libClose*(h: ptr LibHandle)
 ```
 
 Ergonomic Nim:
+
 ```nim
+type
+  Handle* = object
+    raw: ptr LibHandle
+
+proc `=destroy`(h: Handle) =
+  if h.raw != nil:
+    libClose(h.raw)
+
+proc `=wasMoved`(h: var Handle) =
+  h.raw = nil
+
+proc `=sink`(dest: var Handle; src: Handle) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+
+proc `=copy`(dest: var Handle; src: Handle) {.error: "Use move() or ensureMove()".}
+
 proc open*(path: string): Handle =
   result.raw = libOpen(path.cstring)
   if result.raw.isNil:
     raise newException(IOError, "open failed")
-
-proc close*(h: var Handle) =
-  if not h.raw.isNil:
-    libClose(h.raw)
-    h.raw = nil
 ```
 
-### D. Callback registration
+### D. Reference Counted Resource (Alternative)
+
+If the resource should be copyable (shared ownership), use the RC pattern instead of `.error`:
+
+```nim
+type
+  Asset* = object
+    raw: ptr LibAsset
+    rc: ptr int
+
+proc `=destroy`(a: Asset) =
+  if a.raw != nil:
+    if a.rc[] == 0:
+      libFreeAsset(a.raw)
+      dealloc(a.rc)
+    else: dec a.rc[]
+
+proc `=copy`(dest: var Asset; src: Asset) =
+  if src.raw != nil: inc src.rc[]
+  `=destroy`(dest)
+  dest.raw = src.raw
+  dest.rc = src.rc
+
+proc `=sink`(dest: var Asset; src: Asset) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+  dest.rc = src.rc
+
+proc `=wasMoved`(a: var Asset) =
+  a.raw = nil
+  a.rc = nil
+
+proc loadAsset*(path: string): Asset =
+  Asset(raw: libLoad(path.cstring), rc: cast[ptr int](alloc0(sizeof(int))))
+```
+
+### E. Callback registration
 
 C:
 ```c
