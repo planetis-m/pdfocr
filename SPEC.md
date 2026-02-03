@@ -69,7 +69,7 @@ The output MUST include:
 The system is a **three-stage pipeline** with bounded queues:
 
 1. **Producer Stage (Render/Encode)**  
-   Reads PDF pages using MuPDF, renders each selected page, encodes to JPEG, and packages page tasks.
+   Reads PDF pages using PDFium, renders each selected page, encodes to JPEG, and packages page tasks.
 
 2. **Network Worker Stage (OCR Requests)**  
    A dedicated thread drives `libcurl` multi interface (`curl_multi_*`) to execute concurrent HTTP requests to DeepInfra. It maintains stable concurrency using an internal task reservoir and watermark-based refilling.
@@ -78,7 +78,7 @@ The system is a **three-stage pipeline** with bounded queues:
    A dedicated thread writes results to disk and optionally enforces ordering.
 
 ### 5.1 Thread Ownership and Responsibilities
-- The **producer thread** owns MuPDF objects and image encoding resources.
+- The **producer thread** owns PDFium objects and image encoding resources.
 - The **network worker thread** exclusively owns:
   - `CURLM*` multi handle
   - pool of `CURL*` easy handles
@@ -168,7 +168,7 @@ A `Task` represents a single page OCR request:
 ## 8. Producer Stage: Rendering and Encoding
 
 ### 8.1 Requirements
-1. Open PDF with MuPDF.
+1. Open PDF with PDFium.
 2. Validate page range.
 3. For each page in range:
    - Render page to pixmap at configured resolution (DPI or scale).
@@ -408,4 +408,3 @@ An implementation satisfies this specification if:
 4. HTTP 429 and transient failures trigger exponential backoff retries with jitter and a retry cap.
 5. Memory does not grow unbounded with document size; backpressure is demonstrably effective.
 6. Shutdown completes deterministically with correct exit status and a complete output set (success or failure recorded for every selected page).
-
