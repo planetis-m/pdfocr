@@ -6,7 +6,6 @@ const
 
 type
   Rect* = tuple[x0, y0, x1, y1: float]
-  Point = tuple[x, y: float]
 
   LAParams* = object
     lineOverlap*: float
@@ -47,14 +46,6 @@ type
     lastY0: float
     index: int
     uniqueId: int  # Unique identifier for heap ordering
-
-  # Plane: A grid-based spatial index for efficient rectangular range queries
-  Plane = object
-    seqOrder: seq[int]       # preserve object order (indices into items)
-    objs: HashSet[int]       # active objects (indices into items)
-    grid: Table[Point, seq[int]]  # grid cells mapping to object indices
-    gridsize: int
-    x0, y0, x1, y1: float
 
   # Priority queue element for hierarchical grouping
   DistElement = object
@@ -123,110 +114,6 @@ proc hOverlap(a, b: Rect): float =
 
 proc vOverlap(a, b: Rect): float =
   if isVoverlap(a, b): min(abs(a.y0 - b.y1), abs(a.y1 - b.y0)) else: 0.0
-
-# ============================================================================
-# Plane implementation (grid-based spatial index)
-# ============================================================================
-
-proc drange(start, stop: float; step: int): iterator(): float =
-  ## Generates float values from start to stop with integer step
-  result = iterator(): float =
-    var v = start
-    let stepF = step.float
-    while v < stop:
-      yield v
-      v += stepF
-
-proc newPlane(bbox: Rect; gridsize: int = 50): Plane =
-  Plane(
-    seqOrder: @[],
-    objs: initHashSet[int](),
-    grid: initTable[Point, seq[int]](),
-    gridsize: gridsize,
-    x0: bbox.x0,
-    y0: bbox.y0,
-    x1: bbox.x1,
-    y1: bbox.y1
-  )
-
-proc getRange(plane: Plane; bbox: Rect): seq[Point] =
-  ## Get grid cells that overlap with the given bbox
-  result = @[]
-  let (x0, y0, x1, y1) = bbox
-  # Check if bbox is completely outside plane
-  if x1 <= plane.x0 or plane.x1 <= x0 or y1 <= plane.y0 or plane.y1 <= y0:
-    return
-  # Clamp to plane bounds
-  let clampedX0 = max(plane.x0, x0)
-  let clampedY0 = max(plane.y0, y0)
-  let clampedX1 = min(plane.x1, x1)
-  let clampedY1 = min(plane.y1, y1)
-  # Generate grid points
-  var gridY = clampedY0
-  while gridY < clampedY1:
-    var gridX = clampedX0
-    while gridX < clampedX1:
-      result.add((gridX, gridY))
-      gridX += plane.gridsize.float
-    gridY += plane.gridsize.float
-
-proc add(plane: var Plane; idx: int; items: seq[Item]) =
-  ## Add an object to the plane
-  let bbox = items[idx].bbox
-  for k in getRange(plane, bbox):
-    if k notin plane.grid:
-      plane.grid[k] = @[]
-    plane.grid[k].add(idx)
-  plane.seqOrder.add(idx)
-  plane.objs.incl(idx)
-
-proc remove(plane: var Plane; idx: int; items: seq[Item]) =
-  ## Remove an object from the plane
-  let bbox = items[idx].bbox
-  for k in getRange(plane, bbox):
-    if k in plane.grid:
-      let pos = plane.grid[k].find(idx)
-      if pos >= 0:
-        plane.grid[k].delete(pos)
-  plane.objs.excl(idx)
-
-proc extend(plane: var Plane; indices: seq[int]; items: seq[Item]) =
-  ## Add multiple objects to the plane
-  for idx in indices:
-    plane.add(idx, items)
-
-proc find(plane: Plane; bbox: Rect; items: seq[Item]): seq[int] =
-  ## Find objects that overlap with the given bbox
-  result = @[]
-  let (x0, y0, x1, y1) = bbox
-  var done = initHashSet[int]()
-  for k in getRange(plane, bbox):
-    if k notin plane.grid:
-      continue
-    for idx in plane.grid[k]:
-      if idx in done:
-        continue
-      done.incl(idx)
-      # Check if object is still active
-      if idx notin plane.objs:
-        continue
-      # Check for actual overlap (not just grid cell overlap)
-      let obj = items[idx].bbox
-      if obj.x1 <= x0 or x1 <= obj.x0 or obj.y1 <= y0 or y1 <= obj.y0:
-        continue
-      result.add(idx)
-
-iterator iterate(plane: Plane): int =
-  ## Iterate over active objects in insertion order
-  for idx in plane.seqOrder:
-    if idx in plane.objs:
-      yield idx
-
-proc contains(plane: Plane; idx: int): bool =
-  idx in plane.objs
-
-proc len(plane: Plane): int =
-  plane.objs.len
 
 # ============================================================================
 # Item constructors and helpers
@@ -607,7 +494,7 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
     idToIdx[items[groupIdx].uniqueId] = groupIdx
     
     # Add distances from new group to all other active items in the plane
-    for otherIdx in plane.iterate():
+    for otherIdx in plane.items:
       if otherIdx != groupIdx:
         let dist = boxDistance(items, groupIdx, otherIdx)
         heap.push(DistElement(
@@ -621,7 +508,7 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
   
   # Return remaining active objects in the plane
   result = @[]
-  for idx in plane.iterate():
+  for idx in plane.items:
     result.add(idx)
 
 proc assignIndices(items: var seq[Item]; idx: int; counter: var int) =
