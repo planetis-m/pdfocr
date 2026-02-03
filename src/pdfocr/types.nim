@@ -54,3 +54,8 @@ type
       result*: Result
     of omOutputDone:
       discard
+
+  OutputSummary* = object
+    successCount*: int
+    failureCount*: int
+    totalCount*: int

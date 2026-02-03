@@ -1,6 +1,6 @@
-import std/[os, parseopt, strformat, strutils]
+import std/[os, parseopt, strutils]
 import threading/channels
-import pdfocr/[config, logging, types, producer, network, output]
+import pdfocr/[config, logging, types, producer, network, output, page_ranges]
 import pdfocr/[curl, pdfium]
 
 type
@@ -17,7 +17,7 @@ proc usage() =
   echo ""
   echo "Options:"
   echo "  --pages:start-end         Page range (1-based, inclusive). Example: 1-10"
-  echo "  --out:DIR                 Output directory"
+  echo "  --output-dir:DIR          Output directory"
   echo "  --api-key:KEY             DeepInfra API key (overrides env)"
   echo "  --max-inflight:N          Max concurrent requests"
   echo "  --high-water:N            Reservoir high-water mark"
@@ -67,6 +67,8 @@ proc parseArgs(): CliOptions =
     of cmdArgument:
       if result.pdfPath.len == 0:
         result.pdfPath = key
+      elif result.pageEnd == 0:
+        parsePageRange(key, result.pageStart, result.pageEnd)
       else:
         raise newException(ValueError, "Unexpected argument: " & key)
     of cmdLongOption, cmdShortOption:
@@ -76,7 +78,7 @@ proc parseArgs(): CliOptions =
         quit(0)
       of "pages":
         parsePageRange(value, result.pageStart, result.pageEnd)
-      of "out":
+      of "out", "output-dir":
         result.outputDir = value
       of "api-key":
         result.apiKey = value
@@ -135,7 +137,7 @@ proc parseArgs(): CliOptions =
   validateConfig(result.config)
 
 proc main() =
-  let opts = parseArgs()
+  var opts = parseArgs()
   logConfigSnapshot(opts.config)
 
   initPdfium()
@@ -144,8 +146,30 @@ proc main() =
     cleanupCurlGlobal()
     destroyPdfium()
 
+  var doc = loadDocument(opts.pdfPath)
+  defer:
+    close(doc)
+  let totalPages = pageCount(doc)
+  let normalizedRange = normalizePageRange(
+    totalPages,
+    opts.pageStart,
+    if opts.pageEnd == 0: -1 else: opts.pageEnd
+  )
+  if totalPages <= 0:
+    logError("PDF has no pages.")
+    quit(1)
+  if normalizedRange.a > normalizedRange.b:
+    logError("Invalid page range; no pages selected.")
+    quit(1)
+
+  opts.pageStart = normalizedRange.a
+  opts.pageEnd = normalizedRange.b
+  let pageStartIdx = normalizedRange.a - 1
+  let pageEndIdx = normalizedRange.b - 1
+
   let inputChan = newChan[InputMessage](Positive(opts.config.highWater))
   let outputChan = newChan[OutputMessage](Positive(opts.config.highWater))
+  let summaryChan = newChan[OutputSummary](Positive(1))
 
   var producerThread: Thread[ProducerContext]
   var networkThread: Thread[NetworkContext]
@@ -153,8 +177,8 @@ proc main() =
 
   let producerCtx = ProducerContext(
     pdfPath: opts.pdfPath,
-    pageStart: opts.pageStart,
-    pageEnd: opts.pageEnd,
+    pageStart: pageStartIdx,
+    pageEnd: pageEndIdx,
     outputDir: opts.outputDir,
     config: opts.config,
     inputChan: inputChan
@@ -166,8 +190,12 @@ proc main() =
   )
   let outputCtx = OutputContext(
     outputDir: opts.outputDir,
+    inputFile: extractFilename(opts.pdfPath),
+    pageStartUser: opts.pageStart,
+    pageEndUser: opts.pageEnd,
     config: opts.config,
-    outputChan: outputChan
+    outputChan: outputChan,
+    summaryChan: summaryChan
   )
 
   createThread(producerThread, runProducer, producerCtx)
@@ -177,6 +205,11 @@ proc main() =
   joinThread(producerThread)
   joinThread(networkThread)
   joinThread(outputThread)
+  var summary: OutputSummary
+  summaryChan.recv(summary)
+  if summary.failureCount > 0:
+    quit(1)
+  quit(0)
 
 
 when isMainModule:
