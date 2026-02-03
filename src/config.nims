@@ -32,3 +32,13 @@ else:
   # Linux: system libjpeg
   switch("passL", "-Wl,-rpath,\\$ORIGIN")
   switch("passL", "-L./third_party/pdfium/lib -lpdfium")
+
+# Thread sanitizer (non-Windows only)
+when not defined(windows) and defined(threadSanitizer):
+  switch("cc", "clang")
+  switch("passC", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
+  switch("passL", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
+  switch("debugger", "native")
+  switch("define", "noSignalHandler")
+  switch("define", "useMalloc")
+  switch("define", "danger")

@@ -2,7 +2,7 @@ import std/[strformat, times]
 import ./config
 
 proc logLine(level: string; message: string) =
-  let ts = now().utc.format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+  let ts = getTime().utc.format("yyyy-MM-dd'T'HH:mm:ss'Z'")
   echo &"{ts} [{level}] {message}"
 
 proc logInfo*(message: string) =
