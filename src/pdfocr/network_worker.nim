@@ -300,10 +300,17 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
         errorKind = ekHttpError
         errorMsg = "http 4xx"
 
+    proc formatAttemptLog(prefix: string; task: Task; attempt: int; httpStatus: int;
+                          reason: string; excerpt: string): string =
+      prefix & " page=" & $task.pageId &
+        " attempt=" & $attempt &
+        " http=" & $httpStatus &
+        " reason=" & reason &
+        " body='" & excerpt & "'"
+
     if retryable:
       let excerpt = responseExcerpt(stateRef.response)
-      logWarn(&"retry page={stateRef.task.pageId} attempt={stateRef.attempt} http={httpStatus} " &
-              &"reason={errorMsg} body='{excerpt}'")
+      logWarn(formatAttemptLog("retry", stateRef.task, stateRef.attempt, httpStatus, errorMsg, excerpt))
       if stateRef.attempt >= ctx.config.maxRetries:
         enqueueResult(ctx, pendingResults, OutputMessage(
           kind: omPageResult,
@@ -325,8 +332,7 @@ proc runNetworkWorker*(ctx: NetworkContext) {.thread.} =
         scheduleRetry(stateRef.task, nextAttempt)
     else:
       let excerpt = responseExcerpt(stateRef.response)
-      logError(&"failed page={stateRef.task.pageId} attempt={stateRef.attempt} http={httpStatus} " &
-               &"reason={errorMsg} body='{excerpt}'")
+      logError(formatAttemptLog("failed", stateRef.task, stateRef.attempt, httpStatus, errorMsg, excerpt))
       enqueueResult(ctx, pendingResults, OutputMessage(
         kind: omPageResult,
         result: Result(

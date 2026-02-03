@@ -16,14 +16,7 @@ proc logError*(message: string) =
   logLine("ERROR", message)
 
 proc logConfigSnapshot*(cfg: Config) =
-  logInfo(&"config maxInflight={cfg.maxInflight} highWater={cfg.highWater} lowWater={cfg.lowWater} " &
-          &"producerBatch={cfg.producerBatch} connectTimeoutMs={cfg.connectTimeoutMs} " &
-          &"totalTimeoutMs={cfg.totalTimeoutMs} maxRetries={cfg.maxRetries} " &
-          &"retryBaseDelayMs={cfg.retryBaseDelayMs} retryMaxDelayMs={cfg.retryMaxDelayMs} " &
-          &"multiWaitMaxMs={cfg.multiWaitMaxMs} renderDpi={cfg.renderDpi} " &
-          &"renderScale={cfg.renderScale} jpegQuality={cfg.jpegQuality} " &
-          &"orderingMode={cfg.orderingMode} outputFormat={cfg.outputFormat} " &
-          &"maxQueuedImageBytes={cfg.maxQueuedImageBytes}")
+  logInfo("config " & $cfg)
 
 type
   ProgressCounters* = object
@@ -32,6 +25,10 @@ type
     success*: int
     failed*: int
 
+proc `$`*(counters: ProgressCounters): string =
+  "completed=" & $counters.completed & "/" & $counters.total &
+    " success=" & $counters.success &
+    " failed=" & $counters.failed
+
 proc logProgress*(counters: ProgressCounters) =
-  logInfo(&"progress completed={counters.completed}/{counters.total} " &
-          &"success={counters.success} failed={counters.failed}")
+  logInfo("progress " & $counters)

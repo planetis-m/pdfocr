@@ -25,6 +25,24 @@ type
     outputFormat*: OutputFormat
     maxQueuedImageBytes*: int
 
+proc `$`*(cfg: Config): string =
+  "maxInflight=" & $cfg.maxInflight &
+    " highWater=" & $cfg.highWater &
+    " lowWater=" & $cfg.lowWater &
+    " producerBatch=" & $cfg.producerBatch &
+    " connectTimeoutMs=" & $cfg.connectTimeoutMs &
+    " totalTimeoutMs=" & $cfg.totalTimeoutMs &
+    " maxRetries=" & $cfg.maxRetries &
+    " retryBaseDelayMs=" & $cfg.retryBaseDelayMs &
+    " retryMaxDelayMs=" & $cfg.retryMaxDelayMs &
+    " multiWaitMaxMs=" & $cfg.multiWaitMaxMs &
+    " renderDpi=" & $cfg.renderDpi &
+    " renderScale=" & $cfg.renderScale &
+    " jpegQuality=" & $cfg.jpegQuality &
+    " orderingMode=" & $cfg.orderingMode &
+    " outputFormat=" & $cfg.outputFormat &
+    " maxQueuedImageBytes=" & $cfg.maxQueuedImageBytes
+
 const
   DefaultMaxInflight* = 50
   DefaultHighWaterMultiplier* = 4
