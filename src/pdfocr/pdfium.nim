@@ -112,6 +112,14 @@ proc renderPage*(bitmap: PdfBitmap; page: PdfPage; startX, startY, sizeX, sizeY:
     rotate.cint, flags.cint
   )
 
+proc renderPageAtScale*(page: PdfPage; scale: float; alpha: bool = false; rotate: int = 0; flags: int = 0): PdfBitmap =
+  let (pageWidth, pageHeight) = pageSize(page)
+  let width = int(pageWidth * scale)
+  let height = int(pageHeight * scale)
+  result = createBitmap(width, height, alpha)
+  fillRect(result, 0, 0, width, height, 0xFFFFFFFF'u32)
+  renderPage(result, page, 0, 0, width, height, rotate, flags)
+
 proc buffer*(bitmap: PdfBitmap): pointer =
   FPDFBitmap_GetBuffer(bitmap.raw)
 

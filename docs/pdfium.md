@@ -149,6 +149,36 @@ Renders a PDF page onto the bitmap.
   - `rotate`: Rotation (default: 0)
   - `flags`: Rendering flags (default: 0)
 
+#### `renderPageAtScale()`
+```nim
+proc renderPageAtScale(page: PdfPage; scale: float; alpha: bool = false;
+                       rotate: int = 0; flags: int = 0): PdfBitmap {.raises: [IOError], tags: [], forbids: [].}
+```
+Creates a bitmap sized to the page at the given scale, clears it, and renders the page.
+
+- **Parameters:**
+  - `page`: PDF page to render
+  - `scale`: Scale factor for width/height in points
+  - `alpha`: Whether to include an alpha channel
+  - `rotate`: Rotation (default: 0)
+  - `flags`: Rendering flags (default: 0)
+## Usage Example
+
+```nim
+import pdfocr/pdfium
+
+initPdfium()
+var doc = loadDocument("input.pdf")
+var page = loadPage(doc, 0)
+var bitmap = renderPageAtScale(page, 2.0)
+
+echo extractText(page)
+
+destroy(bitmap)
+close(page)
+close(doc)
+destroyPdfium()
+```
 #### `buffer()`
 ```nim
 proc buffer(bitmap: PdfBitmap): pointer {.raises: [], tags: [], forbids: [].}
