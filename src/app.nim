@@ -1,6 +1,6 @@
 import std/[os, parseopt, strutils]
 import threading/channels
-import pdfocr/[config, logging, types, producer, network, output, page_ranges]
+import pdfocr/[config, logging, types, producer, network_worker, output, page_ranges]
 import pdfocr/[curl, pdfium]
 
 type
@@ -185,6 +185,7 @@ proc main() =
     outputChan: outputChan
   )
   let networkCtx = NetworkContext(
+    apiKey: opts.apiKey,
     config: opts.config,
     inputChan: inputChan,
     outputChan: outputChan
