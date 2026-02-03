@@ -10,6 +10,9 @@ switch("passL", "-ljpeg")
 # libcurl
 switch("passL", "-lcurl")
 
+# eminim: allow ignoring unknown/extra fields in API responses
+switch("define", "emiLenient")
+
 # --- Platform-specific settings ---
 when defined(macosx):
   # macOS: jpeg-turbo from Homebrew
@@ -50,4 +53,3 @@ when not defined(windows) and defined(addressSanitizer):
   switch("debugger", "native")
   switch("define", "noSignalHandler")
   switch("define", "useMalloc")
-

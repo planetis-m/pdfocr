@@ -43,7 +43,7 @@ proc runOutputWriter*(ctx: OutputContext) {.thread.} =
 
   var jsonlFile: File
   if ctx.config.outputFormat == ofJsonl:
-    if not open(jsonlFile, jsonlPath(ctx.outputDir), fmAppend):
+    if not open(jsonlFile, jsonlPath(ctx.outputDir), fmWrite):
       raise newException(IOError, "Failed to open JSONL output file.")
 
   var pendingOrdered = initTable[int, Result]()
