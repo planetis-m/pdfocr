@@ -1,6 +1,6 @@
 import std/[os, parseopt, strutils]
 import threading/channels
-import pdfocr/[config, logging, types, producer, network_worker, output, page_ranges]
+import pdfocr/[config, logging, types, producer, network_worker, output_writer, page_ranges]
 import pdfocr/[curl, pdfium]
 
 type
