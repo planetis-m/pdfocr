@@ -178,6 +178,24 @@ proc setAcceptEncoding(easy: var CurlEasy; encoding: string) {.raises: [IOError]
 ```
 Sets the Accept-Encoding header (e.g., "gzip, deflate").
 
+#### `reset()`
+```nim
+proc reset(easy: var CurlEasy) {.raises: [], tags: [], forbids: [].}
+```
+Resets an easy handle to default libcurl state for safe reuse.
+
+#### `setPrivate()`
+```nim
+proc setPrivate(easy: var CurlEasy; data: pointer) {.raises: [IOError], tags: [], forbids: [].}
+```
+Associates user data with the easy handle for later retrieval.
+
+#### `getPrivate()`
+```nim
+proc getPrivate(easy: CurlEasy): pointer {.raises: [IOError], tags: [], forbids: [].}
+```
+Retrieves user data previously associated via `setPrivate`.
+
 ### Performing Requests
 
 #### `perform()`
@@ -237,6 +255,9 @@ var msgs = 0
 var msg: CURLMsg
 while multi.tryInfoRead(msg, msgs):
   discard msg
+easy.setPrivate(cast[pointer](1))
+discard easy.getPrivate()
+easy.reset()
 easy.perform()
 let code = easy.responseCode()
 multi.removeHandle(easy)

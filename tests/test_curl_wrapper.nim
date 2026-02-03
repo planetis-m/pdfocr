@@ -17,6 +17,7 @@ proc main() =
   setConnectTimeoutMs(easy, 1000)
   setSslVerify(easy, true, true)
   setAcceptEncoding(easy, "")
+  setPrivate(easy, cast[pointer](1))
 
   addHeader(headers, "Content-Type: application/json")
   setHeaders(easy, headers)
@@ -26,6 +27,8 @@ proc main() =
   var msgsInQueue = 0
   var msg: CURLMsg
   discard tryInfoRead(multi, msg, msgsInQueue)
+  discard getPrivate(easy)
+  reset(easy)
   removeHandle(multi, easy)
 
   free(headers)

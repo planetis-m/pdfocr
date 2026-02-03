@@ -74,6 +74,8 @@ const
 
   CURLINFO_LONG* = 0x200000
   CURLINFO_RESPONSE_CODE* = CURLINFO(CURLINFO_LONG + 2)
+  CURLINFO_STRING* = 0x100000
+  CURLINFO_PRIVATE* = CURLINFO(CURLINFO_STRING + 21)
 
 {.push importc, callconv: cdecl, header: "<curl/curl.h>".}
 

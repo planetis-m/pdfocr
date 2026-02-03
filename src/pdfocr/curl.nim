@@ -1,6 +1,7 @@
 # Ergonomic libcurl helpers built on top of the raw bindings.
 
 import ./bindings/curl
+export CurlMsgType, CURLMsg
 
 type
   CurlEasy* = object
@@ -112,6 +113,17 @@ proc setSslVerify*(easy: var CurlEasy; verifyPeer: bool; verifyHost: bool) =
 
 proc setAcceptEncoding*(easy: var CurlEasy; encoding: string) =
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_ACCEPT_ENCODING, encoding.cstring), "CURLOPT_ACCEPT_ENCODING failed")
+
+proc reset*(easy: var CurlEasy) =
+  curl_easy_reset(easy.raw)
+
+proc setPrivate*(easy: var CurlEasy; data: pointer) =
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_PRIVATE, data), "CURLOPT_PRIVATE failed")
+
+proc getPrivate*(easy: CurlEasy): pointer =
+  var data: pointer
+  checkCurl(curl_easy_getinfo(easy.raw, CURLINFO_PRIVATE, addr data), "CURLINFO_PRIVATE failed")
+  data
 
 proc perform*(easy: var CurlEasy) =
   checkCurl(curl_easy_perform(easy.raw), "curl_easy_perform failed")
