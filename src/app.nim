@@ -181,7 +181,8 @@ proc main() =
     pageEnd: pageEndIdx,
     outputDir: opts.outputDir,
     config: opts.config,
-    inputChan: inputChan
+    inputChan: inputChan,
+    outputChan: outputChan
   )
   let networkCtx = NetworkContext(
     config: opts.config,
