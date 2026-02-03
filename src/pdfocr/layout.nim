@@ -1,12 +1,12 @@
 import std/[math, tables, sets, algorithm, heapqueue, options, unicode]
 import ./pdfium
+import ./layout_types
+import ./layout_utils
 
 const
   INF = 2147483647.0
 
 type
-  Rect* = tuple[x0, y0, x1, y1: float]
-
   LAParams* = object
     lineOverlap*: float
     charMargin*: float
@@ -25,27 +25,6 @@ type
     pageid*: int
     bbox*: Rect
     textboxes*: seq[LTTextBox]
-
-  ItemKind = enum
-    ikChar
-    ikAnno
-    ikTextLineHorizontal
-    ikTextLineVertical
-    ikTextBoxHorizontal
-    ikTextBoxVertical
-    ikTextGroupLRTB       # Horizontal group (left-right, top-bottom)
-    ikTextGroupTBRL       # Vertical group (top-bottom, right-left)
-
-  Item = object
-    kind: ItemKind
-    bbox: Rect
-    text: string
-    wordMargin: float
-    items: seq[int]
-    lastX1: float
-    lastY0: float
-    index: int
-    uniqueId: int  # Unique identifier for heap ordering
 
   # Priority queue element for hierarchical grouping
   DistElement = object
@@ -265,7 +244,7 @@ proc findNeighborsHorizontal(plane: Plane; items: seq[Item];
                      x1: selfBox.x1, y1: selfBox.y1 + d)
   
   result = @[]
-  for idx in plane.find(query, items):
+  for idx in plane.findOverlaps(query, items):
     # Must be horizontal
     if items[idx].kind != ikTextLineHorizontal:
       continue
@@ -293,7 +272,7 @@ proc findNeighborsVertical(plane: Plane; items: seq[Item];
                      x1: selfBox.x1 + d, y1: selfBox.y1)
   
   result = @[]
-  for idx in plane.find(query, items):
+  for idx in plane.findOverlaps(query, items):
     # Must be vertical
     if items[idx].kind != ikTextLineVertical:
       continue
@@ -318,7 +297,7 @@ proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams;
   result = @[]
   
   # Create plane with container bbox and add all lines
-  var plane = newPlane(containerBBox)
+  var plane = initPlane(containerBBox)
   plane.extend(lines, items)
   
   var lineToBox = initTable[int, int]()
@@ -377,11 +356,12 @@ proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams;
 
 proc analyzeBox(items: var seq[Item]; boxIdx: int) =
   ## Sort lines within a box by reading order
+  let itemsSnapshot = items
   if items[boxIdx].kind == ikTextBoxHorizontal:
     # Sort top to bottom (by -y1)
     items[boxIdx].items.sort(proc(a, b: int): int =
-      let ay1 = items[a].bbox.y1
-      let by1 = items[b].bbox.y1
+      let ay1 = itemsSnapshot[a].bbox.y1
+      let by1 = itemsSnapshot[b].bbox.y1
       if ay1 > by1: return -1
       if ay1 < by1: return 1
       return 0
@@ -389,8 +369,8 @@ proc analyzeBox(items: var seq[Item]; boxIdx: int) =
   elif items[boxIdx].kind == ikTextBoxVertical:
     # Sort right to left (by -x1)
     items[boxIdx].items.sort(proc(a, b: int): int =
-      let ax1 = items[a].bbox.x1
-      let bx1 = items[b].bbox.x1
+      let ax1 = itemsSnapshot[a].bbox.x1
+      let bx1 = itemsSnapshot[b].bbox.x1
       if ax1 > bx1: return -1
       if ax1 < bx1: return 1
       return 0
@@ -416,8 +396,7 @@ proc isanyBetween(plane: Plane; items: seq[Item]; idx1, idx2: int): bool =
   let x1 = max(b1.x1, b2.x1)
   let y1 = max(b1.y1, b2.y1)
   
-  let found = plane.find((x0, y0, x1, y1), items)
-  for idx in found:
+  for idx in plane.findOverlaps((x0, y0, x1, y1), items):
     if idx != idx1 and idx != idx2:
       return true
   return false
@@ -428,7 +407,7 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
   if boxes.len <= 1:
     return boxes
   
-  var plane = newPlane(containerBBox)
+  var plane = initPlane(containerBBox)
   var heap = initHeapQueue[DistElement]()
   var idToIdx = initTable[int, int]()  # Map unique ID to current index
   
@@ -530,9 +509,10 @@ proc analyzeGroup(items: var seq[Item]; groupIdx: int; boxesFlow: float) =
     # Then sort based on group type and boxes_flow
     if items[groupIdx].kind == ikTextGroupTBRL:
       # TBRL ordering: top-right to bottom-left
+      let itemsSnapshot = items
       items[groupIdx].items.sort(proc(a, b: int): int =
-        let ba = items[a].bbox
-        let bb = items[b].bbox
+        let ba = itemsSnapshot[a].bbox
+        let bb = itemsSnapshot[b].bbox
         let ka = -(1.0 + boxesFlow) * (ba.x0 + ba.x1) - 
                  (1.0 - boxesFlow) * ba.y1
         let kb = -(1.0 + boxesFlow) * (bb.x0 + bb.x1) - 
@@ -543,9 +523,10 @@ proc analyzeGroup(items: var seq[Item]; groupIdx: int; boxesFlow: float) =
       )
     else:
       # LRTB ordering: top-left to bottom-right
+      let itemsSnapshot = items
       items[groupIdx].items.sort(proc(a, b: int): int =
-        let ba = items[a].bbox
-        let bb = items[b].bbox
+        let ba = itemsSnapshot[a].bbox
+        let bb = itemsSnapshot[b].bbox
         let ka = (1.0 - boxesFlow) * ba.x0 - 
                  (1.0 + boxesFlow) * (ba.y0 + ba.y1)
         let kb = (1.0 - boxesFlow) * bb.x0 - 
@@ -623,9 +604,10 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
   if p.boxesFlow.isNone:
     # Simple geometric sorting (no hierarchical grouping)
     sortedBoxes = boxes
+    let itemsSnapshot = items
     sortedBoxes.sort(proc(a, b: int): int =
-      let isVertA = items[a].kind == ikTextBoxVertical
-      let isVertB = items[b].kind == ikTextBoxVertical
+      let isVertA = itemsSnapshot[a].kind == ikTextBoxVertical
+      let isVertB = itemsSnapshot[b].kind == ikTextBoxVertical
       
       # Vertical boxes come first (key 0 vs 1)
       if isVertA and not isVertB:
@@ -634,17 +616,17 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
         return 1
       elif isVertA:
         # Both vertical: sort by (-x1, -y0)
-        if items[a].bbox.x1 > items[b].bbox.x1: return -1
-        if items[a].bbox.x1 < items[b].bbox.x1: return 1
-        if items[a].bbox.y0 > items[b].bbox.y0: return -1
-        if items[a].bbox.y0 < items[b].bbox.y0: return 1
+        if itemsSnapshot[a].bbox.x1 > itemsSnapshot[b].bbox.x1: return -1
+        if itemsSnapshot[a].bbox.x1 < itemsSnapshot[b].bbox.x1: return 1
+        if itemsSnapshot[a].bbox.y0 > itemsSnapshot[b].bbox.y0: return -1
+        if itemsSnapshot[a].bbox.y0 < itemsSnapshot[b].bbox.y0: return 1
         return 0
       else:
         # Both horizontal: sort by (-y0, x0)
-        if items[a].bbox.y0 > items[b].bbox.y0: return -1
-        if items[a].bbox.y0 < items[b].bbox.y0: return 1
-        if items[a].bbox.x0 < items[b].bbox.x0: return -1
-        if items[a].bbox.x0 > items[b].bbox.x0: return 1
+        if itemsSnapshot[a].bbox.y0 > itemsSnapshot[b].bbox.y0: return -1
+        if itemsSnapshot[a].bbox.y0 < itemsSnapshot[b].bbox.y0: return 1
+        if itemsSnapshot[a].bbox.x0 < itemsSnapshot[b].bbox.x0: return -1
+        if itemsSnapshot[a].bbox.x0 > itemsSnapshot[b].bbox.x0: return 1
         return 0
     )
   elif boxes.len > 1:
@@ -663,9 +645,10 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
     
     # Collect all boxes sorted by index
     sortedBoxes = boxes
+    let itemsSnapshot = items
     sortedBoxes.sort(proc(a, b: int): int =
-      if items[a].index < items[b].index: return -1
-      if items[a].index > items[b].index: return 1
+      if itemsSnapshot[a].index < itemsSnapshot[b].index: return -1
+      if itemsSnapshot[a].index > itemsSnapshot[b].index: return 1
       return 0
     )
   else:

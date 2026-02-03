@@ -1,4 +1,5 @@
 import std/[sets, tables]
+import ./layout_types
 
 type
   Point = tuple[x, y: float]
@@ -56,10 +57,12 @@ proc remove*(plane: var Plane; idx: int; items: openArray[Item]) =
   ## Remove an object from the plane
   let bbox = items[idx].bbox
   for k in plane.gridRange(bbox):
-    plane.grid.withValue(k, cell):
-      let pos = cell[].find(idx)
+    if plane.grid.hasKey(k):
+      var cell = plane.grid[k]
+      let pos = cell.find(idx)
       if pos >= 0:
-        cell[].delete(pos)
+        cell.delete(pos)
+        plane.grid[k] = cell
   plane.objs.excl(idx)
 
 proc extend*(plane: var Plane; indices: openArray[int]; items: openArray[Item]) =
@@ -67,14 +70,15 @@ proc extend*(plane: var Plane; indices: openArray[int]; items: openArray[Item]) 
   for idx in indices:
     plane.add(idx, items)
 
-iterator find*(plane: Plane; bbox: Rect; items: openArray[Item]): int =
+iterator findOverlaps*(plane: Plane; bbox: Rect; items: openArray[Item]): int =
   ## Find objects that overlap with the given bbox
   var done = initHashSet[int]()
   let (x0, y0, x1, y1) = (bbox.x0, bbox.y0, bbox.x1, bbox.y1)
   
   for k in plane.gridRange(bbox):
-    plane.grid.withValue(k, cell):
-      for idx in cell[]:
+    if plane.grid.hasKey(k):
+      let cell = plane.grid[k]
+      for idx in cell:
         if idx notin done:
           done.incl(idx)
           if idx in plane.objs:
