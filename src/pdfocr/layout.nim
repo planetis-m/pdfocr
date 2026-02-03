@@ -1,4 +1,4 @@
-import std/[math, tables, sets, algorithm, heapqueue, options]
+import std/[math, tables, sets, algorithm, heapqueue, options, unicode]
 import ./pdfium
 
 const
@@ -45,17 +45,27 @@ type
     lastX1: float
     lastY0: float
     index: int
+    uniqueId: int  # Unique identifier for heap ordering
 
   # Priority queue element for hierarchical grouping
   DistElement = object
     skipIsany: bool
     dist: float
-    id1: int
-    id2: int
-    idx1: int
-    idx2: int
+    id1: int  # Unique ID of first object (for stable ordering)
+    id2: int  # Unique ID of second object (for stable ordering)
+    idx1: int  # Index in items array
+    idx2: int  # Index in items array
+
+# Global unique ID counter for stable heap ordering
+var globalIdCounter = 0
+
+proc nextUniqueId(): int =
+  result = globalIdCounter
+  inc globalIdCounter
 
 proc `<`(a, b: DistElement): bool =
+  # Fix #3: Compare skipIsany first (False < True in Python)
+  if a.skipIsany != b.skipIsany: return a.skipIsany < b.skipIsany
   if a.dist != b.dist: return a.dist < b.dist
   if a.id1 != b.id1: return a.id1 < b.id1
   return a.id2 < b.id2
@@ -112,35 +122,37 @@ proc addItem(items: var seq[Item]; parentIdx, childIdx: int) =
 
 proc newChar(bbox: Rect; ch: string): Item =
   Item(kind: ikChar, bbox: bbox, text: ch, wordMargin: 0.0, items: @[], 
-       lastX1: 0, lastY0: 0, index: -1)
+       lastX1: 0, lastY0: 0, index: -1, uniqueId: nextUniqueId())
 
 proc newAnno(text: string): Item =
   Item(kind: ikAnno, bbox: (0.0, 0.0, 0.0, 0.0), text: text, items: @[], 
-       wordMargin: 0.0, index: -1)
+       wordMargin: 0.0, index: -1, uniqueId: nextUniqueId())
 
 proc newTextLineHorizontal(wordMargin: float): Item =
   Item(kind: ikTextLineHorizontal, bbox: (INF, INF, -INF, -INF), text: "", 
-       items: @[], wordMargin: wordMargin, lastX1: INF, lastY0: -INF, index: -1)
+       items: @[], wordMargin: wordMargin, lastX1: INF, lastY0: -INF, 
+       index: -1, uniqueId: nextUniqueId())
 
 proc newTextLineVertical(wordMargin: float): Item =
   Item(kind: ikTextLineVertical, bbox: (INF, INF, -INF, -INF), text: "", 
-       items: @[], wordMargin: wordMargin, lastX1: INF, lastY0: -INF, index: -1)
+       items: @[], wordMargin: wordMargin, lastX1: INF, lastY0: -INF, 
+       index: -1, uniqueId: nextUniqueId())
 
 proc newTextBoxHorizontal(): Item =
   Item(kind: ikTextBoxHorizontal, bbox: (INF, INF, -INF, -INF), text: "", 
-       items: @[], wordMargin: 0.0, index: -1)
+       items: @[], wordMargin: 0.0, index: -1, uniqueId: nextUniqueId())
 
 proc newTextBoxVertical(): Item =
   Item(kind: ikTextBoxVertical, bbox: (INF, INF, -INF, -INF), text: "", 
-       items: @[], wordMargin: 0.0, index: -1)
+       items: @[], wordMargin: 0.0, index: -1, uniqueId: nextUniqueId())
 
 proc newTextGroupLRTB(): Item =
   Item(kind: ikTextGroupLRTB, bbox: (INF, INF, -INF, -INF), text: "", 
-       items: @[], wordMargin: 0.0, index: -1)
+       items: @[], wordMargin: 0.0, index: -1, uniqueId: nextUniqueId())
 
 proc newTextGroupTBRL(): Item =
   Item(kind: ikTextGroupTBRL, bbox: (INF, INF, -INF, -INF), text: "", 
-       items: @[], wordMargin: 0.0, index: -1)
+       items: @[], wordMargin: 0.0, index: -1, uniqueId: nextUniqueId())
 
 proc isVerticalItem(items: seq[Item]; idx: int): bool =
   ## Check if an item is vertical (vertical box or TBRL group)
@@ -387,7 +399,7 @@ proc boxDistance(items: seq[Item]; idx1, idx2: int): float =
   let y1 = max(b1.y1, b2.y1)
   return (x1 - x0) * (y1 - y0) - width(b1) * height(b1) - width(b2) * height(b2)
 
-proc hasObjectBetween(items: seq[Item]; activeBoxes: HashSet[int]; 
+proc hasObjectBetween(items: seq[Item]; activeIds: HashSet[int]; 
                       idx1, idx2: int): bool =
   ## Check if any box exists between idx1 and idx2
   let b1 = items[idx1].bbox
@@ -397,10 +409,13 @@ proc hasObjectBetween(items: seq[Item]; activeBoxes: HashSet[int];
   let x1 = max(b1.x1, b2.x1)
   let y1 = max(b1.y1, b2.y1)
   
-  for boxIdx in activeBoxes:
-    if boxIdx == idx1 or boxIdx == idx2:
+  for i, item in items:
+    # Only check items that are currently active (by their unique ID)
+    if item.uniqueId notin activeIds:
       continue
-    let b = items[boxIdx].bbox
+    if i == idx1 or i == idx2:
+      continue
+    let b = item.bbox
     # Check if box overlaps the bounding rectangle
     if not (b.x1 < x0 or b.x0 > x1 or b.y1 < y0 or b.y0 > y1):
       return true
@@ -413,18 +428,23 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
     return boxes
   
   var heap = initHeapQueue[DistElement]()
-  var activeBoxes = initHashSet[int]()
+  var activeIds = initHashSet[int]()  # Track by unique ID
+  var idToIdx = initTable[int, int]()  # Map unique ID to current index
   
   # Initialize with all pairwise distances
   for i in 0 ..< boxes.len:
-    activeBoxes.incl(boxes[i])
+    let uid = items[boxes[i]].uniqueId
+    activeIds.incl(uid)
+    idToIdx[uid] = boxes[i]
     for j in i+1 ..< boxes.len:
       let dist = boxDistance(items, boxes[i], boxes[j])
+      let uid1 = items[boxes[i]].uniqueId
+      let uid2 = items[boxes[j]].uniqueId
       heap.push(DistElement(
         skipIsany: false,
         dist: dist,
-        id1: boxes[i],
-        id2: boxes[j],
+        id1: uid1,
+        id2: uid2,
         idx1: boxes[i],
         idx2: boxes[j]
       ))
@@ -433,28 +453,32 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
   while heap.len > 0:
     let elem = heap.pop()
     
-    # Skip objects that were already merged
-    if elem.idx1 notin activeBoxes or elem.idx2 notin activeBoxes:
+    # Skip objects that were already merged (check by unique ID)
+    if elem.id1 notin activeIds or elem.id2 notin activeIds:
       continue
+    
+    # Get current indices (they don't change, but this is for clarity)
+    let idx1 = elem.idx1
+    let idx2 = elem.idx2
     
     # Check if objects between (unless we already checked)
     if not elem.skipIsany:
-      if hasObjectBetween(items, activeBoxes, elem.idx1, elem.idx2):
+      if hasObjectBetween(items, activeIds, idx1, idx2):
         # Re-add with skip flag
         heap.push(DistElement(
           skipIsany: true,
           dist: elem.dist,
           id1: elem.id1,
           id2: elem.id2,
-          idx1: elem.idx1,
-          idx2: elem.idx2
+          idx1: idx1,
+          idx2: idx2
         ))
         continue
     
     # Determine group type based on box types
     # Use TBRL if either is vertical box or TBRL group
-    let isVertical = isVerticalItem(items, elem.idx1) or 
-                     isVerticalItem(items, elem.idx2)
+    let isVertical = isVerticalItem(items, idx1) or 
+                     isVerticalItem(items, idx2)
     
     # Create appropriate group type
     if isVertical:
@@ -462,29 +486,34 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
     else:
       items.add(newTextGroupLRTB())
     let groupIdx = items.len - 1
-    addItem(items, groupIdx, elem.idx1)
-    addItem(items, groupIdx, elem.idx2)
+    let groupUid = items[groupIdx].uniqueId
+    addItem(items, groupIdx, idx1)
+    addItem(items, groupIdx, idx2)
     
-    # Remove merged boxes from active set
-    activeBoxes.excl(elem.idx1)
-    activeBoxes.excl(elem.idx2)
-    activeBoxes.incl(groupIdx)
+    # Remove merged boxes from active set (by unique ID)
+    activeIds.excl(elem.id1)
+    activeIds.excl(elem.id2)
+    activeIds.incl(groupUid)
+    idToIdx[groupUid] = groupIdx
     
-    # Add distances from new group to all other active boxes
-    for otherIdx in activeBoxes:
-      if otherIdx != groupIdx:
+    # Add distances from new group to all other active items
+    for uid in activeIds:
+      if uid != groupUid:
+        let otherIdx = idToIdx[uid]
         let dist = boxDistance(items, groupIdx, otherIdx)
         heap.push(DistElement(
           skipIsany: false,
           dist: dist,
-          id1: min(groupIdx, otherIdx),
-          id2: max(groupIdx, otherIdx),
+          id1: groupUid,
+          id2: uid,
           idx1: groupIdx,
           idx2: otherIdx
         ))
   
-  # Return remaining active boxes/groups
-  result = toSeq(activeBoxes)
+  # Return remaining active boxes/groups (convert IDs back to indices)
+  result = @[]
+  for uid in activeIds:
+    result.add(idToIdx[uid])
 
 proc assignIndices(items: var seq[Item]; idx: int; counter: var int) =
   ## Recursively assign indices for sorting
@@ -532,18 +561,16 @@ proc analyzeGroup(items: var seq[Item]; groupIdx: int; boxesFlow: float) =
 
 proc isEmptyText(items: seq[Item]; idx: int): bool =
   ## Check if text line is empty (empty bbox or whitespace-only text)
+  ## Matches Python's str.isspace() behavior
   if isEmpty(items[idx].bbox):
     return true
   let text = textOf(items, idx)
-  # Match Python's isspace() behavior: empty string returns false
-  if text.len == 0:
-    return false
-  for c in text:
-    if c notin {' ', '\t', '\n', '\r', '\f', '\v'}:
-      return false
-  return true
+  return isSpace(text)
 
 proc buildLayout(page: PdfPage; p: LAParams): LTPage =
+  # Reset the global ID counter for each page to avoid overflow on large documents
+  globalIdCounter = 0
+  
   var textPage = loadTextPage(page)
   defer: close(textPage)
 
