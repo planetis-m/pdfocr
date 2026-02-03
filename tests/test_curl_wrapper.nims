@@ -5,6 +5,7 @@ switch("path", "$projectdir/../src")
 
 # libcurl
 switch("passL", "-lcurl")
+switch("passC", "-DCURL_DISABLE_TYPECHECK")
 
 when defined(macosx):
   switch("passC", "-I" & staticExec("brew --prefix curl") & "/include")

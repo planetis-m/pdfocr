@@ -76,7 +76,7 @@ proc base64FromBytes(data: seq[byte]): string =
   if data.len == 0:
     return ""
   var raw = newString(data.len)
-  copyMem(addr raw[0], unsafeAddr data[0], data.len)
+  copyMem(addr raw[0], addr data[0], data.len)
   encode(raw)
 
 proc toJsonString[T](value: T): string =

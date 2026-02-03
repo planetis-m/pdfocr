@@ -9,6 +9,7 @@ switch("mm", "arc")
 switch("passL", "-ljpeg")
 # libcurl
 switch("passL", "-lcurl")
+switch("passC", "-DCURL_DISABLE_TYPECHECK")
 
 # eminim: allow ignoring unknown/extra fields in API responses
 switch("define", "emiLenient")
