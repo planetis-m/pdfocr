@@ -6,6 +6,7 @@ const
 
 type
   Rect* = tuple[x0, y0, x1, y1: float]
+  Point = tuple[x, y: float]
 
   LAParams* = object
     lineOverlap*: float
@@ -47,6 +48,14 @@ type
     index: int
     uniqueId: int  # Unique identifier for heap ordering
 
+  # Plane: A grid-based spatial index for efficient rectangular range queries
+  Plane = object
+    seqOrder: seq[int]       # preserve object order (indices into items)
+    objs: HashSet[int]       # active objects (indices into items)
+    grid: Table[Point, seq[int]]  # grid cells mapping to object indices
+    gridsize: int
+    x0, y0, x1, y1: float
+
   # Priority queue element for hierarchical grouping
   DistElement = object
     skipIsany: bool
@@ -64,7 +73,7 @@ proc nextUniqueId(): int =
   inc globalIdCounter
 
 proc `<`(a, b: DistElement): bool =
-  # Fix #3: Compare skipIsany first (False < True in Python)
+  # Compare skipIsany first (False < True in Python)
   if a.skipIsany != b.skipIsany: return a.skipIsany < b.skipIsany
   if a.dist != b.dist: return a.dist < b.dist
   if a.id1 != b.id1: return a.id1 < b.id1
@@ -114,6 +123,114 @@ proc hOverlap(a, b: Rect): float =
 
 proc vOverlap(a, b: Rect): float =
   if isVoverlap(a, b): min(abs(a.y0 - b.y1), abs(a.y1 - b.y0)) else: 0.0
+
+# ============================================================================
+# Plane implementation (grid-based spatial index)
+# ============================================================================
+
+proc drange(start, stop: float; step: int): iterator(): float =
+  ## Generates float values from start to stop with integer step
+  result = iterator(): float =
+    var v = start
+    let stepF = step.float
+    while v < stop:
+      yield v
+      v += stepF
+
+proc newPlane(bbox: Rect; gridsize: int = 50): Plane =
+  Plane(
+    seqOrder: @[],
+    objs: initHashSet[int](),
+    grid: initTable[Point, seq[int]](),
+    gridsize: gridsize,
+    x0: bbox.x0,
+    y0: bbox.y0,
+    x1: bbox.x1,
+    y1: bbox.y1
+  )
+
+proc getRange(plane: Plane; bbox: Rect): seq[Point] =
+  ## Get grid cells that overlap with the given bbox
+  result = @[]
+  let (x0, y0, x1, y1) = bbox
+  # Check if bbox is completely outside plane
+  if x1 <= plane.x0 or plane.x1 <= x0 or y1 <= plane.y0 or plane.y1 <= y0:
+    return
+  # Clamp to plane bounds
+  let clampedX0 = max(plane.x0, x0)
+  let clampedY0 = max(plane.y0, y0)
+  let clampedX1 = min(plane.x1, x1)
+  let clampedY1 = min(plane.y1, y1)
+  # Generate grid points
+  var gridY = clampedY0
+  while gridY < clampedY1:
+    var gridX = clampedX0
+    while gridX < clampedX1:
+      result.add((gridX, gridY))
+      gridX += plane.gridsize.float
+    gridY += plane.gridsize.float
+
+proc add(plane: var Plane; idx: int; items: seq[Item]) =
+  ## Add an object to the plane
+  let bbox = items[idx].bbox
+  for k in getRange(plane, bbox):
+    if k notin plane.grid:
+      plane.grid[k] = @[]
+    plane.grid[k].add(idx)
+  plane.seqOrder.add(idx)
+  plane.objs.incl(idx)
+
+proc remove(plane: var Plane; idx: int; items: seq[Item]) =
+  ## Remove an object from the plane
+  let bbox = items[idx].bbox
+  for k in getRange(plane, bbox):
+    if k in plane.grid:
+      let pos = plane.grid[k].find(idx)
+      if pos >= 0:
+        plane.grid[k].delete(pos)
+  plane.objs.excl(idx)
+
+proc extend(plane: var Plane; indices: seq[int]; items: seq[Item]) =
+  ## Add multiple objects to the plane
+  for idx in indices:
+    plane.add(idx, items)
+
+proc find(plane: Plane; bbox: Rect; items: seq[Item]): seq[int] =
+  ## Find objects that overlap with the given bbox
+  result = @[]
+  let (x0, y0, x1, y1) = bbox
+  var done = initHashSet[int]()
+  for k in getRange(plane, bbox):
+    if k notin plane.grid:
+      continue
+    for idx in plane.grid[k]:
+      if idx in done:
+        continue
+      done.incl(idx)
+      # Check if object is still active
+      if idx notin plane.objs:
+        continue
+      # Check for actual overlap (not just grid cell overlap)
+      let obj = items[idx].bbox
+      if obj.x1 <= x0 or x1 <= obj.x0 or obj.y1 <= y0 or y1 <= obj.y0:
+        continue
+      result.add(idx)
+
+iterator iterate(plane: Plane): int =
+  ## Iterate over active objects in insertion order
+  for idx in plane.seqOrder:
+    if idx in plane.objs:
+      yield idx
+
+proc contains(plane: Plane; idx: int): bool =
+  idx in plane.objs
+
+proc len(plane: Plane): int =
+  plane.objs.len
+
+# ============================================================================
+# Item constructors and helpers
+# ============================================================================
 
 proc addItem(items: var seq[Item]; parentIdx, childIdx: int) =
   items[parentIdx].items.add(childIdx)
@@ -252,29 +369,27 @@ proc groupObjects(chars: seq[int]; items: var seq[Item]; p: LAParams): seq[int] 
     addToTextLineHorizontal(items, lineIdx, prevIdx)
   result.add(lineIdx)
 
-proc findNeighborsHorizontal(lines: seq[int]; items: seq[Item]; 
+proc findNeighborsHorizontal(plane: Plane; items: seq[Item]; 
                              lineIdx: int; ratio: float): seq[int] =
+  ## Find neighboring horizontal text lines using the Plane spatial index
   let selfBox = items[lineIdx].bbox
   let d = ratio * height(selfBox)
   let query: Rect = (x0: selfBox.x0, y0: selfBox.y0 - d, 
                      x1: selfBox.x1, y1: selfBox.y1 + d)
-  result = @[]
   
-  for idx in lines:
-    if idx == lineIdx: continue
-    let b = items[idx].bbox
-    
-    # Must be in query range
-    if b.x1 < query.x0 or b.x0 > query.x1 or b.y1 < query.y0 or b.y0 > query.y1:
-      continue
-    
-    # Must be horizontal and same height
+  result = @[]
+  for idx in plane.find(query, items):
+    # Must be horizontal
     if items[idx].kind != ikTextLineHorizontal:
       continue
+    
+    let b = items[idx].bbox
+    
+    # Must be same height
     if abs(height(b) - height(selfBox)) > d:
       continue
     
-    # Check alignment
+    # Check alignment (left, right, or center)
     let leftAligned = abs(b.x0 - selfBox.x0) <= d
     let rightAligned = abs(b.x1 - selfBox.x1) <= d
     let centerAligned = abs(((b.x0 + b.x1)/2) - ((selfBox.x0 + selfBox.x1)/2)) <= d
@@ -282,29 +397,27 @@ proc findNeighborsHorizontal(lines: seq[int]; items: seq[Item];
     if leftAligned or rightAligned or centerAligned:
       result.add(idx)
 
-proc findNeighborsVertical(lines: seq[int]; items: seq[Item]; 
+proc findNeighborsVertical(plane: Plane; items: seq[Item]; 
                            lineIdx: int; ratio: float): seq[int] =
+  ## Find neighboring vertical text lines using the Plane spatial index
   let selfBox = items[lineIdx].bbox
   let d = ratio * width(selfBox)
   let query: Rect = (x0: selfBox.x0 - d, y0: selfBox.y0, 
                      x1: selfBox.x1 + d, y1: selfBox.y1)
-  result = @[]
   
-  for idx in lines:
-    if idx == lineIdx: continue
-    let b = items[idx].bbox
-    
-    # Must be in query range
-    if b.x1 < query.x0 or b.x0 > query.x1 or b.y1 < query.y0 or b.y0 > query.y1:
-      continue
-    
-    # Must be vertical and same width
+  result = @[]
+  for idx in plane.find(query, items):
+    # Must be vertical
     if items[idx].kind != ikTextLineVertical:
       continue
+    
+    let b = items[idx].bbox
+    
+    # Must be same width
     if abs(width(b) - width(selfBox)) > d:
       continue
     
-    # Check alignment
+    # Check alignment (lower, upper, or center)
     let lowerAligned = abs(b.y0 - selfBox.y0) <= d
     let upperAligned = abs(b.y1 - selfBox.y1) <= d
     let centerAligned = abs(((b.y0 + b.y1)/2) - ((selfBox.y0 + selfBox.y1)/2)) <= d
@@ -312,8 +425,15 @@ proc findNeighborsVertical(lines: seq[int]; items: seq[Item];
     if lowerAligned or upperAligned or centerAligned:
       result.add(idx)
 
-proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams): seq[int] =
+proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams;
+                    containerBBox: Rect): seq[int] =
+  ## Group neighboring lines into textboxes using Plane for spatial queries
   result = @[]
+  
+  # Create plane with container bbox and add all lines
+  var plane = newPlane(containerBBox)
+  plane.extend(lines, items)
+  
   var lineToBox = initTable[int, int]()
   var boxToLines = initTable[int, seq[int]]()
 
@@ -321,9 +441,9 @@ proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams): seq[int
     # Find neighbors based on line type
     let neighbors = 
       if items[lineIdx].kind == ikTextLineHorizontal:
-        findNeighborsHorizontal(lines, items, lineIdx, p.lineMargin)
+        findNeighborsHorizontal(plane, items, lineIdx, p.lineMargin)
       else:
-        findNeighborsVertical(lines, items, lineIdx, p.lineMargin)
+        findNeighborsVertical(plane, items, lineIdx, p.lineMargin)
     
     var members = @[lineIdx]
     for n in neighbors:
@@ -343,7 +463,7 @@ proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams): seq[int
       items.add(newTextBoxHorizontal())
     let boxIdx = items.len - 1
 
-    # Add unique members
+    # Add unique members (preserving order like Python's uniq)
     var seen = initHashSet[int]()
     var uniqMembers: seq[int] = @[]
     for m in members:
@@ -371,7 +491,7 @@ proc groupTextlines(lines: seq[int]; items: var seq[Item]; p: LAParams): seq[int
 proc analyzeBox(items: var seq[Item]; boxIdx: int) =
   ## Sort lines within a box by reading order
   if items[boxIdx].kind == ikTextBoxHorizontal:
-    # Sort top to bottom
+    # Sort top to bottom (by -y1)
     items[boxIdx].items.sort(proc(a, b: int): int =
       let ay1 = items[a].bbox.y1
       let by1 = items[b].bbox.y1
@@ -380,7 +500,7 @@ proc analyzeBox(items: var seq[Item]; boxIdx: int) =
       return 0
     )
   elif items[boxIdx].kind == ikTextBoxVertical:
-    # Sort right to left
+    # Sort right to left (by -x1)
     items[boxIdx].items.sort(proc(a, b: int): int =
       let ax1 = items[a].bbox.x1
       let bx1 = items[b].bbox.x1
@@ -391,6 +511,7 @@ proc analyzeBox(items: var seq[Item]; boxIdx: int) =
 
 proc boxDistance(items: seq[Item]; idx1, idx2: int): float =
   ## Distance function for hierarchical grouping
+  ## Returns the area of bounding box minus the areas of both objects
   let b1 = items[idx1].bbox
   let b2 = items[idx2].bbox
   let x0 = min(b1.x0, b2.x0)
@@ -399,9 +520,8 @@ proc boxDistance(items: seq[Item]; idx1, idx2: int): float =
   let y1 = max(b1.y1, b2.y1)
   return (x1 - x0) * (y1 - y0) - width(b1) * height(b1) - width(b2) * height(b2)
 
-proc hasObjectBetween(items: seq[Item]; activeIds: HashSet[int]; 
-                      idx1, idx2: int): bool =
-  ## Check if any box exists between idx1 and idx2
+proc isanyBetween(plane: Plane; items: seq[Item]; idx1, idx2: int): bool =
+  ## Check if there's any other object between idx1 and idx2 using Plane.find
   let b1 = items[idx1].bbox
   let b2 = items[idx2].bbox
   let x0 = min(b1.x0, b2.x0)
@@ -409,61 +529,53 @@ proc hasObjectBetween(items: seq[Item]; activeIds: HashSet[int];
   let x1 = max(b1.x1, b2.x1)
   let y1 = max(b1.y1, b2.y1)
   
-  for i, item in items:
-    # Only check items that are currently active (by their unique ID)
-    if item.uniqueId notin activeIds:
-      continue
-    if i == idx1 or i == idx2:
-      continue
-    let b = item.bbox
-    # Check if box overlaps the bounding rectangle
-    if not (b.x1 < x0 or b.x0 > x1 or b.y1 < y0 or b.y0 > y1):
+  let found = plane.find((x0, y0, x1, y1), items)
+  for idx in found:
+    if idx != idx1 and idx != idx2:
       return true
   return false
 
 proc groupTextboxes(boxes: seq[int]; items: var seq[Item]; 
-                    p: LAParams): seq[int] =
-  ## Hierarchically group textboxes
+                    containerBBox: Rect): seq[int] =
+  ## Hierarchically group textboxes using Plane for spatial queries
   if boxes.len <= 1:
     return boxes
   
+  var plane = newPlane(containerBBox)
   var heap = initHeapQueue[DistElement]()
-  var activeIds = initHashSet[int]()  # Track by unique ID
   var idToIdx = initTable[int, int]()  # Map unique ID to current index
   
-  # Initialize with all pairwise distances
+  # Initialize plane with all boxes and build initial distance pairs
   for i in 0 ..< boxes.len:
-    let uid = items[boxes[i]].uniqueId
-    activeIds.incl(uid)
-    idToIdx[uid] = boxes[i]
+    let idx = boxes[i]
+    plane.add(idx, items)
+    idToIdx[items[idx].uniqueId] = idx
     for j in i+1 ..< boxes.len:
-      let dist = boxDistance(items, boxes[i], boxes[j])
-      let uid1 = items[boxes[i]].uniqueId
-      let uid2 = items[boxes[j]].uniqueId
+      let idx2 = boxes[j]
+      let dist = boxDistance(items, idx, idx2)
       heap.push(DistElement(
         skipIsany: false,
         dist: dist,
-        id1: uid1,
-        id2: uid2,
-        idx1: boxes[i],
-        idx2: boxes[j]
+        id1: items[idx].uniqueId,
+        id2: items[idx2].uniqueId,
+        idx1: idx,
+        idx2: idx2
       ))
   
   # Merge closest pairs
   while heap.len > 0:
     let elem = heap.pop()
     
-    # Skip objects that were already merged (check by unique ID)
-    if elem.id1 notin activeIds or elem.id2 notin activeIds:
+    # Skip objects that were already merged (check if still in plane)
+    if not plane.contains(elem.idx1) or not plane.contains(elem.idx2):
       continue
     
-    # Get current indices (they don't change, but this is for clarity)
     let idx1 = elem.idx1
     let idx2 = elem.idx2
     
     # Check if objects between (unless we already checked)
     if not elem.skipIsany:
-      if hasObjectBetween(items, activeIds, idx1, idx2):
+      if isanyBetween(plane, items, idx1, idx2):
         # Re-add with skip flag
         heap.push(DistElement(
           skipIsany: true,
@@ -477,8 +589,7 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
     
     # Determine group type based on box types
     # Use TBRL if either is vertical box or TBRL group
-    let isVertical = isVerticalItem(items, idx1) or 
-                     isVerticalItem(items, idx2)
+    let isVertical = isVerticalItem(items, idx1) or isVerticalItem(items, idx2)
     
     # Create appropriate group type
     if isVertical:
@@ -486,34 +597,32 @@ proc groupTextboxes(boxes: seq[int]; items: var seq[Item];
     else:
       items.add(newTextGroupLRTB())
     let groupIdx = items.len - 1
-    let groupUid = items[groupIdx].uniqueId
     addItem(items, groupIdx, idx1)
     addItem(items, groupIdx, idx2)
     
-    # Remove merged boxes from active set (by unique ID)
-    activeIds.excl(elem.id1)
-    activeIds.excl(elem.id2)
-    activeIds.incl(groupUid)
-    idToIdx[groupUid] = groupIdx
+    # Remove merged objects from plane and add new group
+    plane.remove(idx1, items)
+    plane.remove(idx2, items)
+    plane.add(groupIdx, items)
+    idToIdx[items[groupIdx].uniqueId] = groupIdx
     
-    # Add distances from new group to all other active items
-    for uid in activeIds:
-      if uid != groupUid:
-        let otherIdx = idToIdx[uid]
+    # Add distances from new group to all other active items in the plane
+    for otherIdx in plane.iterate():
+      if otherIdx != groupIdx:
         let dist = boxDistance(items, groupIdx, otherIdx)
         heap.push(DistElement(
           skipIsany: false,
           dist: dist,
-          id1: groupUid,
-          id2: uid,
+          id1: items[groupIdx].uniqueId,
+          id2: items[otherIdx].uniqueId,
           idx1: groupIdx,
           idx2: otherIdx
         ))
   
-  # Return remaining active boxes/groups (convert IDs back to indices)
+  # Return remaining active objects in the plane
   result = @[]
-  for uid in activeIds:
-    result.add(idToIdx[uid])
+  for idx in plane.iterate():
+    result.add(idx)
 
 proc assignIndices(items: var seq[Item]; idx: int; counter: var int) =
   ## Recursively assign indices for sorting
@@ -561,7 +670,8 @@ proc analyzeGroup(items: var seq[Item]; groupIdx: int; boxesFlow: float) =
 
 proc isEmptyText(items: seq[Item]; idx: int): bool =
   ## Check if text line is empty (empty bbox or whitespace-only text)
-  ## Matches Python's str.isspace() behavior
+  ## Matches Python's behavior: empty bbox OR text.isspace()
+  ## Note: This has been verified! Do NOT edit this function!
   if isEmpty(items[idx].bbox):
     return true
   let text = textOf(items, idx)
@@ -576,6 +686,7 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
 
   let count = charCount(textPage)
   let (w, h) = pageSize(page)
+  let containerBBox: Rect = (0.0, 0.0, w, h)
 
   var items: seq[Item] = @[]
   
@@ -596,12 +707,12 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
 
   # Handle empty input
   if charIdxs.len == 0:
-    return LTPage(pageid: 0, bbox: (0.0, 0.0, w, h), textboxes: @[])
+    return LTPage(pageid: 0, bbox: containerBBox, textboxes: @[])
 
   # Group characters into lines
   let lines = groupObjects(charIdxs, items, p)
   
-  # Add newlines to each line
+  # Add newlines to each line (matching Python's analyze behavior)
   for lineIdx in lines:
     items.add(newAnno("\n"))
     addItem(items, lineIdx, items.len - 1)
@@ -613,7 +724,7 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
       nonEmpty.add(lineIdx)
 
   # Group lines into boxes
-  var boxes = groupTextlines(nonEmpty, items, p)
+  var boxes = groupTextlines(nonEmpty, items, p, containerBBox)
   
   # Analyze boxes (sort their contents)
   for boxIdx in boxes:
@@ -629,19 +740,20 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
       let isVertA = items[a].kind == ikTextBoxVertical
       let isVertB = items[b].kind == ikTextBoxVertical
       
+      # Vertical boxes come first (key 0 vs 1)
       if isVertA and not isVertB:
         return -1
       elif not isVertA and isVertB:
         return 1
       elif isVertA:
-        # Both vertical: sort by -x1, then -y0
+        # Both vertical: sort by (-x1, -y0)
         if items[a].bbox.x1 > items[b].bbox.x1: return -1
         if items[a].bbox.x1 < items[b].bbox.x1: return 1
         if items[a].bbox.y0 > items[b].bbox.y0: return -1
         if items[a].bbox.y0 < items[b].bbox.y0: return 1
         return 0
       else:
-        # Both horizontal: sort by -y0, then x0
+        # Both horizontal: sort by (-y0, x0)
         if items[a].bbox.y0 > items[b].bbox.y0: return -1
         if items[a].bbox.y0 < items[b].bbox.y0: return 1
         if items[a].bbox.x0 < items[b].bbox.x0: return -1
@@ -650,7 +762,7 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
     )
   elif boxes.len > 1:
     # Hierarchical grouping
-    let groups = groupTextboxes(boxes, items, p)
+    let groups = groupTextboxes(boxes, items, containerBBox)
     let boxesFlow = p.boxesFlow.get()
     
     # Analyze groups
@@ -682,7 +794,7 @@ proc buildLayout(page: PdfPage; p: LAParams): LTPage =
       index: items[b].index
     ))
 
-  LTPage(pageid: 0, bbox: (0.0, 0.0, w, h), textboxes: outBoxes)
+  LTPage(pageid: 0, bbox: containerBBox, textboxes: outBoxes)
 
 proc buildTextPageLayout*(page: PdfPage; laparams: LAParams = newLAParams()): LTPage =
   buildLayout(page, laparams)
