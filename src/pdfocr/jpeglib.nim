@@ -1,6 +1,6 @@
 # Ergonomic libjpeg helpers built on top of the raw bindings.
 
-import std/strformat
+import std/[assertions, strformat]
 import ./bindings/jpeglib
 
 type
@@ -10,17 +10,18 @@ type
     outfile: File
     rowStride: int
     isOpen: bool
+  JpegQuality* = range[1..100]
 
-proc `=destroy`(comp: JpegCompressor) =
+proc `=destroy`*(comp: JpegCompressor) =
   if comp.isOpen:
     jpeg_finish_compress(addr comp.cinfo)
     jpeg_destroy_compress(addr comp.cinfo)
     if comp.outfile != nil:
       close(comp.outfile)
 
-proc `=copy`(dest: var JpegCompressor; src: JpegCompressor) {.error.}
+proc `=copy`*(dest: var JpegCompressor; src: JpegCompressor) {.error.}
 
-proc `=sink`(dest: var JpegCompressor; src: JpegCompressor) =
+proc `=sink`*(dest: var JpegCompressor; src: JpegCompressor) =
   `=destroy`(dest)
   dest.cinfo = src.cinfo
   dest.jerr = src.jerr
@@ -28,12 +29,12 @@ proc `=sink`(dest: var JpegCompressor; src: JpegCompressor) =
   dest.rowStride = src.rowStride
   dest.isOpen = src.isOpen
 
-proc `=wasMoved`(comp: var JpegCompressor) =
+proc `=wasMoved`*(comp: var JpegCompressor) =
   comp.outfile = nil
   comp.rowStride = 0
   comp.isOpen = false
 
-proc initJpegCompressor*(path: string; width, height: Positive; quality: range[1..100] = 90): JpegCompressor =
+proc initJpegCompressor*(path: string; width, height: Positive; quality: JpegQuality = 90): JpegCompressor =
   result.cinfo.err = jpeg_std_error(addr result.jerr)
   jpeg_create_compress(addr result.cinfo)
 
@@ -55,8 +56,7 @@ proc initJpegCompressor*(path: string; width, height: Positive; quality: range[1
   jpeg_start_compress(addr result.cinfo, TRUE)
 
 proc writeRgb*(comp: var JpegCompressor; buffer: openArray[byte]) =
-  if not comp.isOpen:
-    raise newException(IOError, "compressor not initialized")
+  assert comp.isOpen, "compressor not initialized"
   if buffer.len < comp.rowStride * comp.cinfo.image_height.int:
     raise newException(ValueError, "buffer too small for image size")
 
@@ -66,7 +66,7 @@ proc writeRgb*(comp: var JpegCompressor; buffer: openArray[byte]) =
     rowPointer = cast[JSAMPROW](addr buffer[offset])
     discard jpeg_write_scanlines(addr comp.cinfo, addr rowPointer, 1)
 
-proc initJpegCompressorBgrx*(path: string; width, height: Positive; quality: range[1..100] = 90): JpegCompressor =
+proc initJpegCompressorBgrx*(path: string; width, height: Positive; quality: JpegQuality = 90): JpegCompressor =
   result.cinfo.err = jpeg_std_error(addr result.jerr)
   jpeg_create_compress(addr result.cinfo)
 
@@ -87,11 +87,8 @@ proc initJpegCompressorBgrx*(path: string; width, height: Positive; quality: ran
   jpeg_set_quality(addr result.cinfo, quality.cint, TRUE)
   jpeg_start_compress(addr result.cinfo, TRUE)
 
-proc writeBgrx*(comp: var JpegCompressor; buffer: pointer; stride: int) =
-  if not comp.isOpen:
-    raise newException(IOError, "compressor not initialized")
-  if stride <= 0:
-    raise newException(ValueError, "invalid stride")
+proc writeBgrx*(comp: var JpegCompressor; buffer: pointer; stride: Positive) =
+  assert comp.isOpen, "compressor not initialized"
 
   var rowPointer: JSAMPROW
   let raw = cast[uint](buffer)

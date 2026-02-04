@@ -239,17 +239,17 @@ type
   Handle* = object
     raw: ptr LibHandle
 
-proc `=destroy`(h: Handle) =
+proc `=destroy`*(h: Handle) =
   if h.raw != nil:
     libDestroy(h.raw)
 
-proc `=wasMoved`(h: var Handle) = h.raw = nil
+proc `=wasMoved`*(h: var Handle) = h.raw = nil
 
-proc `=sink`(dest: var Handle; src: Handle) =
+proc `=sink`*(dest: var Handle; src: Handle) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=copy`(dest: var Handle; src: Handle) {.error: "Handle cannot be copied".}
+proc `=copy`*(dest: var Handle; src: Handle) {.error: "Handle cannot be copied".}
 
 proc initHandle*(width, height: int): Handle =
   result.raw = libCreate(cint width, cint height)
@@ -485,18 +485,18 @@ type
   Handle* = object
     raw: ptr LibHandle
 
-proc `=destroy`(h: Handle) =
+proc `=destroy`*(h: Handle) =
   if h.raw != nil:
     libClose(h.raw)
 
-proc `=wasMoved`(h: var Handle) =
+proc `=wasMoved`*(h: var Handle) =
   h.raw = nil
 
-proc `=sink`(dest: var Handle; src: Handle) =
+proc `=sink`*(dest: var Handle; src: Handle) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=copy`(dest: var Handle; src: Handle) {.error: "Use move() or ensureMove()".}
+proc `=copy`*(dest: var Handle; src: Handle) {.error: "Use move() or ensureMove()".}
 
 proc open*(path: string): Handle =
   result.raw = libOpen(path.cstring)
@@ -514,25 +514,25 @@ type
     raw: ptr LibAsset
     rc: ptr int
 
-proc `=destroy`(a: Asset) =
+proc `=destroy`*(a: Asset) =
   if a.raw != nil:
     if a.rc[] == 0:
       libFreeAsset(a.raw)
       dealloc(a.rc)
     else: dec a.rc[]
 
-proc `=copy`(dest: var Asset; src: Asset) =
+proc `=copy`*(dest: var Asset; src: Asset) =
   if src.raw != nil: inc src.rc[]
   `=destroy`(dest)
   dest.raw = src.raw
   dest.rc = src.rc
 
-proc `=sink`(dest: var Asset; src: Asset) =
+proc `=sink`*(dest: var Asset; src: Asset) =
   `=destroy`(dest)
   dest.raw = src.raw
   dest.rc = src.rc
 
-proc `=wasMoved`(a: var Asset) =
+proc `=wasMoved`*(a: var Asset) =
   a.raw = nil
   a.rc = nil
 

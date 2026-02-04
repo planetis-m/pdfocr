@@ -5,71 +5,68 @@ import ./bindings/pdfium
 
 type
   PdfDocument* = object
-    raw*: FPDF_DOCUMENT
+    raw: FPDF_DOCUMENT
 
   PdfPage* = object
-    raw*: FPDF_PAGE
+    raw: FPDF_PAGE
 
   PdfBitmap* = object
-    raw*: FPDF_BITMAP
-    width*: int
-    height*: int
+    raw: FPDF_BITMAP
+    width: int
+    height: int
 
   PdfTextPage* = object
-    raw*: FPDF_TEXTPAGE
+    raw: FPDF_TEXTPAGE
 
-template isNilHandle(handle: untyped): bool =
-  pointer(handle) == nil
-
-proc `=destroy`(doc: PdfDocument) =
-  if not isNilHandle(doc.raw):
+proc `=destroy`*(doc: PdfDocument) =
+  if pointer(doc.raw) != nil:
     FPDF_CloseDocument(doc.raw)
 
-proc `=destroy`(page: PdfPage) =
-  if not isNilHandle(page.raw):
+proc `=destroy`*(page: PdfPage) =
+  if pointer(page.raw) != nil:
     FPDF_ClosePage(page.raw)
 
-proc `=destroy`(textPage: PdfTextPage) =
-  if not isNilHandle(textPage.raw):
+proc `=destroy`*(textPage: PdfTextPage) =
+  if pointer(textPage.raw) != nil:
     FPDFText_ClosePage(textPage.raw)
 
-proc `=destroy`(bitmap: PdfBitmap) =
-  if not isNilHandle(bitmap.raw):
+proc `=destroy`*(bitmap: PdfBitmap) =
+  if pointer(bitmap.raw) != nil:
     FPDFBitmap_Destroy(bitmap.raw)
 
-proc `=copy`(dest: var PdfDocument; src: PdfDocument) {.error.}
-proc `=copy`(dest: var PdfPage; src: PdfPage) {.error.}
-proc `=copy`(dest: var PdfTextPage; src: PdfTextPage) {.error.}
-proc `=copy`(dest: var PdfBitmap; src: PdfBitmap) {.error.}
+proc `=copy`*(dest: var PdfDocument; src: PdfDocument) {.error.}
+proc `=copy`*(dest: var PdfPage; src: PdfPage) {.error.}
+proc `=copy`*(dest: var PdfTextPage; src: PdfTextPage) {.error.}
+proc `=copy`*(dest: var PdfBitmap; src: PdfBitmap) {.error.}
 
-proc `=sink`(dest: var PdfDocument; src: PdfDocument) =
+proc `=sink`*(dest: var PdfDocument; src: PdfDocument) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=sink`(dest: var PdfPage; src: PdfPage) =
+proc `=sink`*(dest: var PdfPage; src: PdfPage) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=sink`(dest: var PdfTextPage; src: PdfTextPage) =
+proc `=sink`*(dest: var PdfTextPage; src: PdfTextPage) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=sink`(dest: var PdfBitmap; src: PdfBitmap) =
+proc `=sink`*(dest: var PdfBitmap; src: PdfBitmap) =
   `=destroy`(dest)
   dest.raw = src.raw
   dest.width = src.width
   dest.height = src.height
 
-proc `=wasMoved`(doc: var PdfDocument) =
+proc `=wasMoved`*(doc: var PdfDocument) =
   doc.raw = FPDF_DOCUMENT(nil)
 
-proc `=wasMoved`(page: var PdfPage) =
+proc `=wasMoved`*(page: var PdfPage) =
   page.raw = FPDF_PAGE(nil)
 
-proc `=wasMoved`(textPage: var PdfTextPage) =
+proc `=wasMoved`*(textPage: var PdfTextPage) =
   textPage.raw = FPDF_TEXTPAGE(nil)
 
-proc `=wasMoved`(bitmap: var PdfBitmap) =
+proc `=wasMoved`*(bitmap: var PdfBitmap) =
   bitmap.raw = FPDF_BITMAP(nil)
   bitmap.width = 0
   bitmap.height = 0
@@ -107,7 +104,7 @@ proc destroyPdfium*() =
 
 proc loadDocument*(path: string; password: string = ""): PdfDocument =
   result.raw = FPDF_LoadDocument(path.cstring, cstring(password))
-  if isNilHandle(result.raw):
+  if pointer(result.raw) == nil:
     raisePdfiumError("FPDF_LoadDocument failed")
 
 proc pageCount*(doc: PdfDocument): int =
@@ -115,12 +112,12 @@ proc pageCount*(doc: PdfDocument): int =
 
 proc loadPage*(doc: PdfDocument; index: int): PdfPage =
   result.raw = FPDF_LoadPage(doc.raw, index.cint)
-  if isNilHandle(result.raw):
+  if pointer(result.raw) == nil:
     raisePdfiumError("FPDF_LoadPage failed")
 
 proc loadTextPage*(page: PdfPage): PdfTextPage =
   result.raw = FPDFText_LoadPage(page.raw)
-  if isNilHandle(result.raw):
+  if pointer(result.raw) == nil:
     raisePdfiumError("FPDFText_LoadPage failed")
 
 proc pageSize*(page: PdfPage): tuple[width, height: float] =
@@ -130,7 +127,7 @@ proc createBitmap*(width, height: int; alpha: bool = false): PdfBitmap =
   result.raw = FPDFBitmap_Create(width.cint, height.cint, alpha.cint)
   result.width = width
   result.height = height
-  if isNilHandle(result.raw):
+  if pointer(result.raw) == nil:
     raise newException(IOError, "FPDFBitmap_Create failed")
 
 proc fillRect*(bitmap: PdfBitmap; left, top, width, height: int; color: uint32) =
@@ -152,6 +149,12 @@ proc renderPageAtScale*(page: PdfPage; scale: float; alpha: bool = false; rotate
   result = createBitmap(width, height, alpha)
   fillRect(result, 0, 0, width, height, 0xFFFFFFFF'u32)
   renderPage(result, page, 0, 0, width, height, rotate, flags)
+
+proc width*(bitmap: PdfBitmap): int =
+  bitmap.width
+
+proc height*(bitmap: PdfBitmap): int =
+  bitmap.height
 
 proc buffer*(bitmap: PdfBitmap): pointer =
   FPDFBitmap_GetBuffer(bitmap.raw)

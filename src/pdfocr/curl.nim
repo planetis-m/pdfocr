@@ -5,55 +5,55 @@ export CurlMsgType, CURLMsg
 
 type
   CurlEasy* = object
-    raw*: CURL
-    postData*: string
-    errorBuf*: array[256, char]
+    raw: CURL
+    postData: string
+    errorBuf: array[256, char]
 
   CurlMulti* = object
-    raw*: CURLM
+    raw: CURLM
 
   CurlSlist* = object
-    raw*: ptr curl_slist
+    raw: ptr curl_slist
 
-proc `=destroy`(easy: CurlEasy) =
+proc `=destroy`*(easy: CurlEasy) =
   if pointer(easy.raw) != nil:
     curl_easy_cleanup(easy.raw)
 
-proc `=destroy`(multi: CurlMulti) =
+proc `=destroy`*(multi: CurlMulti) =
   if pointer(multi.raw) != nil:
     discard curl_multi_cleanup(multi.raw)
 
-proc `=destroy`(list: CurlSlist) =
-  if not list.raw.isNil:
+proc `=destroy`*(list: CurlSlist) =
+  if pointer(list.raw) != nil:
     curl_slist_free_all(list.raw)
 
-proc `=copy`(dest: var CurlEasy; src: CurlEasy) {.error.}
-proc `=copy`(dest: var CurlMulti; src: CurlMulti) {.error.}
-proc `=copy`(dest: var CurlSlist; src: CurlSlist) {.error.}
+proc `=copy`*(dest: var CurlEasy; src: CurlEasy) {.error.}
+proc `=copy`*(dest: var CurlMulti; src: CurlMulti) {.error.}
+proc `=copy`*(dest: var CurlSlist; src: CurlSlist) {.error.}
 
-proc `=sink`(dest: var CurlEasy; src: CurlEasy) =
+proc `=sink`*(dest: var CurlEasy; src: CurlEasy) =
   `=destroy`(dest)
   dest.raw = src.raw
   dest.postData = src.postData
   dest.errorBuf = src.errorBuf
 
-proc `=sink`(dest: var CurlMulti; src: CurlMulti) =
+proc `=sink`*(dest: var CurlMulti; src: CurlMulti) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=sink`(dest: var CurlSlist; src: CurlSlist) =
+proc `=sink`*(dest: var CurlSlist; src: CurlSlist) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=wasMoved`(easy: var CurlEasy) =
+proc `=wasMoved`*(easy: var CurlEasy) =
   easy.raw = CURL(nil)
   easy.postData.setLen(0)
   easy.errorBuf = default(array[256, char])
 
-proc `=wasMoved`(multi: var CurlMulti) =
+proc `=wasMoved`*(multi: var CurlMulti) =
   multi.raw = CURLM(nil)
 
-proc `=wasMoved`(list: var CurlSlist) =
+proc `=wasMoved`*(list: var CurlSlist) =
   list.raw = nil
 
 proc checkCurl*(code: CURLcode; context: string) =
