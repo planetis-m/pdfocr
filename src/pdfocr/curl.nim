@@ -15,6 +15,47 @@ type
   CurlSlist* = object
     raw*: ptr curl_slist
 
+proc `=destroy`(easy: CurlEasy) =
+  if pointer(easy.raw) != nil:
+    curl_easy_cleanup(easy.raw)
+
+proc `=destroy`(multi: CurlMulti) =
+  if pointer(multi.raw) != nil:
+    discard curl_multi_cleanup(multi.raw)
+
+proc `=destroy`(list: CurlSlist) =
+  if not list.raw.isNil:
+    curl_slist_free_all(list.raw)
+
+proc `=copy`(dest: var CurlEasy; src: CurlEasy) {.error.}
+proc `=copy`(dest: var CurlMulti; src: CurlMulti) {.error.}
+proc `=copy`(dest: var CurlSlist; src: CurlSlist) {.error.}
+
+proc `=sink`(dest: var CurlEasy; src: CurlEasy) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+  dest.postData = src.postData
+  dest.errorBuf = src.errorBuf
+
+proc `=sink`(dest: var CurlMulti; src: CurlMulti) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+
+proc `=sink`(dest: var CurlSlist; src: CurlSlist) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+
+proc `=wasMoved`(easy: var CurlEasy) =
+  easy.raw = CURL(nil)
+  easy.postData.setLen(0)
+  easy.errorBuf = default(array[256, char])
+
+proc `=wasMoved`(multi: var CurlMulti) =
+  multi.raw = CURLM(nil)
+
+proc `=wasMoved`(list: var CurlSlist) =
+  list.raw = nil
+
 proc checkCurl*(code: CURLcode; context: string) =
   if code != CURLE_OK:
     let msg = $curl_easy_strerror(code)
@@ -38,22 +79,10 @@ proc initEasy*(): CurlEasy =
   discard curl_easy_setopt(result.raw, CURLOPT_ERRORBUFFER, addr result.errorBuf[0])
   discard curl_easy_setopt(result.raw, CURLOPT_NOSIGNAL, clong(1))
 
-proc close*(easy: var CurlEasy) =
-  if pointer(easy.raw) != nil:
-    curl_easy_cleanup(easy.raw)
-    easy.raw = CURL(nil)
-    easy.postData.setLen(0)
-    easy.errorBuf = default(array[256, char])
-
 proc initMulti*(): CurlMulti =
   result.raw = curl_multi_init()
   if pointer(result.raw) == nil:
     raise newException(IOError, "curl_multi_init failed")
-
-proc close*(multi: var CurlMulti) =
-  if pointer(multi.raw) != nil:
-    checkCurlMulti(curl_multi_cleanup(multi.raw), "curl_multi_cleanup failed")
-    multi.raw = CURLM(nil)
 
 proc addHandle*(multi: var CurlMulti; easy: CurlEasy) =
   checkCurlMulti(curl_multi_add_handle(multi.raw, easy.raw), "curl_multi_add_handle failed")
@@ -138,8 +167,3 @@ proc addHeader*(list: var CurlSlist; headerLine: string) =
   list.raw = curl_slist_append(list.raw, headerLine.cstring)
   if list.raw.isNil:
     raise newException(IOError, "curl_slist_append failed")
-
-proc free*(list: var CurlSlist) =
-  if not list.raw.isNil:
-    curl_slist_free_all(list.raw)
-    list.raw = nil

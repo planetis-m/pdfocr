@@ -11,6 +11,28 @@ type
     rowStride: int
     isOpen: bool
 
+proc `=destroy`(comp: JpegCompressor) =
+  if comp.isOpen:
+    jpeg_finish_compress(addr comp.cinfo)
+    jpeg_destroy_compress(addr comp.cinfo)
+    if comp.outfile != nil:
+      close(comp.outfile)
+
+proc `=copy`(dest: var JpegCompressor; src: JpegCompressor) {.error.}
+
+proc `=sink`(dest: var JpegCompressor; src: JpegCompressor) =
+  `=destroy`(dest)
+  dest.cinfo = src.cinfo
+  dest.jerr = src.jerr
+  dest.outfile = src.outfile
+  dest.rowStride = src.rowStride
+  dest.isOpen = src.isOpen
+
+proc `=wasMoved`(comp: var JpegCompressor) =
+  comp.outfile = nil
+  comp.rowStride = 0
+  comp.isOpen = false
+
 proc initJpegCompressor*(path: string; width, height: int; quality: int = 90): JpegCompressor =
   if width <= 0 or height <= 0:
     raise newException(ValueError, "invalid image dimensions")
@@ -87,12 +109,3 @@ proc writeBgrx*(comp: var JpegCompressor; buffer: pointer; stride: int) =
     let offset = comp.cinfo.next_scanline.uint * stride.uint
     rowPointer = cast[JSAMPROW](raw + offset)
     discard jpeg_write_scanlines(addr comp.cinfo, addr rowPointer, 1)
-
-proc finish*(comp: var JpegCompressor) =
-  if comp.isOpen:
-    jpeg_finish_compress(addr comp.cinfo)
-    jpeg_destroy_compress(addr comp.cinfo)
-    comp.isOpen = false
-    if comp.outfile != nil:
-      close(comp.outfile)
-      comp.outfile = nil

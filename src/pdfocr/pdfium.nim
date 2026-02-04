@@ -18,6 +18,62 @@ type
   PdfTextPage* = object
     raw*: FPDF_TEXTPAGE
 
+template isNilHandle(handle: untyped): bool =
+  pointer(handle) == nil
+
+proc `=destroy`(doc: PdfDocument) =
+  if not isNilHandle(doc.raw):
+    FPDF_CloseDocument(doc.raw)
+
+proc `=destroy`(page: PdfPage) =
+  if not isNilHandle(page.raw):
+    FPDF_ClosePage(page.raw)
+
+proc `=destroy`(textPage: PdfTextPage) =
+  if not isNilHandle(textPage.raw):
+    FPDFText_ClosePage(textPage.raw)
+
+proc `=destroy`(bitmap: PdfBitmap) =
+  if not isNilHandle(bitmap.raw):
+    FPDFBitmap_Destroy(bitmap.raw)
+
+proc `=copy`(dest: var PdfDocument; src: PdfDocument) {.error.}
+proc `=copy`(dest: var PdfPage; src: PdfPage) {.error.}
+proc `=copy`(dest: var PdfTextPage; src: PdfTextPage) {.error.}
+proc `=copy`(dest: var PdfBitmap; src: PdfBitmap) {.error.}
+
+proc `=sink`(dest: var PdfDocument; src: PdfDocument) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+
+proc `=sink`(dest: var PdfPage; src: PdfPage) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+
+proc `=sink`(dest: var PdfTextPage; src: PdfTextPage) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+
+proc `=sink`(dest: var PdfBitmap; src: PdfBitmap) =
+  `=destroy`(dest)
+  dest.raw = src.raw
+  dest.width = src.width
+  dest.height = src.height
+
+proc `=wasMoved`(doc: var PdfDocument) =
+  doc.raw = FPDF_DOCUMENT(nil)
+
+proc `=wasMoved`(page: var PdfPage) =
+  page.raw = FPDF_PAGE(nil)
+
+proc `=wasMoved`(textPage: var PdfTextPage) =
+  textPage.raw = FPDF_TEXTPAGE(nil)
+
+proc `=wasMoved`(bitmap: var PdfBitmap) =
+  bitmap.raw = FPDF_BITMAP(nil)
+  bitmap.width = 0
+  bitmap.height = 0
+
 proc lastErrorCode*(): culong =
   FPDF_GetLastError()
 
@@ -51,36 +107,21 @@ proc destroyPdfium*() =
 
 proc loadDocument*(path: string; password: string = ""): PdfDocument =
   result.raw = FPDF_LoadDocument(path.cstring, cstring(password))
-  if pointer(result.raw) == nil:
+  if isNilHandle(result.raw):
     raisePdfiumError("FPDF_LoadDocument failed")
-
-proc close*(doc: var PdfDocument) =
-  if pointer(doc.raw) != nil:
-    FPDF_CloseDocument(doc.raw)
-    doc.raw = FPDF_DOCUMENT(nil)
 
 proc pageCount*(doc: PdfDocument): int =
   int(FPDF_GetPageCount(doc.raw))
 
 proc loadPage*(doc: PdfDocument; index: int): PdfPage =
   result.raw = FPDF_LoadPage(doc.raw, index.cint)
-  if pointer(result.raw) == nil:
+  if isNilHandle(result.raw):
     raisePdfiumError("FPDF_LoadPage failed")
 
 proc loadTextPage*(page: PdfPage): PdfTextPage =
   result.raw = FPDFText_LoadPage(page.raw)
-  if pointer(result.raw) == nil:
+  if isNilHandle(result.raw):
     raisePdfiumError("FPDFText_LoadPage failed")
-
-proc close*(page: var PdfPage) =
-  if pointer(page.raw) != nil:
-    FPDF_ClosePage(page.raw)
-    page.raw = FPDF_PAGE(nil)
-
-proc close*(textPage: var PdfTextPage) =
-  if pointer(textPage.raw) != nil:
-    FPDFText_ClosePage(textPage.raw)
-    textPage.raw = FPDF_TEXTPAGE(nil)
 
 proc pageSize*(page: PdfPage): tuple[width, height: float] =
   (float(FPDF_GetPageWidth(page.raw)), float(FPDF_GetPageHeight(page.raw)))
@@ -89,15 +130,8 @@ proc createBitmap*(width, height: int; alpha: bool = false): PdfBitmap =
   result.raw = FPDFBitmap_Create(width.cint, height.cint, alpha.cint)
   result.width = width
   result.height = height
-  if pointer(result.raw) == nil:
+  if isNilHandle(result.raw):
     raise newException(IOError, "FPDFBitmap_Create failed")
-
-proc destroy*(bitmap: var PdfBitmap) =
-  if pointer(bitmap.raw) != nil:
-    FPDFBitmap_Destroy(bitmap.raw)
-    bitmap.raw = FPDF_BITMAP(nil)
-    bitmap.width = 0
-    bitmap.height = 0
 
 proc fillRect*(bitmap: PdfBitmap; left, top, width, height: int; color: uint32) =
   FPDFBitmap_FillRect(bitmap.raw, left.cint, top.cint, width.cint, height.cint, color.culong)
@@ -127,17 +161,14 @@ proc stride*(bitmap: PdfBitmap): int =
 
 proc extractText*(page: PdfPage): string =
   var textPage = loadTextPage(page)
-  try:
-    let count = FPDFText_CountChars(textPage.raw)
-    if count <= 0:
-      return ""
+  let count = FPDFText_CountChars(textPage.raw)
+  if count <= 0:
+    return ""
 
-    # Pdfium expects buffer size including the null terminator.
-    var wStr = newWideCString(count)
-    discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
-    result = $wStr
-  finally:
-    close(textPage)
+  # Pdfium expects buffer size including the null terminator.
+  var wStr = newWideCString(count)
+  discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
+  result = $wStr
 
 proc charCount*(textPage: PdfTextPage): int =
   int(FPDFText_CountChars(textPage.raw))

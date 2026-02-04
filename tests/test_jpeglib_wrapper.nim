@@ -15,11 +15,9 @@ proc main() =
       buffer[offset + 1] = byte((y * 255) div height)
       buffer[offset + 2] = byte(128)
 
-  var comp = initJpegCompressor(outputPath, width, height, quality = 85)
-  try:
+  block:
+    var comp = initJpegCompressor(outputPath, width, height, quality = 85)
     writeRgb(comp, buffer)
-  finally:
-    finish(comp)
 
   doAssert fileExists(outputPath)
   let size = getFileSize(outputPath)

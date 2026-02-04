@@ -76,38 +76,36 @@ proc main() =
     dealloc(statePtr)
 
   initCurlGlobal()
-  defer:
+  try:
+    block:
+      var easy = initEasy()
+      var headers: CurlSlist
+
+      easy.setUrl("https://api.deepinfra.com/v1/openai/chat/completions")
+      easy.setPostFields(body)
+      easy.setWriteCallback(writeCb, statePtr)
+      easy.setTimeoutMs(120_000)
+      easy.setConnectTimeoutMs(10_000)
+      easy.setSslVerify(true, true)
+      easy.setAcceptEncoding("gzip, deflate")
+
+      headers.addHeader("Authorization: Bearer " & apiKey)
+      headers.addHeader("Content-Type: application/json")
+      easy.setHeaders(headers)
+
+      easy.perform()
+
+      let httpCode = easy.responseCode()
+      if httpCode < 200 or httpCode >= 300:
+        let excerpt = responseExcerpt(statePtr.response)
+        doAssert false, "HTTP request failed: " & $httpCode & " body='" & excerpt & "'"
+
+      let response = statePtr.response
+      doAssert response.len > 0
+      doAssert response.contains("\"choices\"")
+      doAssert response.contains("\"content\"")
+  finally:
     cleanupCurlGlobal()
-
-  var easy = initEasy()
-  var headers: CurlSlist
-  defer:
-    headers.free()
-    easy.close()
-
-  easy.setUrl("https://api.deepinfra.com/v1/openai/chat/completions")
-  easy.setPostFields(body)
-  easy.setWriteCallback(writeCb, statePtr)
-  easy.setTimeoutMs(120_000)
-  easy.setConnectTimeoutMs(10_000)
-  easy.setSslVerify(true, true)
-  easy.setAcceptEncoding("gzip, deflate")
-
-  headers.addHeader("Authorization: Bearer " & apiKey)
-  headers.addHeader("Content-Type: application/json")
-  easy.setHeaders(headers)
-
-  easy.perform()
-
-  let httpCode = easy.responseCode()
-  if httpCode < 200 or httpCode >= 300:
-    let excerpt = responseExcerpt(statePtr.response)
-    doAssert false, "HTTP request failed: " & $httpCode & " body='" & excerpt & "'"
-
-  let response = statePtr.response
-  doAssert response.len > 0
-  doAssert response.contains("\"choices\"")
-  doAssert response.contains("\"content\"")
 
 when isMainModule:
   main()
