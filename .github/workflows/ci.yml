@@ -98,4 +98,39 @@ jobs:
           $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
-          nim test ci.nims
+
+      - name: Test jpeglib bindings
+        working-directory: tests
+        run: |
+          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          nim c -r test_jpeglib_bindings.nim
+
+      - name: Test jpeglib wrapper
+        working-directory: tests
+        run: |
+          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          nim c -r test_jpeglib_wrapper.nim
+
+      - name: Test pdfium bindings
+        working-directory: tests
+        run: |
+          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          nim c -r test_pdfium_bindings.nim input.pdf
+
+      - name: Test pdfium wrapper
+        working-directory: tests
+        run: |
+          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          nim c -r test_pdfium_wrapper.nim input.pdf
+
+      - name: Test curl bindings
+        working-directory: tests
+        run: |
+          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          nim c -r test_curl_bindings.nim
+
+      - name: Test curl wrapper
+        working-directory: tests
+        run: |
+          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          nim c -r test_curl_wrapper.nim
