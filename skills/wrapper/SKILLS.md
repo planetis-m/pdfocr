@@ -91,25 +91,41 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 
 ## 5. C→Nim Type Mapping (Table + Examples)
 
-### Mapping Table
+### Integer Types
 
-| C Type | Nim Type | Notes |
-|---|---|---|
-| `int` | `cint` | Exact C int width |
-| `unsigned int` | `cuint` | |
-| `long` | `clong` | Platform-dependent |
-| `unsigned long` | `culong` | |
-| `long long` | `clonglong` | |
-| `size_t` | `csize_t` | Use for sizes |
-| `intptr_t` | `cintPtr` | Pointer-sized int |
-| `uintptr_t` | `cuintPtr` | |
-| `float` | `cfloat` | |
-| `double` | `cdouble` | |
-| `char*` | `cstring` | NUL-terminated |
-| `const char*` | `cstring` | Treat as read-only |
-| `void*` | `pointer` | Generic pointer |
-| `T*` | `ptr T` | Nullable by default |
-| `T**` | `ptr ptr T` | |
+| C Type               | Nim Type     | Notes                                                 |
+| -------------------- | ------------ | ----------------------------------------------------- |
+| `char`               | `cchar`      | Exactly C `char` (signedness is platform-dependent)   |
+| `signed char`        | `cschar`     | Always `int8`                                         |
+| `unsigned char`      | `uint8`      | `cuchar` exists but **deprecated**                    |
+| `short`              | `cshort`     | Always `int16`                                        |
+| `unsigned short`     | `cushort`    | Always `uint16`                                       |
+| `int`                | `cint`       | Always `int32`                                        |
+| `unsigned int`       | `cuint`      | Always `uint32`                                       |
+| `long`               | `clong`      | ABI-sized (`int32` on Windows, `int` on LP64/ILP32)   |
+| `unsigned long`      | `culong`     | ABI-sized (`uint32` on Windows, `uint` on LP64/ILP32) |
+| `long long`          | `clonglong`  | Always `int64`                                        |
+| `unsigned long long` | `culonglong` | Always `uint64`                                       |
+| `size_t`             | `csize_t`    | Alias for `uint` (ABI-sized)                          |
+
+### Floating-Point Types
+
+| C Type        | Nim Type      | Notes                          |
+| ------------- | ------------- | ------------------------------ |
+| `float`       | `cfloat`      | Always `float32`               |
+| `double`      | `cdouble`     | Always `float64`               |
+| `long double` | `clongdouble` | not truly supported by codegen |
+
+### Pointer & String Types
+
+| C Type        | Nim Type       | Notes                         |
+| ------------- | -------------- | ----------------------------- |
+| `void*`       | `pointer`      | Untyped raw pointer           |
+| `T*`          | `ptr T`        | Nullable by default           |
+| `T**`         | `ptr ptr T`    | Direct pointer nesting        |
+| `char*`       | `cstring`      | NUL-terminated C string       |
+| `const char*` | `cstring`      | Conventionally read-only      |
+| `char**`      | `cstringArray` | `ptr UncheckedArray[cstring]` |
 
 ### Structs and alignment
 
