@@ -1,410 +1,411 @@
-# Specification: High-Throughput PDF Slide OCR Extractor (DeepInfra olmOCR)
+# Engineering Specification: Ordered-Stdout PDF Slide OCR CLI (DeepInfra olmOCR via OpenAI-Compatible API)
 
 ## 1. Purpose and Scope
 
-This system extracts text from selected pages of a PDF (typically lecture slides) by rendering pages to images, sending them to the DeepInfra `allenai/olmOCR-2-7B-1025` model, and writing OCR results to disk.
+This system is a command-line application that extracts text from selected pages of a PDF by:
 
-The system is optimized for **overall throughput** rather than per-page latency. It is designed to run as a batch-processing tool with bounded memory usage, robust retry behavior, and stable concurrency over the full document.
+1. Rendering each selected page into an image (JPEG),
+2. Sending the image to DeepInfra’s OpenAI-compatible chat completion endpoint using the `allenai/olmOCR-2-7B-1025` model,
+3. Emitting one **ordered** result per selected page to **stdout** as **JSON Lines**.
+
+The tool is designed for use by AI assistants and shell pipelines: stdout is the machine-readable result stream; stderr is reserved for logs and progress.
+
+This specification defines required behaviors, constraints, concurrency model, backpressure rules, error handling, and shutdown semantics.
 
 ---
 
 ## 2. Goals
 
-1. **High throughput** across large page ranges.
-2. **Stable concurrency** in the network layer (avoid concurrency “tail-off” behavior).
-3. **Bounded memory usage** via explicit backpressure and queue sizing.
-4. **Robustness** to transient network errors and HTTP 429/5xx responses.
-5. **Deadlock-free operation** via one-way dataflow and explicit avoidance of blocking critical progress loops.
-6. **Deterministic and reviewable behavior** with well-defined states and shutdown semantics.
+1. **Strictly ordered stdout output**: results are written in the same ascending order as the normalized page selection.
+2. **Streaming operation**: results are emitted as soon as possible while preserving order.
+3. **Bounded memory usage** under all conditions, including slow or blocked stdout consumers.
+4. **Robustness** to transient network errors and rate limits with retries and exponential backoff with jitter.
+5. **Stable network concurrency** while work remains schedulable within ordering constraints.
+6. **Deadlock-free execution** with explicit backpressure and non-blocking progress loops.
+7. **Minimal CLI surface** suitable for AI assistants.
 
 ---
 
 ## 3. Non-Goals
 
-1. Real-time/interactive per-page latency optimization.
-2. Perfect OCR accuracy tuning beyond correct request formatting and stable image production.
+1. Any filesystem outputs (no manifests, no temp files, no output directory).
+2. Interactive UI or incremental user feedback on stdout (stdout is results only).
 3. Distributed execution across machines.
-4. UI beyond CLI (unless specified separately).
+4. Fine-grained user tuning of internal throughput parameters (hardcoded constants are used).
 
 ---
 
-## 4. Inputs, Outputs, and CLI
+## 4. Command-Line Interface
 
-### 4.1 Inputs
-- `pdf_path`: path to a local PDF file.
-- `page_range`: inclusive range, e.g. `1-10` (user-visible page numbering), validated against PDF page count.
-- `deepinfra_api_key`: provided via environment variable or config file.
-- Optional: output directory path, run metadata, and performance-related knobs (see §6).
+### 4.1 Usage
+```bash
+pdf-olmocr INPUT.pdf --pages "1,4-6,12" > results.jsonl
+```
 
-### 4.2 Outputs
-- Per-page OCR result written to disk.
-- A run manifest (recommended) containing:
-  - input file name and checksum (optional)
-  - page range
-  - configuration snapshot
-  - per-page status summary (success/failure/attempt count)
-  - timing summary
+### 4.2 Arguments
+- `INPUT.pdf` (positional, required): path to a local PDF file.
+- `--pages "<spec>"` (required): a comma-separated list of page selectors using 1-based page numbering.
+  - Grammar:
+    - `N` (single page)
+    - `A-B` (inclusive range)
+    - selectors separated by commas
+  - Examples:
+    - `"1"`
+    - `"1,4-6,12"`
+    - `"10-20,25"`
 
-### 4.3 Output Format
-The implementation SHALL support at least one of:
-- **JSON Lines**: one JSON object per page result, named `results.jsonl`, or
-- **One file per page**: e.g. `page_0001.txt` plus `page_0001.json` metadata.
+### 4.3 Environment Variables
+- `DEEPINFRA_API_KEY` (required): API key used for authorization.
 
-The output MUST include:
-- `page_index` (0-based internal index and/or 1-based user index)
-- OCR text (if success)
-- error information (if failed)
-- attempt count
-- HTTP status (if available)
-- timestamps (start/end, optional but recommended)
-
-### 4.4 Exit Codes
-- `0`: all pages processed successfully
-- non-zero: one or more pages failed or a fatal initialization/runtime error occurred
-
----
-
-## 5. Core Architecture
-
-The system is a **three-stage pipeline** with bounded queues:
-
-1. **Producer Stage (Render/Encode)**  
-   Reads PDF pages using PDFium, renders each selected page, encodes to JPEG, and packages page tasks.
-
-2. **Network Worker Stage (OCR Requests)**  
-   A dedicated thread drives `libcurl` multi interface (`curl_multi_*`) to execute concurrent HTTP requests to DeepInfra. It maintains stable concurrency using an internal task reservoir and watermark-based refilling.
-
-3. **Output Stage (Disk Writer)**  
-   A dedicated thread writes results to disk and optionally enforces ordering.
-
-### 5.1 Thread Ownership and Responsibilities
-- The **producer thread** owns PDFium objects and image encoding resources.
-- The **network worker thread** exclusively owns:
-  - `CURLM*` multi handle
-  - pool of `CURL*` easy handles
-  - request/response buffers associated with each easy handle
-- The **output thread** exclusively owns file I/O.
-
-No thread may access another thread’s owned objects directly; communication is message-based over channels.
+### 4.4 Validation and Normalization Requirements
+The implementation SHALL:
+1. Open the PDF and determine total page count.
+2. Parse `--pages` and validate:
+   - all pages are positive integers (>= 1),
+   - ranges have `A <= B`,
+   - all pages are within the PDF page count.
+3. Normalize the selection into a **sorted, unique** ascending list of page numbers:
+   - duplicates are removed,
+   - ordering is ascending regardless of the input order.
+4. If normalization results in an empty selection, exit with a fatal error.
 
 ---
 
-## 6. Configuration Parameters
+## 5. Output Specification (stdout)
 
-### 6.1 Concurrency
-- `MAX_INFLIGHT` (default: 50; range: 1–200)
-  - Maximum simultaneous DeepInfra requests for the model.
-  - MUST NOT exceed 200 unless the account limit is known to be higher.
+### 5.1 Format
+Output SHALL be **JSON Lines** to stdout, exactly one JSON object per selected page.
 
-### 6.2 Task Reservoir Sizing (Throughput Stability)
-- `HIGH_WATER = MAX_INFLIGHT * K` (default `K=4`)
-- `LOW_WATER  = MAX_INFLIGHT * M` (default `M=1`)
-- Requirements:
-  - `HIGH_WATER >= LOW_WATER >= MAX_INFLIGHT`
-  - `K >= 2` is recommended to absorb burstiness.
+### 5.2 Ordering Guarantee
+Objects SHALL be written strictly in ascending order of the normalized page list.
 
-### 6.3 Producer Batching
-- Producer emits vectors (batches) of tasks into the input channel.
-- `PRODUCER_BATCH = HIGH_WATER - LOW_WATER` by default, but may be smaller if memory constraints require it.
+### 5.3 Per-Page Output Object
+Each JSON object SHALL contain at least:
 
-### 6.4 Timeouts and Retries
-- `CONNECT_TIMEOUT_MS` (default: 10_000)
-- `TOTAL_TIMEOUT_MS` per request (default: 120_000; configurable)
-- `MAX_RETRIES` (default: 5)
-- `RETRY_BASE_DELAY_MS` (default: 500)
-- `RETRY_MAX_DELAY_MS` (default: 20_000)
-- Retry jitter MUST be applied.
+- `page` (integer): the 1-based PDF page number as selected/normalized.
+- `status` (string): `"ok"` or `"error"`.
+- `attempts` (integer): total attempts made for this page (>= 1).
 
-### 6.5 Curl Wait Behavior
-- Network worker uses `curl_multi_poll()` (or `curl_multi_wait()`).
-- `MULTI_WAIT_MAX_MS` (default: 250–1000ms; configurable)
-  - MUST be finite to ensure periodic checks for new tasks and retry timers.
+If `status == "ok"`:
+- `text` (string): extracted OCR text (may be empty if the model returns empty content).
 
-### 6.6 Memory Budgeting (Guideline)
-Memory is dominated by queued image payloads. The system SHOULD provide:
-- `MAX_QUEUED_IMAGE_BYTES` (optional hard limit), enforced by adjusting channel capacity and/or producer blocking.
+If `status == "error"`:
+- `error_kind` (string): one of the defined error classes in §12.
+- `error_message` (string): human-readable, bounded-length description.
+- `http_status` (integer, optional): if an HTTP response was obtained.
+
+### 5.4 stdout Purity
+stdout SHALL contain **only** JSONL page results (no progress, no logs, no banners).
 
 ---
 
-## 7. Data Model and Channels
+## 6. Logging (stderr)
 
-### 7.1 Task Object
-A `Task` represents a single page OCR request:
-- `page_id`: stable identifier (e.g., 0-based index in the selected range)
-- `page_number_user`: original 1-based page number (optional, for reporting)
-- `jpeg_bytes`: byte array (preferred storage format in queues)
-- `attempt`: integer, starts at 0
-- `created_time`: monotonic timestamp (recommended)
+All logs, warnings, and progress reporting SHALL be written to **stderr**.
 
-**Note:** Base64 encoding SHOULD be done when constructing the HTTP body (inside the network worker) to reduce queued memory expansion.
+The implementation SHOULD emit periodic progress logs including:
+- completed pages count / total selected pages
+- ok count, error count
+- in-flight request count
+- retry count
+- current “next page to write” index/page number
 
-### 7.2 Result Object
-- `page_id`
+Logging MUST NOT include the API key.
+
+---
+
+## 7. Hardcoded Constants
+
+The following constants SHALL be hardcoded (not configurable via CLI):
+
+### 7.1 API
+- `API_URL` = `https://api.deepinfra.com/v1/openai/chat/completions`
+- `MODEL` = `allenai/olmOCR-2-7B-1025`
+
+### 7.2 Concurrency and Ordering Window
+- `MAX_INFLIGHT` (e.g., 32): maximum number of simultaneous HTTP requests.
+- `WINDOW` (e.g., 64): maximum number of pages allowed “ahead” of the next page to be written to stdout.
+
+### 7.3 Render Buffer Watermarks (bounded prefetch)
+- `HIGH_WATER` (e.g., 64): maximum number of rendered JPEG tasks buffered for network dispatch.
+- `LOW_WATER` (e.g., 16): threshold at which the scheduler requests more renders.
+
+Constraints:
+- `HIGH_WATER <= WINDOW`
+- `LOW_WATER < HIGH_WATER`
+
+### 7.4 Timeouts
+- `CONNECT_TIMEOUT_MS` (e.g., 10_000)
+- `TOTAL_TIMEOUT_MS` per request (e.g., 120_000)
+- `MULTI_WAIT_MAX_MS` (e.g., 250): maximum poll/wait duration in the network loop.
+
+### 7.5 Retries
+- `MAX_RETRIES` (e.g., 5) additional retries after the first attempt (or equivalently max attempts = 1 + MAX_RETRIES; implementation SHALL define and apply consistently).
+- `RETRY_BASE_DELAY_MS` (e.g., 500)
+- `RETRY_MAX_DELAY_MS` (e.g., 20_000)
+- Jitter MUST be applied to backoff delays.
+
+### 7.6 Channels / Queues (bounded)
+All inter-component queues SHALL be bounded to prevent unbounded memory growth.
+
+---
+
+## 8. High-Level Architecture
+
+The system SHALL be implemented as three cooperating execution units (threads or equivalent concurrency primitives):
+
+1. **Renderer**: owns PDF rendering and JPEG encoding.
+2. **Network Scheduler/Worker**: owns HTTP client multi-request machinery and scheduling policy.
+3. **Ordered Writer**: owns stdout writing and ordering buffer.
+
+Communication SHALL be message-based via bounded queues plus a small set of shared atomic variables for progress coordination.
+
+No component may directly access another component’s internal resources (e.g., the network worker does not touch PDF objects; the renderer does not touch HTTP handles; only the writer touches stdout).
+
+---
+
+## 9. Page Identification and Ordering Model
+
+### 9.1 Page Plan
+Let `selected_pages` be the normalized ascending list of 1-based page numbers of length `N`.
+
+Define a stable internal sequential identifier:
+- `seq_id` in `[0, N-1]`
+- `page = selected_pages[seq_id]`
+
+All internal scheduling and ordering SHALL be based on `seq_id`. Output JSON objects use the `page` number.
+
+### 9.2 Output Ordering Requirement
+The writer MUST emit results in increasing `seq_id` order (0,1,2,...,N-1).
+
+---
+
+## 10. Data Types (Logical)
+
+### 10.1 Render Request
+- `seq_id` (integer)
+
+### 10.2 Rendered Task
+- `seq_id` (integer)
+- `page` (integer, 1-based)
+- `jpeg_bytes` (byte array)
+- `attempt` (integer, starts at 0 or 1 per chosen convention; MUST be consistent)
+
+### 10.3 Page Result
+- `seq_id`
+- `page`
 - `status`: success/failure
 - `text` (if success)
-- `error_kind` and `error_message` (if failure)
-- `http_status` (if available)
-- `attempt_count`
-- `timings` (optional but recommended)
-
-### 7.3 Channels
-
-#### Input Channel (Producer → Network Worker)
-- Message type:
-  - `TaskBatch(Vec<Task>)`
-  - `InputDone`
-- Capacity: fixed, chosen to bound memory.
-- Backpressure: producer blocks when full.
-
-#### Output Channel (Network Worker → Output Thread)
-- Message type:
-  - `PageResult(Result)`
-  - `OutputDone`
-- Capacity: fixed.
-- **Critical requirement:** the network worker MUST NOT block indefinitely on output sends (see §9.6).
+- `error_kind`, `error_message`, `http_status` (if failure)
+- `attempts`
 
 ---
 
-## 8. Producer Stage: Rendering and Encoding
+## 11. Shared Atomics (Progress Coordination)
 
-### 8.1 Requirements
-1. Open PDF with PDFium.
-2. Validate page range.
-3. For each page in range:
-   - Render page to pixmap at configured resolution (DPI or scale).
-   - Encode to JPEG with configured quality.
-   - Construct `Task`.
-4. Aggregate tasks into batches and send to input channel.
-5. After last task, send `InputDone`.
+The system SHALL use shared atomic variables (or equivalent lock-free primitives) for:
 
-### 8.2 Rendering/Encoding Controls (Recommended)
-- `RENDER_DPI` or scale factor.
-- `JPEG_QUALITY` (e.g., 70–90).
-These affect token usage and OCR accuracy/cost; must be configurable.
+- `NEXT_TO_WRITE` (integer): writer-owned progress marker.
+  - Definition: the smallest `seq_id` not yet written to stdout.
+  - Initialized to 0.
+  - Updated by the writer after each successful write of the next ordered result.
 
-### 8.3 Producer Backpressure
-Producer MUST obey input channel backpressure. If the input channel is full:
-- producer blocks and does not render additional pages, bounding memory.
+Additional atomic counters (recommended):
+- `OK_COUNT`, `ERR_COUNT`, `RETRY_COUNT`
+- `INFLIGHT_COUNT`
+
+These counters are for diagnostics/progress only and SHALL NOT be required for correctness.
 
 ---
 
-## 9. Network Worker Stage (Core Throughput Logic)
+## 12. Error Classification
 
-### 9.1 Overview
-The network worker maintains:
-- An **easy handle pool** of size `MAX_INFLIGHT`
-- A **reservoir queue** of pending tasks
-- A **delayed-retry queue** keyed by next eligible time
-- A **pending-results buffer** to avoid blocking on output
+Each failure result SHALL be classified as one of:
 
-The worker continuously refills the reservoir and dispatches tasks onto free handles, ensuring the number of in-flight requests stays near `MAX_INFLIGHT` whenever work remains.
+- `PDF_ERROR`: PDF open/parse/render failures.
+- `ENCODE_ERROR`: image encoding failures.
+- `NETWORK_ERROR`: transport-level failures (DNS, connect, TLS, etc.).
+- `TIMEOUT`: request timed out (connect or total).
+- `RATE_LIMIT`: HTTP 429.
+- `HTTP_ERROR`: non-2xx HTTP response (excluding 429).
+- `PARSE_ERROR`: invalid/unexpected response body structure.
 
-### 9.2 Reservoir and Watermark Refill Policy
-- The worker monitors `reservoir.size()`.
-- When `reservoir.size() < LOW_WATER`, it SHALL attempt to refill up to `HIGH_WATER` by draining as many `TaskBatch` messages from the input channel as are immediately available.
-- Refill MUST NOT depend on completion of any particular group of tasks.
-- The worker MUST accept and store partial refills; it MUST NOT wait to “fill a batch.”
-
-### 9.3 Dispatch Policy (Saturation)
-Whenever free handles exist:
-- Pop tasks from `reservoir` and start requests until either:
-  - no free handles remain, or
-  - `reservoir` is empty.
-
-This dispatch step SHALL be performed repeatedly throughout execution, including after each completion event and after each refill attempt.
-
-### 9.4 Retry Scheduling
-If a request fails with a retryable condition (see §9.5), the task is rescheduled:
-- `attempt += 1`
-- if `attempt > MAX_RETRIES`: produce a final failure result
-- else compute `next_time = now + backoff(attempt) + jitter`
-- push into delayed-retry queue
-
-When `now >= next_time`, delayed tasks are moved back into the reservoir.
-
-### 9.5 HTTP Handling Rules
-
-#### 9.5.1 Success
-- HTTP 2xx with a parseable response body yielding OCR text ⇒ emit success result.
-
-#### 9.5.2 429 Too Many Requests
-- Treated as retryable.
-- Backoff MUST be applied (exponential + jitter).
-- The system MAY optionally reduce effective concurrency if sustained 429s occur (adaptive throttling), but this is not required if stable operation is achieved by `MAX_INFLIGHT <= 200` and backoff.
-
-#### 9.5.3 5xx
-- Treated as retryable (subject to `MAX_RETRIES`).
-
-#### 9.5.4 4xx (except 429)
-- Treated as non-retryable by default.
-- Emit failure result with status and body excerpt for diagnostics.
-
-#### 9.5.5 Network/TLS/Timeout Errors
-- Retryable up to `MAX_RETRIES`.
-
-### 9.6 Output Non-Blocking Requirement
-The network worker MUST NOT block its main progress loop on writing results to the output channel.
-
-Required behavior:
-- If the output channel is full, the worker SHALL enqueue results into an internal `pending_results` queue and continue driving `curl_multi_*` to completion.
-- The worker SHALL periodically attempt to flush `pending_results` to the output channel (non-blocking or bounded blocking).
-
-This prevents throughput collapse and ensures in-flight requests continue to be processed.
-
-### 9.7 Curl Multi Loop Requirements
-
-#### 9.7.1 Waiting
-The worker SHALL call `curl_multi_poll()` with a finite timeout:
-- `timeout_ms = min(MULTI_WAIT_MAX_MS, time_until_next_retry_due)`
-- This ensures it wakes to:
-  - check for newly arrived tasks (without requiring external wake FDs)
-  - schedule due retries promptly
-
-#### 9.7.2 Progress
-After wait, the worker SHALL call `curl_multi_perform()` until it returns no immediate work.
-
-#### 9.7.3 Completion Harvesting
-The worker SHALL drain all available messages from `curl_multi_info_read()` and for each completed easy handle:
-- determine outcome (HTTP status, curl code)
-- parse response if applicable
-- emit result or schedule retry
-- remove handle from multi
-- reset/reuse handle (keep-alive enabled as appropriate)
-
-### 9.8 Request Construction Requirements (DeepInfra)
-Each request SHALL include:
-- Authorization header with API key
-- Model identifier `allenai/olmOCR-2-7B-1025`
-- Input payload containing the page image (Base64-encoded JPEG) in the format required by the DeepInfra API for the model
-- Any model parameters required for OCR extraction (if applicable)
-
-The system MUST validate that the request JSON is well-formed and bounded in size.
-
-### 9.9 Connection Reuse
-- Easy handles SHOULD be reused to maximize keep-alive benefits.
-- DNS caching and connection reuse SHOULD be enabled via curl defaults or explicit options where appropriate.
+Error messages MUST be bounded in size (e.g., truncate response excerpts).
 
 ---
 
-## 10. Output Stage: Disk Writing
+## 13. Scheduling and Backpressure (Core Correctness)
 
-### 10.1 Requirements
-- Consume results until `OutputDone`.
-- Write results to disk in the configured format.
-- Ensure durable writes (flush/close files) at program end.
+### 13.1 Sliding Window Constraint
+The network scheduler MUST enforce:
 
-### 10.2 Ordering
-The system SHALL support:
-- **Unordered writing** (default throughput-optimized), OR
-- **Ordered writing** by `page_id`:
-  - buffer out-of-order results until the next expected page arrives
-  - emit in order to produce deterministic output layout
+> At any time, it SHALL NOT schedule work for any `seq_id >= NEXT_TO_WRITE + WINDOW`.
 
-Ordering mode MUST be configurable.
+This is the primary mechanism ensuring:
+- bounded out-of-order buffering,
+- bounded rendered-image buffering,
+- bounded pending results even if stdout is slow.
 
-### 10.3 Failure Recording
-For any failed page, output MUST include:
-- page identifier
-- final error classification
-- last HTTP status / curl error (if available)
-- attempt count
+### 13.2 Render Demand Policy (Pull-Based)
+Rendering SHALL be **demand-driven** by the network scheduler.
 
----
+The scheduler requests renders for `seq_id` values within the current window, maintaining a bounded buffer of rendered tasks:
+- If buffered rendered tasks fall below `LOW_WATER`, request additional renders up to `HIGH_WATER`,
+- but never request beyond the window end.
 
-## 11. Shutdown Semantics
+Renderer SHALL block (or naturally backpressure) when the rendered-task output queue is full.
 
-### 11.1 Normal Completion
-Completion occurs when:
-1. Producer has sent `InputDone`
-2. Network worker has:
-   - no in-flight requests
-   - empty reservoir
-   - empty delayed-retry queue
-   - flushed pending results
-3. Network worker sends `OutputDone`
-4. Output thread finishes writing and exits
-5. Program exits with success if all pages succeeded, else non-zero
+### 13.3 Network Dispatch Policy
+The scheduler SHALL maintain up to `MAX_INFLIGHT` active HTTP requests while:
+- there exists schedulable work within the window, and
+- stdout backpressure has not halted progress (which halts the window).
 
-### 11.2 Cancellation (Optional Extension)
-If a cancel signal is supported (SIGINT):
-- Producer stops generating new tasks.
-- Network worker stops accepting new tasks and may:
-  - either drain in-flight requests to completion, or
-  - abort in-flight transfers (configurable)
-- Output writes completed results and terminates cleanly.
+### 13.4 stdout Backpressure Behavior
+If stdout blocks:
+- the writer stops advancing `NEXT_TO_WRITE`,
+- the window stops advancing,
+- the scheduler naturally stops requesting/scheduling pages beyond the window,
+- memory remains bounded by queue sizes + `WINDOW` + `MAX_INFLIGHT`.
 
-Behavior MUST be explicitly defined if implemented.
+The system MAY stall (intentionally) under a blocked stdout consumer; it MUST NOT deadlock internally or grow memory without bound.
 
 ---
 
-## 12. Error Handling and Classification
+## 14. Renderer Requirements
 
-The system SHALL classify errors at least into:
-- `PDF_ERROR` (open, parse, render failures)
-- `ENCODE_ERROR` (JPEG failures)
-- `NETWORK_ERROR` (DNS, connect, TLS, transfer)
-- `HTTP_ERROR` (non-2xx)
-- `PARSE_ERROR` (invalid JSON / missing expected fields)
-- `RATE_LIMIT` (429)
-- `TIMEOUT`
+### 14.1 PDF Handling
+Renderer SHALL:
+1. Open the PDF once.
+2. Render requested pages by `seq_id` mapping to the corresponding 1-based page number.
+3. Use a deterministic render configuration (hardcoded DPI/scale and pixel format).
+4. Encode rendered output to JPEG (hardcoded quality).
 
-Each result MUST carry a classification and a human-readable message.
+### 14.2 Ownership
+Renderer SHALL be the only component that owns/uses PDF rendering library objects.
 
-Fatal errors that prevent any meaningful progress (e.g., cannot open PDF, missing API key) SHALL terminate the program early with non-zero exit code.
+### 14.3 Failure Handling
+If rendering or encoding fails for a page:
+- the renderer SHALL produce an immediate failure result for that `seq_id` (via a defined path to the writer, typically by sending a “render failure result” to the network scheduler which forwards it to the writer), OR
+- send a rendered task marked failed (implementation choice),
+but in all cases the writer MUST eventually receive exactly one final result per selected page unless a fatal error terminates the entire run.
 
----
-
-## 13. Observability (Logging and Metrics)
-
-### 13.1 Logging (Required)
-- Startup configuration snapshot (excluding secrets)
-- Total pages selected
-- Periodic progress:
-  - completed pages
-  - success/failure counts
-  - current in-flight count
-  - reservoir size
-  - retry queue size
-- Error logs include page id, attempt, http status/curl error, and short response excerpt (bounded)
-
-### 13.2 Metrics (Recommended)
-- request latency distribution
-- throughput pages/min
-- retry counts and reasons
-- 429 rate
-- bytes uploaded/downloaded
-- memory usage estimate (queued JPEG bytes)
+Fatal renderer errors that prevent continuing (e.g., PDF cannot be opened) SHALL terminate the program early with a fatal exit code.
 
 ---
 
-## 14. Performance and Resource Constraints
+## 15. Network Scheduler/Worker Requirements
 
-1. The system MUST maintain near-`MAX_INFLIGHT` in-flight requests whenever sufficient tasks remain, subject to:
-   - available tasks in reservoir
-   - external rate limiting/backoff
-2. Memory usage MUST be bounded by:
-   - input channel capacity
-   - reservoir high watermark
-   - JPEG byte storage strategy
-3. The system SHOULD avoid per-task synchronization overhead by using batched messages into the input channel, while ensuring the network worker does not couple dispatch to batch boundaries.
+### 15.1 HTTP Endpoint
+Requests SHALL be sent to:
+- `POST https://api.deepinfra.com/v1/openai/chat/completions`
+
+### 15.2 Authorization
+- `Authorization: Bearer ${DEEPINFRA_API_KEY}`
+
+### 15.3 Request Body (OpenAI-Compatible)
+The request SHALL use:
+- `model = "allenai/olmOCR-2-7B-1025"`
+- A message containing:
+  - a text instruction to extract readable text
+  - the page image as a `data:image/jpeg;base64,...` URL
+
+The scheduler SHOULD base64-encode `jpeg_bytes` during request construction (not earlier), to avoid inflating queued memory.
+
+### 15.4 Response Parsing
+On HTTP 2xx, the system SHALL parse OCR text from:
+- `choices[0].message.content` (string)
+
+If missing/unparseable, classify as `PARSE_ERROR`.
+
+### 15.5 Retry Rules
+Retryable conditions:
+- HTTP 429 (`RATE_LIMIT`)
+- HTTP 5xx
+- transport errors (`NETWORK_ERROR`)
+- timeouts (`TIMEOUT`)
+
+Non-retryable by default:
+- HTTP 4xx except 429
+
+### 15.6 Backoff with Jitter
+Retries SHALL use exponential backoff:
+- `delay = min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2^attempt) + jitter`
+
+Jitter MUST be applied (uniform or decorrelated jitter acceptable).
+
+### 15.7 Non-Blocking Progress Loop
+The network scheduler MUST NOT block indefinitely on sending results to the writer queue.
+
+If the writer-result queue is full, the scheduler SHALL buffer results in a bounded in-memory structure whose maximum growth is bounded by the sliding window and in-flight limit (i.e., it MUST NOT allow unbounded accumulation beyond what `WINDOW` and `MAX_INFLIGHT` imply).
 
 ---
 
-## 15. Security and Privacy Considerations
+## 16. Ordered Writer Requirements
 
-- API key MUST not be logged.
-- TLS certificate verification MUST be enabled.
-- Output may contain sensitive extracted text; output directory permissions SHOULD be respected.
-- Optional: provide a “redact logs” mode that suppresses response excerpts.
+### 16.1 Exclusive stdout Ownership
+Only the writer component may write to stdout.
+
+### 16.2 Ordering Buffer
+The writer SHALL buffer out-of-order results until `seq_id == NEXT_TO_WRITE` becomes available, then write sequentially until the next missing `seq_id`.
+
+Because the scheduler enforces the sliding window constraint, the writer’s out-of-order buffer SHALL remain bounded by `WINDOW`.
+
+### 16.3 Atomic Progress Updates
+After writing the JSONL line for `seq_id = k`, the writer SHALL:
+- increment its expected `seq_id`,
+- update `NEXT_TO_WRITE` atomically.
+
+### 16.4 Output Durability
+The writer SHOULD flush stdout periodically or rely on line buffering when appropriate. At program end it SHALL flush any buffered stdout content.
 
 ---
 
-## 16. Acceptance Criteria (Implementation Review Checklist)
+## 17. Completion and Shutdown Semantics
+
+### 17.1 Normal Completion
+Normal completion occurs when:
+1. Every selected `seq_id` has produced a final result (success or terminal failure),
+2. The writer has written all `N` JSONL lines to stdout (i.e., `NEXT_TO_WRITE == N`),
+3. All components terminate cleanly.
+
+### 17.2 Exit Codes
+- `0`: all pages succeeded (`status="ok"` for all).
+- `2`: at least one page failed (`status="error"` for one or more).
+- `>2`: fatal initialization/runtime failure preventing completion of the result stream (e.g., missing API key, cannot open PDF).
+
+### 17.3 Fatal Errors
+Fatal errors SHALL be reported to stderr and terminate the program with an exit code `>2`. In such cases the stdout stream MAY be incomplete; the implementation SHOULD avoid emitting partial non-JSON data to stdout.
+
+### 17.4 Cancellation (Optional)
+If SIGINT/termination handling is implemented:
+- The system SHOULD stop scheduling new work.
+- It MAY either:
+  - attempt to finish in-flight requests and emit completed results, or
+  - abort in-flight requests and emit terminal error results for unfinished pages.
+The chosen behavior MUST be consistent and documented in implementation notes/logs.
+
+---
+
+## 18. Security and Privacy
+
+- API key MUST NOT be logged.
+- TLS verification MUST be enabled.
+- OCR output may contain sensitive content; the tool SHALL not write any files by design.
+- stderr logs SHOULD avoid printing full OCR text or full response bodies; if including excerpts, they MUST be bounded.
+
+---
+
+## 19. Acceptance Criteria (Implementation Review Checklist)
 
 An implementation satisfies this specification if:
-1. It processes the configured page range and produces per-page outputs.
-2. Network concurrency remains stable (no systematic decline at the end of arbitrary internal grouping).
-3. The network worker does not stall due to a full output channel.
-4. HTTP 429 and transient failures trigger exponential backoff retries with jitter and a retry cap.
-5. Memory does not grow unbounded with document size; backpressure is demonstrably effective.
-6. Shutdown completes deterministically with correct exit status and a complete output set (success or failure recorded for every selected page).
+
+1. **CLI correctness**: parses and validates `--pages`, normalizes to sorted unique selection, rejects invalid pages.
+2. **Ordered stdout**: emits exactly one JSONL line per selected page, strictly ordered by ascending page number (via `seq_id` order).
+3. **No filesystem writes**: does not create manifests, temp files, or per-page files.
+4. **Bounded memory**: memory does not grow unbounded with document size or out-of-order completions; the sliding window constraint is enforced.
+5. **Backpressure correctness**: if stdout is slow/blocked, the system does not deadlock internally and does not leak memory; it stalls safely.
+6. **Robust retries**: retries occur for 429/5xx/timeouts/transport errors with exponential backoff and jitter, capped by `MAX_RETRIES`.
+7. **Stable concurrency (within constraints)**: maintains up to `MAX_INFLIGHT` in-flight requests when schedulable work exists within the sliding window.
+8. **Deterministic shutdown**: clean completion with correct exit codes; all pages produce a final success or error result unless a fatal error prevents completion.
+
+---
