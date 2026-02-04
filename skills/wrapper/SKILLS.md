@@ -107,6 +107,8 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 | `long long`          | `clonglong`  | Always `int64`                                        |
 | `unsigned long long` | `culonglong` | Always `uint64`                                       |
 | `size_t`             | `csize_t`    | Alias for `uint` (ABI-sized)                          |
+| `intptr_t`           | `int`        | Pointer-sized signed                                  |
+| `uintptr_t`          | `uint`       | Pointer-sized unsigned                                |
 
 ### Floating-Point Types
 
@@ -114,7 +116,7 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 | ------------- | ------------- | ------------------------------ |
 | `float`       | `cfloat`      | Always `float32`               |
 | `double`      | `cdouble`     | Always `float64`               |
-| `long double` | `clongdouble` | not truly supported by codegen |
+| `long double` | `clongdouble` | Not truly supported by codegen |
 
 ### Pointer & String Types
 
