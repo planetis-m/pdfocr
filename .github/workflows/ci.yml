@@ -85,6 +85,25 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
+      - name: Locate libjpeg-turbo
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "C:\libjpeg-turbo64",
+            "C:\ProgramData\chocolatey\lib\libjpeg-turbo\tools",
+            "C:\ProgramData\chocolatey\lib\libjpeg-turbo\tools\libjpeg-turbo"
+          )
+          $root = $null
+          foreach ($c in $candidates) {
+            if (Test-Path $c) { $root = $c; break }
+          }
+          if (-not $root) { Write-Error "libjpeg-turbo not found"; exit 1 }
+          $bin = Join-Path $root "bin"
+          if (-not (Test-Path $bin)) { $bin = Join-Path $root "bin64" }
+          if (-not (Test-Path $bin)) { Write-Error "libjpeg-turbo bin not found"; exit 1 }
+          echo "LIBJPEG_ROOT=$root" >> $env:GITHUB_ENV
+          echo "LIBJPEG_BIN=$bin" >> $env:GITHUB_ENV
+
       - name: Set CURL_ROOT
         shell: cmd
         run: |
@@ -92,45 +111,54 @@ jobs:
           if "%CURL_ROOT%"=="" exit /b 1
           echo CURL_ROOT=%CURL_ROOT%>> %GITHUB_ENV%
 
+      - name: Stage DLLs
+        working-directory: tests
+        run: |
+          Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
+          Copy-Item "$env:LIBJPEG_BIN\\*.dll" . -ErrorAction Stop
+
       - name: Run Tests
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:LIBJPEG_BIN;$env:CURL_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
-          Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
 
       - name: Test jpeglib bindings
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:LIBJPEG_BIN;$env:CURL_ROOT\\bin;" + $env:PATH
+          Write-Host "PATH=$env:PATH"
+          Write-Host "LIBJPEG_BIN=$env:LIBJPEG_BIN"
+          if (Test-Path $env:LIBJPEG_BIN) { Get-ChildItem $env:LIBJPEG_BIN } else { Write-Error "LIBJPEG_BIN path missing" }
+          if (Test-Path "C:\\libjpeg-turbo64\\bin") { Get-ChildItem "C:\\libjpeg-turbo64\\bin" }
           nim c -r test_jpeglib_bindings.nim
 
       - name: Test jpeglib wrapper
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:LIBJPEG_BIN;$env:CURL_ROOT\\bin;" + $env:PATH
           nim c -r test_jpeglib_wrapper.nim
 
       - name: Test pdfium bindings
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:LIBJPEG_BIN;$env:CURL_ROOT\\bin;" + $env:PATH
           nim c -r test_pdfium_bindings.nim input.pdf
 
       - name: Test pdfium wrapper
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:LIBJPEG_BIN;$env:CURL_ROOT\\bin;" + $env:PATH
           nim c -r test_pdfium_wrapper.nim input.pdf
 
       - name: Test curl bindings
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:LIBJPEG_BIN;$env:CURL_ROOT\\bin;" + $env:PATH
           nim c -r test_curl_bindings.nim
 
       - name: Test curl wrapper
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:LIBJPEG_BIN;$env:CURL_ROOT\\bin;" + $env:PATH
           nim c -r test_curl_wrapper.nim
