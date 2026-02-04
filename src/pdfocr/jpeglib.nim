@@ -33,12 +33,7 @@ proc `=wasMoved`(comp: var JpegCompressor) =
   comp.rowStride = 0
   comp.isOpen = false
 
-proc initJpegCompressor*(path: string; width, height: int; quality: int = 90): JpegCompressor =
-  if width <= 0 or height <= 0:
-    raise newException(ValueError, "invalid image dimensions")
-  if quality < 1 or quality > 100:
-    raise newException(ValueError, "quality must be 1..100")
-
+proc initJpegCompressor*(path: string; width, height: Positive; quality: range[1..100] = 90): JpegCompressor =
   result.cinfo.err = jpeg_std_error(addr result.jerr)
   jpeg_create_compress(addr result.cinfo)
 
@@ -71,12 +66,7 @@ proc writeRgb*(comp: var JpegCompressor; buffer: openArray[byte]) =
     rowPointer = cast[JSAMPROW](addr buffer[offset])
     discard jpeg_write_scanlines(addr comp.cinfo, addr rowPointer, 1)
 
-proc initJpegCompressorBgrx*(path: string; width, height: int; quality: int = 90): JpegCompressor =
-  if width <= 0 or height <= 0:
-    raise newException(ValueError, "invalid image dimensions")
-  if quality < 1 or quality > 100:
-    raise newException(ValueError, "quality must be 1..100")
-
+proc initJpegCompressorBgrx*(path: string; width, height: Positive; quality: range[1..100] = 90): JpegCompressor =
   result.cinfo.err = jpeg_std_error(addr result.jerr)
   jpeg_create_compress(addr result.cinfo)
 

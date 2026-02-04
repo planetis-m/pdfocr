@@ -2,7 +2,7 @@ import std/[os, strformat]
 import pdfocr/pdfium
 
 proc main() =
-  let pdfPath = "tests/input.pdf"
+  let pdfPath = "input.pdf"
 
   if not fileExists(pdfPath):
     quit(&"Missing PDF file: {pdfPath}")

@@ -42,13 +42,13 @@ Represents the text content of a PDF page.
 
 #### `initPdfium()`
 ```nim
-proc initPdfium() {.raises: [], tags: [], forbids: [].}
+proc initPdfium()
 ```
 Initializes the PDFium library. Must be called before any other PDFium operations.
 
 #### `destroyPdfium()`
 ```nim
-proc destroyPdfium() {.raises: [], tags: [], forbids: [].}
+proc destroyPdfium()
 ```
 Cleans up the PDFium library. Should be called when done using PDFium.
 
@@ -56,25 +56,19 @@ Cleans up the PDFium library. Should be called when done using PDFium.
 
 #### `loadDocument()`
 ```nim
-proc loadDocument(path: string; password: string = ""): PdfDocument {.raises: [IOError], tags: [], forbids: [].}
+proc loadDocument(path: string; password: string = ""): PdfDocument {.raises: [IOError].}
 ```
 Loads a PDF document from the given file path.
 
 - **Parameters:**
   - `path`: Path to the PDF file
   - `password`: Optional password for encrypted PDFs
-- **Returns:** `PdfDocument` handle
+- **Returns:** `PdfDocument` handle (move-only; cleaned up at end of scope)
 - **Raises:** `IOError` if the document cannot be loaded
-
-#### `close()`
-```nim
-proc close(doc: var PdfDocument) {.raises: [], tags: [], forbids: [].}
-```
-Closes a PDF document and releases its resources.
 
 #### `pageCount()`
 ```nim
-proc pageCount(doc: PdfDocument): int {.raises: [], tags: [], forbids: [].}
+proc pageCount(doc: PdfDocument): int
 ```
 Returns the number of pages in the document.
 
@@ -82,25 +76,19 @@ Returns the number of pages in the document.
 
 #### `loadPage()`
 ```nim
-proc loadPage(doc: PdfDocument; index: int): PdfPage {.raises: [IOError], tags: [], forbids: [].}
+proc loadPage(doc: PdfDocument; index: int): PdfPage {.raises: [IOError].}
 ```
 Loads a page from the document by its index.
 
 - **Parameters:**
   - `doc`: The PDF document
   - `index`: Zero-based page index
-- **Returns:** `PdfPage` handle
+- **Returns:** `PdfPage` handle (move-only; cleaned up at end of scope)
 - **Raises:** `IOError` if the page cannot be loaded
-
-#### `close()` (page)
-```nim
-proc close(page: var PdfPage) {.raises: [], tags: [], forbids: [].}
-```
-Closes a PDF page and releases its resources.
 
 #### `pageSize()`
 ```nim
-proc pageSize(page: PdfPage): tuple[width, height: float] {.raises: [], tags: [], forbids: [].}
+proc pageSize(page: PdfPage): tuple[width, height: float]
 ```
 Returns the size of the page in points.
 
@@ -110,7 +98,7 @@ Returns the size of the page in points.
 
 #### `createBitmap()`
 ```nim
-proc createBitmap(width, height: int; alpha: bool = false): PdfBitmap {.raises: [IOError], tags: [], forbids: [].}
+proc createBitmap(width, height: int; alpha: bool = false): PdfBitmap {.raises: [IOError].}
 ```
 Creates a bitmap for rendering PDF pages.
 
@@ -118,18 +106,12 @@ Creates a bitmap for rendering PDF pages.
   - `width`: Bitmap width in pixels
   - `height`: Bitmap height in pixels
   - `alpha`: Whether to include an alpha channel
-- **Returns:** `PdfBitmap` handle
+- **Returns:** `PdfBitmap` handle (move-only; cleaned up at end of scope)
 - **Raises:** `IOError` if the bitmap cannot be created
-
-#### `destroy()`
-```nim
-proc destroy(bitmap: var PdfBitmap) {.raises: [], tags: [], forbids: [].}
-```
-Destroys a bitmap and releases its resources.
 
 #### `fillRect()`
 ```nim
-proc fillRect(bitmap: PdfBitmap; left, top, width, height: int; color: uint32) {.raises: [], tags: [], forbids: [].}
+proc fillRect(bitmap: PdfBitmap; left, top, width, height: int; color: uint32)
 ```
 Fills a rectangle in the bitmap with the specified color.
 
@@ -137,7 +119,7 @@ Fills a rectangle in the bitmap with the specified color.
 ```nim
 proc renderPage(bitmap: PdfBitmap; page: PdfPage;
                 startX, startY, sizeX, sizeY: int; rotate: int = 0;
-                flags: int = 0) {.raises: [], tags: [], forbids: [].}
+                flags: int = 0)
 ```
 Renders a PDF page onto the bitmap.
 
@@ -152,7 +134,7 @@ Renders a PDF page onto the bitmap.
 #### `renderPageAtScale()`
 ```nim
 proc renderPageAtScale(page: PdfPage; scale: float; alpha: bool = false;
-                       rotate: int = 0; flags: int = 0): PdfBitmap {.raises: [IOError], tags: [], forbids: [].}
+                       rotate: int = 0; flags: int = 0): PdfBitmap {.raises: [IOError].}
 ```
 Creates a bitmap sized to the page at the given scale, clears it, and renders the page.
 
@@ -168,26 +150,24 @@ Creates a bitmap sized to the page at the given scale, clears it, and renders th
 import pdfocr/pdfium
 
 initPdfium()
-var doc = loadDocument("input.pdf")
-var page = loadPage(doc, 0)
-var bitmap = renderPageAtScale(page, 2.0)
+try:
+  var doc = loadDocument("input.pdf")
+  var page = loadPage(doc, 0)
+  var bitmap = renderPageAtScale(page, 2.0)
 
-echo extractText(page)
-
-destroy(bitmap)
-close(page)
-close(doc)
-destroyPdfium()
+  echo extractText(page)
+finally:
+  destroyPdfium()
 ```
 #### `buffer()`
 ```nim
-proc buffer(bitmap: PdfBitmap): pointer {.raises: [], tags: [], forbids: [].}
+proc buffer(bitmap: PdfBitmap): pointer
 ```
 Returns a pointer to the bitmap's pixel data buffer.
 
 #### `stride()`
 ```nim
-proc stride(bitmap: PdfBitmap): int {.raises: [], tags: [], forbids: [].}
+proc stride(bitmap: PdfBitmap): int
 ```
 Returns the stride (bytes per row) of the bitmap.
 
@@ -195,7 +175,7 @@ Returns the stride (bytes per row) of the bitmap.
 
 #### `extractText()`
 ```nim
-proc extractText(page: PdfPage): string {.raises: [IOError], tags: [], forbids: [].}
+proc extractText(page: PdfPage): string {.raises: [IOError].}
 ```
 Extracts all text from a PDF page.
 
@@ -203,28 +183,22 @@ Extracts all text from a PDF page.
 
 #### `loadTextPage()`
 ```nim
-proc loadTextPage(page: PdfPage): PdfTextPage {.raises: [IOError], tags: [], forbids: [].}
+proc loadTextPage(page: PdfPage): PdfTextPage {.raises: [IOError].}
 ```
 Loads the text page for more granular text access.
 
-- **Returns:** `PdfTextPage` handle
+- **Returns:** `PdfTextPage` handle (move-only; cleaned up at end of scope)
 - **Raises:** `IOError` if the text page cannot be loaded
-
-#### `close()` (text page)
-```nim
-proc close(textPage: var PdfTextPage) {.raises: [], tags: [], forbids: [].}
-```
-Closes a text page and releases its resources.
 
 #### `charCount()`
 ```nim
-proc charCount(textPage: PdfTextPage): int {.raises: [], tags: [], forbids: [].}
+proc charCount(textPage: PdfTextPage): int
 ```
 Returns the number of characters in the text page.
 
 #### `getTextRange()`
 ```nim
-proc getTextRange(textPage: PdfTextPage; startIndex, count: int): string {.raises: [], tags: [], forbids: [].}
+proc getTextRange(textPage: PdfTextPage; startIndex, count: int): string
 ```
 Extracts a range of text from the text page.
 
@@ -236,7 +210,7 @@ Extracts a range of text from the text page.
 
 #### `getCharBox()`
 ```nim
-proc getCharBox(textPage: PdfTextPage; index: int): tuple[left, right, bottom, top: float] {.raises: [], tags: [], forbids: [].}
+proc getCharBox(textPage: PdfTextPage; index: int): tuple[left, right, bottom, top: float]
 ```
 Returns the bounding box of a character at the given index.
 
@@ -246,12 +220,12 @@ Returns the bounding box of a character at the given index.
 
 ### `lastErrorCode()`
 ```nim
-proc lastErrorCode(): culong {.raises: [], tags: [], forbids: [].}
+proc lastErrorCode(): culong
 ```
 Returns the last error code from PDFium.
 
 ### `raisePdfiumError()`
 ```nim
-proc raisePdfiumError(context: string) {.noinline, raises: [IOError], tags: [], forbids: [].}
+proc raisePdfiumError(context: string) {.noinline, raises: [IOError].}
 ```
 Raises an IOError with PDFium error information.

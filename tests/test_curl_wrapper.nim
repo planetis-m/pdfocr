@@ -5,7 +5,7 @@ proc writeSink(buffer: ptr char, size: csize_t, nitems: csize_t, outstream: poin
 
 proc main() =
   initCurlGlobal()
-  block:
+  try:
     var easy = initEasy()
     var headers: CurlSlist
     var multi = initMulti()
@@ -30,8 +30,8 @@ proc main() =
     discard getPrivate(easy)
     reset(easy)
     removeHandle(multi, easy)
-
-  cleanupCurlGlobal()
+  finally:
+    cleanupCurlGlobal()
 
 when isMainModule:
   main()
