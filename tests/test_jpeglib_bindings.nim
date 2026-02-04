@@ -53,13 +53,14 @@ proc createTestImage(width, height: int, outputPath: string): bool =
     if outfile != nil:
       close(outfile)
 
-proc testBasicFunctionality() =
-  let success = createTestImage(320, 240, "test_output.jpg")
+proc testBasicFunctionality(outDir: string) =
+  let outputPath = outDir / "test_output.jpg"
+  let success = createTestImage(320, 240, outputPath)
   doAssert success, "JPEG creation failed"
-  doAssert fileExists("test_output.jpg"), "Output file does not exist"
-  doAssert getFileSize("test_output.jpg") > 0, "Output file is empty"
+  doAssert fileExists(outputPath), "Output file does not exist"
+  doAssert getFileSize(outputPath) > 0, "Output file is empty"
 
-proc testMultipleSizes() =
+proc testMultipleSizes(outDir: string) =
   let testCases = [
     (64, 64, "test_64x64.jpg"),
     (128, 128, "test_128x128.jpg"),
@@ -68,10 +69,11 @@ proc testMultipleSizes() =
   ]
 
   for (w, h, path) in testCases:
-    let ok = createTestImage(w, h, path)
-    doAssert ok, &"Failed to create {path}"
-    doAssert fileExists(path), &"Missing output file: {path}"
-    doAssert getFileSize(path) > 0, &"Empty output file: {path}"
+    let outputPath = outDir / path
+    let ok = createTestImage(w, h, outputPath)
+    doAssert ok, &"Failed to create {outputPath}"
+    doAssert fileExists(outputPath), &"Missing output file: {outputPath}"
+    doAssert getFileSize(outputPath) > 0, &"Empty output file: {outputPath}"
 
 proc testStructAccess() =
   var jerr: jpeg_error_mgr
@@ -93,6 +95,8 @@ proc testStructAccess() =
   jpeg_destroy_compress(addr cinfo)
 
 when isMainModule:
+  let outDir = getTempDir() / "pdfocr-jpeg-tests"
+  createDir(outDir)
   testStructAccess()
-  testBasicFunctionality()
-  testMultipleSizes()
+  testBasicFunctionality(outDir)
+  testMultipleSizes(outDir)
