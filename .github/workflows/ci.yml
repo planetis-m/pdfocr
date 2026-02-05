@@ -78,24 +78,14 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 1. Download libjpeg-turbo
-          $jpegUrl = "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/latest/download/libjpeg-turbo-3.1.3-gcc-x64.exe"
-          Write-Host "Downloading libjpeg-turbo..."
-          Invoke-WebRequest -Uri $jpegUrl -OutFile "jpeg_install.exe"
-
-          # 2. SILENT INSTALL (Proper PowerShell way)
-          # -Wait ensures the script doesn't continue until the folder is actually created
+          # 1. Download libjpeg-turbo (Using curl)
+          curl -L -o jpeg_install.exe https://github.com/libjpeg-turbo/libjpeg-turbo/releases/latest/download/libjpeg-turbo-3.1.3-gcc-x64.exe
+          
+          # 2. Silent Install
           Write-Host "Running Installer..."
           Start-Process -FilePath ".\jpeg_install.exe" -ArgumentList "/S" -Wait
           
-          # 3. Verify it exists immediately
-          if (Test-Path "C:\libjpeg-turbo-gcc64") {
-              Write-Host "SUCCESS: libjpeg-turbo installed to C:\libjpeg-turbo-gcc64"
-          } else {
-              Write-Error "FAILURE: libjpeg-turbo directory was not created!"
-              exit 1
-          }
-          # 2. Download and extract PDFium
+          # 3. Download and Extract PDFium
           mkdir -p third_party/pdfium
           curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz
           tar -xf pdfium.tgz -C third_party/pdfium
@@ -103,16 +93,22 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          # Copy Jpeg DLL
+          # PDFium
+          Copy-Item "..\third_party\pdfium\bin\pdfium.dll" . -Force
+          
+          # libjpeg-turbo
           Copy-Item "C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll" . -Force
           
-          # Copy PDFium
-          Copy-Item "..\third_party\pdfium\bin\pdfium.dll" . -Force
+          # libcurl
+          Copy-Item "C:\Program Files\Git\mingw64\bin\libcurl-4.dll" . -Force
+          
+          # THE MISSING PIECE: MingW Runtime DLLs
+          # These are often required by the GCC build of libjpeg-turbo
+          Copy-Item "C:\Program Files\Git\mingw64\bin\libgcc_s_seh-1.dll" . -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\Program Files\Git\mingw64\bin\libstdc++-6.dll" . -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\Program Files\Git\mingw64\bin\libwinpthread-1.dll" . -Force -ErrorAction SilentlyContinue
 
-          # Find and Print libcurl path
-          $curl = Get-ChildItem "C:\Program Files\Git\mingw64\bin\libcurl-4.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($curl) {
-              Write-Host "Found libcurl at: $($curl.FullName)"
-              Copy-Item $curl.FullName . -Force
-          }
+          # --- DIAGNOSTICS ---
+          Write-Host "`n--- READY TO EXECUTE ---"
+          Get-ChildItem *.dll | Select-Object Name
           nim test ci.nims
