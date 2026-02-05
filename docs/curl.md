@@ -9,25 +9,20 @@ This module provides a high-level wrapper around libcurl for making HTTP request
 ### CurlEasy
 ```nim
 CurlEasy = object
-  raw*: CURL
-  postData*: string
-  errorBuf*: array[256, char]
 ```
 Represents an easy handle for performing HTTP requests.
-
-### CurlSlist
-```nim
-CurlSlist = object
-  raw*: ptr curl_slist
-```
-Represents a list of HTTP headers.
 
 ### CurlMulti
 ```nim
 CurlMulti = object
-  raw*: CURLM
 ```
 Represents a multi handle for multiplexing multiple easy handles.
+
+### CurlSlist
+```nim
+CurlSlist = object
+```
+Represents a list of HTTP headers.
 
 ## Procedures
 
@@ -35,7 +30,7 @@ Represents a multi handle for multiplexing multiple easy handles.
 
 #### `initCurlGlobal()`
 ```nim
-proc initCurlGlobal(flags: culong = CURL_GLOBAL_DEFAULT) {.raises: [IOError].}
+proc initCurlGlobal(flags: culong = CURL_GLOBAL_DEFAULT)
 ```
 Initializes the libcurl library globally.
 
@@ -53,13 +48,13 @@ Cleans up global libcurl resources.
 
 #### `checkCurl()`
 ```nim
-proc checkCurl(code: CURLcode; context: string) {.raises: [IOError].}
+proc checkCurl(code: CURLcode; context: string)
 ```
 Checks a CURLcode and raises an IOError if it indicates an error.
 
 #### `checkCurlMulti()`
 ```nim
-proc checkCurlMulti(code: CURLMcode; context: string) {.raises: [IOError].}
+proc checkCurlMulti(code: CURLMcode; context: string)
 ```
 Checks a CURLMcode and raises an IOError if it indicates an error.
 
@@ -67,104 +62,58 @@ Checks a CURLMcode and raises an IOError if it indicates an error.
 
 #### `initEasy()`
 ```nim
-proc initEasy(): CurlEasy {.raises: [IOError].}
+proc initEasy(): CurlEasy
 ```
 Creates a new easy handle for making HTTP requests.
-
-The handle is move-only and cleaned up automatically at end of scope.
 
 - **Returns:** `CurlEasy` handle
 - **Raises:** `IOError` if handle creation fails
 
-### Multi Handle Management
-
-#### `initMulti()`
-```nim
-proc initMulti(): CurlMulti {.raises: [IOError].}
-```
-Creates a new multi handle for managing concurrent easy handles.
-
-#### `addHandle()`
-```nim
-proc addHandle(multi: var CurlMulti; easy: CurlEasy) {.raises: [IOError].}
-```
-Adds an easy handle to a multi handle.
-
-#### `removeHandle()`
-```nim
-proc removeHandle(multi: var CurlMulti; easy: CurlEasy) {.raises: [IOError].}
-```
-Removes an easy handle from a multi handle.
-
-#### `perform()`
-```nim
-proc perform(multi: var CurlMulti): int {.raises: [IOError].}
-```
-Performs transfers on all added handles and returns the number of running handles.
-
-#### `poll()`
-```nim
-proc poll(multi: var CurlMulti; timeoutMs: int): int {.raises: [IOError].}
-```
-Waits for activity and returns the number of file descriptors with activity.
-
-#### `tryInfoRead()`
-```nim
-proc tryInfoRead(multi: var CurlMulti; msg: var CURLMsg; msgsInQueue: var int): bool
-```
-Reads a completed transfer message into `msg`, updates `msgsInQueue`, and returns `true` if a message was read.
-
-### Request Configuration
-
 #### `setUrl()`
 ```nim
-proc setUrl(easy: var CurlEasy; url: string) {.raises: [IOError].}
+proc setUrl(easy: var CurlEasy; url: string)
 ```
 Sets the URL for the HTTP request.
 
 #### `setWriteCallback()`
 ```nim
-proc setWriteCallback(easy: var CurlEasy; cb: curl_write_callback; userdata: pointer) {.raises: [IOError].}
+proc setWriteCallback(easy: var CurlEasy; cb: curl_write_callback; userdata: pointer)
 ```
 Sets the callback function for handling response data.
 
 #### `setPostFields()`
 ```nim
-proc setPostFields(easy: var CurlEasy; data: string) {.raises: [IOError].}
+proc setPostFields(easy: var CurlEasy; data: string)
 ```
 Sets the POST data for the request.
 
 #### `setHeaders()`
 ```nim
-proc setHeaders(easy: var CurlEasy; headers: CurlSlist) {.raises: [IOError].}
+proc setHeaders(easy: var CurlEasy; headers: CurlSlist)
 ```
 Sets HTTP headers for the request.
 
 #### `setTimeoutMs()`
 ```nim
-proc setTimeoutMs(easy: var CurlEasy; timeoutMs: int) {.raises: [IOError].}
+proc setTimeoutMs(easy: var CurlEasy; timeoutMs: int)
 ```
 Sets the total timeout for the request in milliseconds.
 
 #### `setConnectTimeoutMs()`
 ```nim
-proc setConnectTimeoutMs(easy: var CurlEasy; timeoutMs: int) {.raises: [IOError].}
+proc setConnectTimeoutMs(easy: var CurlEasy; timeoutMs: int)
 ```
 Sets the connection timeout in milliseconds.
 
 #### `setSslVerify()`
 ```nim
-proc setSslVerify(easy: var CurlEasy; verifyPeer: bool; verifyHost: bool) {.raises: [IOError].}
+proc setSslVerify(easy: var CurlEasy; verifyPeer: bool; verifyHost: bool)
 ```
 Configures SSL certificate verification.
 
-- **Parameters:**
-  - `verifyPeer`: Whether to verify the peer certificate
-  - `verifyHost`: Whether to verify the host certificate
-
 #### `setAcceptEncoding()`
 ```nim
-proc setAcceptEncoding(easy: var CurlEasy; encoding: string) {.raises: [IOError].}
+proc setAcceptEncoding(easy: var CurlEasy; encoding: string)
 ```
 Sets the Accept-Encoding header (e.g., "gzip, deflate").
 
@@ -176,76 +125,85 @@ Resets an easy handle to default libcurl state for safe reuse.
 
 #### `setPrivate()`
 ```nim
-proc setPrivate(easy: var CurlEasy; data: pointer) {.raises: [IOError].}
+proc setPrivate(easy: var CurlEasy; data: pointer)
 ```
 Associates user data with the easy handle for later retrieval.
 
 #### `getPrivate()`
 ```nim
-proc getPrivate(easy: CurlEasy): pointer {.raises: [IOError].}
+proc getPrivate(easy: CurlEasy): pointer
 ```
 Retrieves user data previously associated via `setPrivate`.
 
-### Performing Requests
-
 #### `perform()`
 ```nim
-proc perform(easy: var CurlEasy) {.raises: [IOError].}
+proc perform(easy: var CurlEasy)
 ```
 Executes the configured HTTP request.
 
-- **Raises:** `IOError` if the request fails
-
 #### `responseCode()`
 ```nim
-proc responseCode(easy: CurlEasy): int {.raises: [IOError].}
+proc responseCode(easy: CurlEasy): int
 ```
 Returns the HTTP response code.
 
-- **Returns:** HTTP status code (e.g., 200, 404, 500)
-
-### Header List Management
-
 #### `addHeader()`
 ```nim
-proc addHeader(list: var CurlSlist; headerLine: string) {.raises: [IOError].}
+proc addHeader(list: var CurlSlist; headerLine: string)
 ```
 Adds a header line to the header list.
 
-- **Parameters:**
-  - `list`: The header list
-  - `headerLine`: Header string in format "Name: Value"
+### Multi Handle Management
+
+#### `initMulti()`
+```nim
+proc initMulti(): CurlMulti
+```
+Creates a new multi handle for managing concurrent easy handles.
+
+#### `addHandle()`
+```nim
+proc addHandle(multi: var CurlMulti; easy: CurlEasy)
+```
+Adds an easy handle to a multi handle.
+
+#### `removeHandle()`
+```nim
+proc removeHandle(multi: var CurlMulti; easy: CurlEasy)
+```
+Removes an easy handle from a multi handle.
+
+#### `perform()`
+```nim
+proc perform(multi: var CurlMulti): int
+```
+Performs transfers on all added handles and returns the number of running handles.
+
+#### `poll()`
+```nim
+proc poll(multi: var CurlMulti; timeoutMs: int): int
+```
+Waits for activity and returns the number of file descriptors with activity.
+
+#### `tryInfoRead()`
+```nim
+proc tryInfoRead(multi: var CurlMulti; msg: var CURLMsg; msgsInQueue: var int): bool
+```
+Reads a completed transfer message into `msg`, updates `msgsInQueue`, and returns `true` if a message was read.
 
 ## Usage Example
 
 ```nim
-# Initialize
-initCurlGlobal()
+import pdfocr/curl
 
+initCurlGlobal()
 try:
   var easy = initEasy()
-  var multi = initMulti()
   easy.setUrl("https://example.com")
   easy.setTimeoutMs(5000)
-
-  # Set up headers
-  var headers: CurlSlist
-  headers.addHeader("Content-Type: application/json")
-  easy.setHeaders(headers)
-
-  # Add to multi and poll
-  multi.addHandle(easy)
-  discard multi.poll(0)
-  var msgs = 0
-  var msg: CURLMsg
-  while multi.tryInfoRead(msg, msgs):
-    discard msg
-  easy.setPrivate(cast[pointer](1))
-  discard easy.getPrivate()
-  easy.reset()
   easy.perform()
   let code = easy.responseCode()
-  multi.removeHandle(easy)
+  discard code
 finally:
   cleanupCurlGlobal()
 ```

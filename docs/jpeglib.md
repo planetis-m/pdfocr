@@ -12,27 +12,31 @@ JpegCompressor = object
 ```
 Opaque handle representing a JPEG compressor instance.
 
+### JpegQuality
+```nim
+JpegQuality = range[1 .. 100]
+```
+JPEG quality range (1..100).
+
 ## Procedures
 
 ### RGB Format
 
 #### `initJpegCompressor()`
 ```nim
-proc initJpegCompressor(path: string; width, height: Positive; quality: JpegQuality = 90): JpegCompressor {.raises: [IOError].}
+proc initJpegCompressor(width, height: Positive; quality: JpegQuality = 90): JpegCompressor
 ```
 Initializes a JPEG compressor for RGB format data.
 
 - **Parameters:**
-  - `path`: Output file path for the JPEG
   - `width`: Image width in pixels
   - `height`: Image height in pixels
   - `quality`: JPEG quality (1-100, default: 90)
 - **Returns:** `JpegCompressor` handle (move-only; cleaned up at end of scope)
-- **Raises:** `IOError` if file cannot be created
 
 #### `writeRgb()`
 ```nim
-proc writeRgb(comp: var JpegCompressor; buffer: openArray[byte]) {.raises: [ValueError].}
+proc writeRgb(comp: var JpegCompressor; buffer: openArray[byte])
 ```
 Writes RGB pixel data to the JPEG compressor.
 
@@ -41,25 +45,31 @@ Writes RGB pixel data to the JPEG compressor.
   - `buffer`: Array of bytes containing RGB data (3 bytes per pixel)
 - **Raises:** `ValueError` if buffer size is incorrect
 
+#### `finishJpeg()`
+```nim
+proc finishJpeg(comp: var JpegCompressor): seq[byte]
+```
+Finalizes compression and returns the JPEG bytes.
+
+- **Returns:** JPEG bytes as `seq[byte]`
+
 ### BGRX Format
 
 #### `initJpegCompressorBgrx()`
 ```nim
-proc initJpegCompressorBgrx(path: string; width, height: Positive; quality: JpegQuality = 90): JpegCompressor {.raises: [IOError].}
+proc initJpegCompressorBgrx(width, height: Positive; quality: JpegQuality = 90): JpegCompressor
 ```
 Initializes a JPEG compressor for BGRX format data (4 bytes per pixel).
 
 - **Parameters:**
-  - `path`: Output file path for the JPEG
   - `width`: Image width in pixels
   - `height`: Image height in pixels
   - `quality`: JPEG quality (1-100, default: 90)
 - **Returns:** `JpegCompressor` handle (move-only; cleaned up at end of scope)
-- **Raises:** `IOError` if file cannot be created
 
 #### `writeBgrx()`
 ```nim
-proc writeBgrx(comp: var JpegCompressor; buffer: pointer; stride: int) {.raises: [].}
+proc writeBgrx(comp: var JpegCompressor; buffer: pointer; stride: Positive)
 ```
 Writes BGRX pixel data to the JPEG compressor.
 
@@ -67,11 +77,13 @@ Writes BGRX pixel data to the JPEG compressor.
   - `comp`: The compressor instance
   - `buffer`: Pointer to BGRX data (4 bytes per pixel)
   - `stride`: Number of bytes per row
-- **Raises:** `ValueError` if parameters are invalid
 
 ## Usage Example
 
 ```nim
-var comp = initJpegCompressorBgrx("output.jpg", width, height, quality = 95)
-comp.writeBgrx(buffer, stride)
+import pdfocr/jpeglib
+
+var comp = initJpegCompressorBgrx(width, height, quality = 95)
+writeBgrx(comp, buffer, stride)
+let bytes = finishJpeg(comp)
 ```

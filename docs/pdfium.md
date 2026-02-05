@@ -9,30 +9,24 @@ This module provides a high-level wrapper around the PDFium C library for workin
 ### PdfDocument
 ```nim
 PdfDocument = object
-  raw*: FPDF_DOCUMENT
 ```
 Represents a PDF document handle.
 
 ### PdfPage
 ```nim
 PdfPage = object
-  raw*: FPDF_PAGE
 ```
 Represents a single page in a PDF document.
 
 ### PdfBitmap
 ```nim
 PdfBitmap = object
-  raw*: FPDF_BITMAP
-  width*: int
-  height*: int
 ```
 Represents a bitmap for rendering PDF pages.
 
 ### PdfTextPage
 ```nim
 PdfTextPage = object
-  raw*: FPDF_TEXTPAGE
 ```
 Represents the text content of a PDF page.
 
@@ -56,7 +50,7 @@ Cleans up the PDFium library. Should be called when done using PDFium.
 
 #### `loadDocument()`
 ```nim
-proc loadDocument(path: string; password: string = ""): PdfDocument {.raises: [IOError].}
+proc loadDocument(path: string; password: string = ""): PdfDocument
 ```
 Loads a PDF document from the given file path.
 
@@ -76,7 +70,7 @@ Returns the number of pages in the document.
 
 #### `loadPage()`
 ```nim
-proc loadPage(doc: PdfDocument; index: int): PdfPage {.raises: [IOError].}
+proc loadPage(doc: PdfDocument; index: int): PdfPage
 ```
 Loads a page from the document by its index.
 
@@ -86,19 +80,26 @@ Loads a page from the document by its index.
 - **Returns:** `PdfPage` handle (move-only; cleaned up at end of scope)
 - **Raises:** `IOError` if the page cannot be loaded
 
+#### `loadTextPage()`
+```nim
+proc loadTextPage(page: PdfPage): PdfTextPage
+```
+Loads the text page for more granular text access.
+
+- **Returns:** `PdfTextPage` handle (move-only; cleaned up at end of scope)
+- **Raises:** `IOError` if the text page cannot be loaded
+
 #### `pageSize()`
 ```nim
 proc pageSize(page: PdfPage): tuple[width, height: float]
 ```
 Returns the size of the page in points.
 
-- **Returns:** A tuple with `width` and `height` in points
-
 ### Bitmap Operations
 
 #### `createBitmap()`
 ```nim
-proc createBitmap(width, height: int; alpha: bool = false): PdfBitmap {.raises: [IOError].}
+proc createBitmap(width, height: int; alpha: bool = false): PdfBitmap
 ```
 Creates a bitmap for rendering PDF pages.
 
@@ -123,42 +124,25 @@ proc renderPage(bitmap: PdfBitmap; page: PdfPage;
 ```
 Renders a PDF page onto the bitmap.
 
-- **Parameters:**
-  - `bitmap`: Target bitmap
-  - `page`: PDF page to render
-  - `startX`, `startY`: Starting position
-  - `sizeX`, `sizeY`: Size of the rendering area
-  - `rotate`: Rotation (default: 0)
-  - `flags`: Rendering flags (default: 0)
-
 #### `renderPageAtScale()`
 ```nim
 proc renderPageAtScale(page: PdfPage; scale: float; alpha: bool = false;
-                       rotate: int = 0; flags: int = 0): PdfBitmap {.raises: [IOError].}
+                       rotate: int = 0; flags: int = 0): PdfBitmap
 ```
 Creates a bitmap sized to the page at the given scale, clears it, and renders the page.
 
-- **Parameters:**
-  - `page`: PDF page to render
-  - `scale`: Scale factor for width/height in points
-  - `alpha`: Whether to include an alpha channel
-  - `rotate`: Rotation (default: 0)
-  - `flags`: Rendering flags (default: 0)
-## Usage Example
-
+#### `width()`
 ```nim
-import pdfocr/pdfium
-
-initPdfium()
-try:
-  var doc = loadDocument("input.pdf")
-  var page = loadPage(doc, 0)
-  var bitmap = renderPageAtScale(page, 2.0)
-
-  echo extractText(page)
-finally:
-  destroyPdfium()
+proc width(bitmap: PdfBitmap): int
 ```
+Returns the bitmap width in pixels.
+
+#### `height()`
+```nim
+proc height(bitmap: PdfBitmap): int
+```
+Returns the bitmap height in pixels.
+
 #### `buffer()`
 ```nim
 proc buffer(bitmap: PdfBitmap): pointer
@@ -175,20 +159,9 @@ Returns the stride (bytes per row) of the bitmap.
 
 #### `extractText()`
 ```nim
-proc extractText(page: PdfPage): string {.raises: [IOError].}
+proc extractText(page: PdfPage): string
 ```
 Extracts all text from a PDF page.
-
-- **Returns:** The extracted text as a string
-
-#### `loadTextPage()`
-```nim
-proc loadTextPage(page: PdfPage): PdfTextPage {.raises: [IOError].}
-```
-Loads the text page for more granular text access.
-
-- **Returns:** `PdfTextPage` handle (move-only; cleaned up at end of scope)
-- **Raises:** `IOError` if the text page cannot be loaded
 
 #### `charCount()`
 ```nim
@@ -202,30 +175,38 @@ proc getTextRange(textPage: PdfTextPage; startIndex, count: int): string
 ```
 Extracts a range of text from the text page.
 
-- **Parameters:**
-  - `textPage`: The text page
-  - `startIndex`: Starting character index
-  - `count`: Number of characters to extract
-- **Returns:** The extracted text
-
 #### `getCharBox()`
 ```nim
 proc getCharBox(textPage: PdfTextPage; index: int): tuple[left, right, bottom, top: float]
 ```
 Returns the bounding box of a character at the given index.
 
-- **Returns:** A tuple with `left`, `right`, `bottom`, `top` coordinates
+### Error Handling
 
-## Error Handling
-
-### `lastErrorCode()`
+#### `lastErrorCode()`
 ```nim
 proc lastErrorCode(): culong
 ```
 Returns the last error code from PDFium.
 
-### `raisePdfiumError()`
+#### `raisePdfiumError()`
 ```nim
-proc raisePdfiumError(context: string) {.noinline, raises: [IOError].}
+proc raisePdfiumError(context: string)
 ```
 Raises an IOError with PDFium error information.
+
+## Usage Example
+
+```nim
+import pdfocr/pdfium
+
+initPdfium()
+try:
+  var doc = loadDocument("input.pdf")
+  var page = loadPage(doc, 0)
+  var bitmap = renderPageAtScale(page, 2.0)
+  discard bitmap
+  echo extractText(page)
+finally:
+  destroyPdfium()
+```
