@@ -77,10 +77,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Dependencies
+        shell: bash
         run: |
           # 1. Download and install libjpeg-turbo
           curl -L -o jpeg_install.exe https://github.com/libjpeg-turbo/libjpeg-turbo/releases/latest/download/libjpeg-turbo-3.1.3-gcc-x64.exe
           ./jpeg_install.exe //S
+          ls -d C:/libjpeg-turbo*
+          
+          cmd //c "jpeg_install.exe /S"
+          ls -d C:/libjpeg-turbo*
           
           # 2. Download and extract PDFium
           mkdir -p third_party/pdfium
@@ -89,9 +94,19 @@ jobs:
 
       - name: Run Tests
         working-directory: tests
+        shell: bash
         run: |
-          cp "../third_party/pdfium/bin/pdfium.dll" .
-          cp "C:/libjpeg-turbo-gcc64/bin/libjpeg-62.dll" .
-          cp "C:/Program Files/Git/mingw64/bin/libcurl-4.dll" .
+          # Find the libjpeg DLL wherever it ended up
+          JPEG_DLL=$(find /c/libjpeg-turbo* -name "libjpeg-62.dll" | head -n 1)
+          echo "Found Jpeg DLL at: $JPEG_DLL"
+          cp "$JPEG_DLL" .
 
+          # Find PDFium
+          cp "../third_party/pdfium/bin/pdfium.dll" .
+          
+          # Find libcurl
+          CURL_DLL=$(find /c/Program\ Files/Git -name "libcurl-4.dll" | head -n 1)
+          echo "Found CURL DLL at: $CURL_DLL"
+          cp "$CURL_DLL" .
+          ls -F *.dll
           nim test ci.nims
