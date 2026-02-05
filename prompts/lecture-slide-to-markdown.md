@@ -1,0 +1,1 @@
+Extract the content of this lecture slide into structured Markdown. Use headers for titles, bullet points for lists, and LaTeX for any mathematical formulas. Ignore background graphics and slide numbers.

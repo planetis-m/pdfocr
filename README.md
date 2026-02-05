@@ -1,20 +1,20 @@
 # pdfocr
 
-`pdfocr` is a planned Nim CLI that will extract text from selected PDF pages by:
-1. Rendering each selected page to JPEG.
+`pdfocr` is a Nim CLI that extracts text from selected PDF pages by:
+1. Rendering each selected page to WebP.
 2. Sending the image to DeepInfra's OpenAI-compatible chat completion endpoint using the `allenai/olmOCR-2-7B-1025` model.
 3. Emitting exactly one JSON Lines result per selected page to stdout, strictly ordered by page number.
 
-This README describes intended behavior based on `SPEC.md`. The application is not built yet.
+This README describes the behavior implemented based on `SPEC.md`.
 
-## Planned Behavior
+## Behavior
 - Strictly ordered stdout output (JSON Lines only).
 - No filesystem outputs (stdout is the sole result stream, stderr for logs).
 - Bounded memory usage with explicit backpressure handling.
 - Retries with exponential backoff and jitter for transient failures.
 - Fixed concurrency limits (hardcoded constants; not user-configurable).
 
-## Planned CLI
+## CLI
 ```bash
 pdf-olmocr INPUT.pdf --pages "1,4-6,12" > results.jsonl
 ```
@@ -28,7 +28,7 @@ Arguments:
 Environment:
 - `DEEPINFRA_API_KEY` (required): API key for DeepInfra.
 
-## Planned Output (stdout)
+## Output (stdout)
 JSON Lines, one object per selected page, ordered by ascending page number. Each object includes:
 - `page` (int)
 - `status` (`ok` or `error`)
@@ -39,9 +39,9 @@ JSON Lines, one object per selected page, ordered by ascending page number. Each
 ## Logs (stderr)
 All progress and diagnostics will go to stderr. Stdout will remain JSONL-only.
 
-## Requirements (Expected)
+## Requirements
 - Nim with ARC/ORC enabled.
-- PDF rendering + JPEG encoding dependencies (exact library choices TBD).
+- PDF rendering + WebP encoding dependencies (exact library choices TBD).
 - HTTP client support for TLS.
 - DeepInfra API key.
 
@@ -50,5 +50,3 @@ All progress and diagnostics will go to stderr. Stdout will remain JSONL-only.
 
 ## License
 MIT. See `LICENSE.md`.
-
-Extract the content of this lecture slide into structured Markdown. Use headers for titles, bullet points for lists, and LaTeX for any mathematical formulas. Ignore background graphics and slide numbers.
