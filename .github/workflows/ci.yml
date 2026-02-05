@@ -97,16 +97,21 @@ jobs:
           Copy-Item "..\third_party\pdfium\bin\pdfium.dll" . -Force
           
           # libjpeg-turbo
-          Copy-Item "C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll" . -Force
+          Copy-Item "$turboBin\*.dll" . -Force
           
           # libcurl
           Copy-Item "C:\Program Files\Git\mingw64\bin\libcurl-4.dll" . -Force
           
-          # 2. Copy ALL MingW Runtime dependencies
-          # This grabs libcurl, libgcc, libstdc++, zlib, libwinpthread, etc.
-          # We use -u to avoid 'same file' errors and ignore missing files
-          cp /c/Program\ Files/Git/mingw64/bin/*.dll . || true
+          Get-ChildItem "$mingBin\*.dll" | ForEach-Object {
+              if (-not (Test-Path ".\$($_.Name)")) {
+                  Copy-Item $_.FullName . -Force
+              }
+          }
+          Write-Host "`n--- DLL DEPENDENCY CHECK ---"
+          nim c test_jpeglib_bindings.nim
+          & "$mingBin\ldd.exe" .\test_jpeglib_bindings.exe
           # --- DIAGNOSTICS ---
           Write-Host "`n--- READY TO EXECUTE ---"
+          $env:PATH = "$PWD;$env:PATH"
           Get-ChildItem *.dll | Select-Object Name
           nim test ci.nims
