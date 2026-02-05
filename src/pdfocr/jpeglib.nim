@@ -9,7 +9,7 @@ type
   JpegCompressor* = object
     cinfo: jpeg_compress_struct
     jerr: jpeg_error_mgr
-    outBuffer: ptr byte
+    outBuffer: ptr UncheckedArray[byte]
     outSize: culong
     rowStride: int
     isOpen: bool
@@ -46,7 +46,7 @@ proc initJpegCompressor*(width, height: Positive; quality: JpegQuality = 90): Jp
   result.isOpen = true
   result.outBuffer = nil
   result.outSize = 0
-  jpeg_mem_dest(addr result.cinfo, addr result.outBuffer, addr result.outSize)
+  jpeg_mem_dest(addr result.cinfo, cast[ptr ptr byte](addr result.outBuffer), addr result.outSize)
 
   result.cinfo.image_width = width.cuint
   result.cinfo.image_height = height.cuint
@@ -89,7 +89,7 @@ proc initJpegCompressorBgrx*(width, height: Positive; quality: JpegQuality = 90)
   result.isOpen = true
   result.outBuffer = nil
   result.outSize = 0
-  jpeg_mem_dest(addr result.cinfo, addr result.outBuffer, addr result.outSize)
+  jpeg_mem_dest(addr result.cinfo, cast[ptr ptr byte](addr result.outBuffer), addr result.outSize)
 
   result.cinfo.image_width = width.cuint
   result.cinfo.image_height = height.cuint

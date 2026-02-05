@@ -11,11 +11,11 @@ proc createTestImage(width, height: int): seq[byte] =
   cinfo.err = jpeg_std_error(addr jerr)
   jpeg_create_compress(addr cinfo)
 
-  var outBuffer: ptr byte = nil
+  var outBuffer: ptr UncheckedArray[byte] = nil
   var outSize: culong = 0
 
   try:
-    jpeg_mem_dest(addr cinfo, addr outBuffer, addr outSize)
+    jpeg_mem_dest(addr cinfo, cast[ptr ptr byte](addr outBuffer), addr outSize)
 
     cinfo.image_width = width.cuint
     cinfo.image_height = height.cuint

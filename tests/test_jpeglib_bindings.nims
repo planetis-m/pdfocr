@@ -18,3 +18,15 @@ elif defined(windows):
 else:
   # Linux: system libjpeg
   discard
+
+when defined(addressSanitizer):
+  when defined(windows):
+    {.warning: "Google Sanitizers (ASan) are not supported on Windows.".}
+  else:
+    # Logic for Linux/macOS
+    switch("cc", "clang")
+    switch("debugger", "native")
+    switch("define", "noSignalHandler")
+    switch("define", "useMalloc")
+    switch("passC", "-fsanitize=address -fno-omit-frame-pointer")
+    switch("passL", "-fsanitize=address -fno-omit-frame-pointer")
