@@ -9,7 +9,7 @@ type
 
   # We only define fields we read/write.
   # The "incompleteStruct" tells Nim to ignore size mismatches.
-  jpeg_compress_struct* {.importc: "jpeg_compress_struct", header: "jpeglib.h", incompleteStruct, pure.} = object
+  jpeg_compress_struct* {.importc: "struct jpeg_compress_struct", header: "jpeglib.h", incompleteStruct, pure.} = object
     err*: ptr jpeg_error_mgr
     image_width*: cuint
     image_height*: cuint
@@ -18,12 +18,12 @@ type
     next_scanline*: cuint
     # We omit the hundreds of private fields; C handles them!
 
-  jpeg_common_struct* {.importc: "jpeg_common_struct", header: "jpeglib.h", incompleteStruct, pure.} = object
+  jpeg_common_struct* {.importc: "struct jpeg_common_struct", header: "jpeglib.h", incompleteStruct, pure.} = object
     err*: ptr jpeg_error_mgr # Pointer to the error manager
 
   # We only list the function pointers we need to override or call.
   # The C compiler handles the rest of the fields/size automatically.
-  jpeg_error_mgr* {.importc: "jpeg_error_mgr", header: "jpeglib.h", incompleteStruct, pure.} = object
+  jpeg_error_mgr* {.importc: "struct jpeg_error_mgr", header: "jpeglib.h", incompleteStruct, pure.} = object
     error_exit*: proc (cinfo: j_common_ptr) {.cdecl.}
     emit_message*: proc (cinfo: j_common_ptr, msg_level: cint) {.cdecl.}
     output_message*: proc (cinfo: j_common_ptr) {.cdecl.}
