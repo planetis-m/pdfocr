@@ -89,19 +89,31 @@ jobs:
 
       - name: Run Tests
         working-directory: tests
-        shell: bash
         run: |
-          cp "/c/libjpeg-turbo-gcc64/bin/libjpeg-62.dll" .
-          cp "../third_party/pdfium/bin/pdfium.dll" .
-          
-          # 3. libcurl
-          CURL_BIN="/c/Program Files/Git/mingw64/bin/libcurl-4.dll"
-          if [ -f "$CURL_BIN" ]; then
-            cp "$CURL_BIN" .
-          else
-            echo "here"
-            # Fallback search if path changes
-            cp $(find "/c/Program Files/Git" -name "libcurl-4.dll" | head -n 1) .
-          fi
-          ls -F *.dll
+          # 1. libjpeg
+          $jpegDll = "C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll"
+          Write-Host "--- LOG: Copying libjpeg from $jpegDll ---"
+          if (Test-Path $jpegDll) {
+              Copy-Item -Path $jpegDll -Destination $PWD -Force
+          } else {
+              Write-Error "CRITICAL: Missing $jpegDll"
+              exit 1
+          }
+
+          # 2. PDFium
+          $pdfDll = "..\third_party\pdfium\bin\pdfium.dll"
+          Write-Host "--- LOG: Copying PDFium from $pdfDll ---"
+          Copy-Item -Path $pdfDll -Destination $PWD -Force
+
+          # 3. libcurl (Search and Print)
+          Write-Host "--- LOG: Searching for libcurl ---"
+          $curlSearch = Get-ChildItem -Path "C:\Program Files" -Filter "libcurl-4.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          if ($curlSearch) {
+              Write-Host "--- SUCCESS: Found libcurl at: $($curlSearch.FullName) ---"
+              Copy-Item -Path $curlSearch.FullName -Destination $PWD -Force
+          } else {
+              Write-Error "--- CRITICAL: libcurl-4.dll NOT FOUND ---"
+              exit 1
+          }
           nim test ci.nims
