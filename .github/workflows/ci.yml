@@ -93,36 +93,11 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          # 1. Define Paths explicitly
-          $turboBin = "C:\libjpeg-turbo-gcc64\bin"
-          $gitBin   = "C:\Program Files\Git\mingw64\bin"
-          $lddPath  = "C:\Program Files\Git\usr\bin\ldd.exe"
-          # PDFium
+          # Only copy what LDD actually showed was needed
+          Copy-Item "C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll" . -Force
           Copy-Item "..\third_party\pdfium\bin\pdfium.dll" . -Force
-          
-          # libjpeg-turbo
-          Copy-Item "$turboBin\*.dll" . -Force
-          
-          # libcurl
           Copy-Item "C:\Program Files\Git\mingw64\bin\libcurl-4.dll" . -Force
           
-          Get-ChildItem "$mingBin\*.dll" | ForEach-Object {
-              if (-not (Test-Path ".\$($_.Name)")) {
-                  Copy-Item $_.FullName . -Force
-              }
-          }
-          Write-Host "`n--- DLL DEPENDENCY CHECK ---"
-          nim c test_jpeglib_bindings.nim
-          # 4. RUN LDD (The Moment of Truth)
-          Write-Host "--- DLL DEPENDENCY CHECK ---"
-          if (Test-Path $lddPath) {
-              & $lddPath .\test_jpeglib_bindings.exe
-          } else {
-              Write-Warning "ldd.exe not found at $lddPath. Trying PATH..."
-              ldd .\test_jpeglib_bindings.exe
-          }
-          # --- DIAGNOSTICS ---
-          Write-Host "`n--- READY TO EXECUTE ---"
-          $env:PATH = "$PWD;$env:PATH"
-          Get-ChildItem *.dll | Select-Object Name
+          # ADD ZLIB - It's almost always a hidden requirement for JPEG/PNG/CURL
+          Copy-Item "C:\Program Files\Git\mingw64\bin\zlib1.dll" . -Force
           nim test ci.nims
