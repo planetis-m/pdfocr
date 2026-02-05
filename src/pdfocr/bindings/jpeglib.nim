@@ -1,5 +1,4 @@
 # We need stdio.h before jpeglib.h for FILE type
-{.passC: "-include stdio.h".}
 
 when hostOS == "windows":
   const jpegDll = "libjpeg-62.dll"
