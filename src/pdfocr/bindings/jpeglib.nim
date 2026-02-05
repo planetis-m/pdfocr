@@ -4,8 +4,7 @@
 
 # Standard JPEGLib types
 type
-  # Opaque pointers
-  j_common_ptr* = pointer
+  j_common_ptr* = ptr jpeg_common_struct
   j_compress_ptr* = ptr jpeg_compress_struct
 
   # We only define fields we read/write.
@@ -19,8 +18,17 @@ type
     next_scanline*: cuint
     # We omit the hundreds of private fields; C handles them!
 
+  jpeg_common_struct* {.importc: "struct jpeg_common_struct", header: "<jpeglib.h>", incompleteStruct, pure.} = object
+    err*: ptr jpeg_error_mgr # Pointer to the error manager
+
+  # We only list the function pointers we need to override or call.
+  # The C compiler handles the rest of the fields/size automatically.
   jpeg_error_mgr* {.importc: "struct jpeg_error_mgr", header: "<jpeglib.h>", incompleteStruct, pure.} = object
-    # We generally just pass the pointer, but if you need fields, add them here.
+    error_exit*: proc (cinfo: j_common_ptr) {.cdecl.}
+    emit_message*: proc (cinfo: j_common_ptr, msg_level: cint) {.cdecl.}
+    output_message*: proc (cinfo: j_common_ptr) {.cdecl.}
+    format_message*: proc (cinfo: j_common_ptr, buffer: cstring) {.cdecl.}
+    reset_error_mgr*: proc (cinfo: j_common_ptr) {.cdecl.}
 
   # Typedef for row pointers
   JSAMPROW* = ptr UncheckedArray[byte]
@@ -33,6 +41,7 @@ const
   TRUE* = 1
   FALSE* = 0
   JPEG_LIB_VERSION* = 62
+  JMSG_LENGTH_MAX* = 200
 
 # --- Function Imports ---
 {.push importc, callconv: cdecl, header: "<jpeglib.h>".}

@@ -102,4 +102,5 @@ jobs:
           $env:PATH = "C:\\libjpeg-turbo-gcc64\\bin;$env:CURL_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
+          nim c -r tests/test_jpeglib_wrapper.nim
           nim test ci.nims
