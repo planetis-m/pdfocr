@@ -1,12 +1,12 @@
 version       = "0.1.0"
-author        = "Unknown"
+author        = "planetis"
 description   = "High-throughput PDF OCR extractor"
 license       = "MIT"
 srcDir        = "src"
 bin           = @["app"]
 
-requires "nim >= 1.6.0"
+requires "nim >= 2.2.6"
 requires "threading"
 requires "mimalloc"
-requires "eminim"
+requires "https://github.com/planetis-m/jsonx"
 
