@@ -56,8 +56,6 @@ proc jpeg_std_error*(err: ptr jpeg_error_mgr): ptr jpeg_error_mgr
 when hostOS == "windows":
   # Windows DLL uses capitalized function names
   proc jpeg_CreateCompress*(cinfo: ptr jpeg_compress_struct, version: cint, structsize: csize_t) {.importc.}
-  proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct) {.inline.} =
-    jpeg_CreateCompress(cinfo, JPEG_LIB_VERSION, csize_t(sizeof(jpeg_compress_struct)))
 else:
   proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct)
 proc jpeg_stdio_dest*(cinfo: ptr jpeg_compress_struct, outfile: File)
@@ -71,3 +69,9 @@ proc jpeg_destroy_compress*(cinfo: ptr jpeg_compress_struct)
 
 {.pop.}
 {.pop.}
+
+# Wrapper for Windows (after the push/pop)
+when hostOS == "windows":
+  proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct) {.inline.} =
+    jpeg_CreateCompress(cinfo, JPEG_LIB_VERSION, csize_t(sizeof(jpeg_compress_struct)))
+
