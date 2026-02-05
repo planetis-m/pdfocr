@@ -9,25 +9,6 @@ proc webpWrite(data: ptr WebPByte; dataSize: csize_t; picture: ptr WebPPicture):
   copyMem(addr buffer[][oldLen], data, dataSize)
   result = 1
 
-proc encodeBgr*(width, height: Positive; pixels: pointer; stride: Positive; quality: float32 = 80.0'f32): seq[byte] =
-  ## Encodes a BGR buffer (pointer + stride) into a new WebP byte sequence.
-  var output: ptr WebPByte = nil
-  let size = WebPEncodeBGR(
-    cast[ptr WebPByte](pixels),
-    width.cint,
-    height.cint,
-    stride.cint,
-    quality.cfloat,
-    addr output
-  )
-
-  if size == 0 or output == nil:
-    raise newException(ValueError, "WebPEncodeBGR failed")
-
-  result.setLen(int(size))
-  copyMem(addr result[0], output, size)
-  WebPFree(output)
-
 proc encodeBgrWithConfig*(width, height: Positive; pixels: pointer; stride: Positive; quality: float32 = 80.0'f32): seq[byte] =
   ## Encodes a BGR buffer using the low-level WebPConfig/WebPPicture API.
   var config: WebPConfig

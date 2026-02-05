@@ -1,6 +1,6 @@
 import std/[os, strformat]
 import pdfocr/bindings/pdfium
-import pdfocr/bindings/webp
+import pdfocr/webp
 
 proc failWithPdfiumError(context: string): void =
   let err = FPDF_GetLastError()
@@ -12,7 +12,6 @@ proc renderFirstPageAsWebp(pdfPath: string; outputPath: string) =
   var doc = FPDF_DOCUMENT(nil)
   var page = FPDF_PAGE(nil)
   var bitmap = FPDF_BITMAP(nil)
-  var outputWebp: ptr WebPByte = nil
   try:
     doc = FPDF_LoadDocument(pdfPath, nil)
     if doc.pointer == nil:
@@ -47,21 +46,18 @@ proc renderFirstPageAsWebp(pdfPath: string; outputPath: string) =
       0
     )
 
-    let buffer = cast[ptr WebPByte](FPDFBitmap_GetBuffer(bitmap))
+    let buffer = FPDFBitmap_GetBuffer(bitmap)
     doAssert buffer != nil
     let stride = FPDFBitmap_GetStride(bitmap)
     doAssert stride > 0
 
-    let quality = 80.0'f32
-    let webpSize = WebPEncodeBGR(buffer, renderWidth.cint, renderHeight.cint, stride.cint, quality, addr outputWebp)
-    doAssert webpSize > 0
+    let bytes = encodeBgrWithConfig(renderWidth, renderHeight, buffer, stride, quality = 80.0'f32)
+    doAssert bytes.len > 0
 
     var f = open(outputPath, fmWrite)
     defer: f.close()
-    discard f.writeBuffer(outputWebp, int(webpSize))
+    discard f.writeBuffer(addr bytes[0], bytes.len)
   finally:
-    if outputWebp != nil:
-      WebPFree(outputWebp)
     if bitmap.pointer != nil:
       FPDFBitmap_Destroy(bitmap)
     if page.pointer != nil:
