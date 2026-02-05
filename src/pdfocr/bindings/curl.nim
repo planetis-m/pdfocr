@@ -8,7 +8,7 @@ type
   CURLoption* = cint
   CURLINFO* = cint
 
-  curl_slist* {.importc: "struct curl_slist", header: "<curl/curl.h>", incompleteStruct, pure.} = object
+  curl_slist* {.importc: "struct curl_slist", header: "<curl/curl.h>", incompleteStruct.} = object
 
   CurlMsgType* = enum
     CURLMSG_NONE = 0,
@@ -19,7 +19,7 @@ type
     whatever*: pointer
     result*: CURLcode
 
-  CURLMsg* {.importc: "CURLMsg", header: "<curl/multi.h>", bycopy, pure.} = object
+  CURLMsg* {.importc: "CURLMsg", header: "<curl/multi.h>", bycopy.} = object
     msg*: CurlMsgType
     easy_handle*: CURL
     data*: CURLMsgData
