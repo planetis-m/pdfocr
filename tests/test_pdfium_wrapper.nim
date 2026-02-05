@@ -19,7 +19,7 @@ proc main() =
 
     let renderWidth = 200
     let renderHeight = int(float(renderWidth) * (h / w))
-    var bitmap = createBitmap(renderWidth, renderHeight, alpha = false)
+    var bitmap = createBitmap(renderWidth, renderHeight)
     fillRect(bitmap, 0, 0, renderWidth, renderHeight, 0xFFFFFFFF'u32)
     renderPage(bitmap, page, 0, 0, renderWidth, renderHeight)
 

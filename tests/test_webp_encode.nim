@@ -14,7 +14,7 @@ proc renderFirstPageAsWebp(pdfPath: string; outputPath: string) =
 
   let renderWidth = 800
   let renderHeight = int(800.0 * (pageHeight / pageWidth))
-  var bitmap = createBitmap(renderWidth, renderHeight, alpha = false)
+  var bitmap = createBitmap(renderWidth, renderHeight)
   fillRect(bitmap, 0, 0, renderWidth, renderHeight, 0xFFFFFFFF'u32)
   renderPage(bitmap, page, 0, 0, renderWidth, renderHeight)
 

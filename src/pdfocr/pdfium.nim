@@ -123,12 +123,12 @@ proc loadTextPage*(page: PdfPage): PdfTextPage =
 proc pageSize*(page: PdfPage): tuple[width, height: float] =
   (float(FPDF_GetPageWidth(page.raw)), float(FPDF_GetPageHeight(page.raw)))
 
-proc createBitmap*(width, height: int; alpha: bool = false): PdfBitmap =
-  result.raw = FPDFBitmap_Create(width.cint, height.cint, alpha.cint)
+proc createBitmap*(width, height: int): PdfBitmap =
+  result.raw = FPDFBitmap_CreateEx(width.cint, height.cint, FPDFBitmap_BGR.cint, nil, 0)
   result.width = width
   result.height = height
   if pointer(result.raw) == nil:
-    raise newException(IOError, "FPDFBitmap_Create failed")
+    raise newException(IOError, "FPDFBitmap_CreateEx failed")
 
 proc fillRect*(bitmap: PdfBitmap; left, top, width, height: int; color: uint32) =
   FPDFBitmap_FillRect(bitmap.raw, left.cint, top.cint, width.cint, height.cint, color.culong)
@@ -142,11 +142,11 @@ proc renderPage*(bitmap: PdfBitmap; page: PdfPage; startX, startY, sizeX, sizeY:
     rotate.cint, flags.cint
   )
 
-proc renderPageAtScale*(page: PdfPage; scale: float; alpha: bool = false; rotate: int = 0; flags: int = 0): PdfBitmap =
+proc renderPageAtScale*(page: PdfPage; scale: float; rotate: int = 0; flags: int = 0): PdfBitmap =
   let (pageWidth, pageHeight) = pageSize(page)
   let width = int(pageWidth * scale)
   let height = int(pageHeight * scale)
-  result = createBitmap(width, height, alpha)
+  result = createBitmap(width, height)
   fillRect(result, 0, 0, width, height, 0xFFFFFFFF'u32)
   renderPage(result, page, 0, 0, width, height, rotate, flags)
 
