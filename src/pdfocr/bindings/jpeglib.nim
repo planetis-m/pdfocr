@@ -53,7 +53,13 @@ const
 {.push cdecl, importc.}
 
 proc jpeg_std_error*(err: ptr jpeg_error_mgr): ptr jpeg_error_mgr
-proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct)
+when hostOS == "windows":
+  # Windows DLL uses capitalized function names
+  proc jpeg_CreateCompress*(cinfo: ptr jpeg_compress_struct, version: cint, structsize: csize_t) {.importc.}
+  proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct) {.inline.} =
+    jpeg_CreateCompress(cinfo, JPEG_LIB_VERSION, csize_t(sizeof(jpeg_compress_struct)))
+else:
+  proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct)
 proc jpeg_stdio_dest*(cinfo: ptr jpeg_compress_struct, outfile: File)
 proc jpeg_mem_dest*(cinfo: ptr jpeg_compress_struct, outbuffer: ptr ptr byte, outsize: ptr culong)
 proc jpeg_set_defaults*(cinfo: ptr jpeg_compress_struct)
