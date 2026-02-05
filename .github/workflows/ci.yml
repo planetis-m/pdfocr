@@ -102,22 +102,11 @@ jobs:
           # libcurl
           Copy-Item "C:\Program Files\Git\mingw64\bin\libcurl-4.dll" . -Force
           
-          # Copy Secondary Dependencies (The "Invisible" ones)
-          Copy-Item "$mingBin\zlib1.dll" . -Force -ErrorAction SilentlyContinue
-          Copy-Item "$mingBin\libgcc_s_seh-1.dll" . -Force -ErrorAction SilentlyContinue
-          Copy-Item "$mingBin\libwinpthread-1.dll" . -Force -ErrorAction SilentlyContinue
-          Copy-Item "$mingBin\libintl-8.dll" . -Force -ErrorAction SilentlyContinue
-          Copy-Item "$mingBin\libiconv-2.dll" . -Force -ErrorAction SilentlyContinue
-
+          # 2. Copy ALL MingW Runtime dependencies
+          # This grabs libcurl, libgcc, libstdc++, zlib, libwinpthread, etc.
+          # We use -u to avoid 'same file' errors and ignore missing files
+          cp /c/Program\ Files/Git/mingw64/bin/*.dll . || true
           # --- DIAGNOSTICS ---
           Write-Host "`n--- READY TO EXECUTE ---"
           Get-ChildItem *.dll | Select-Object Name
           nim test ci.nims
-          
-          # --- DIAGNOSTIC: Check for missing links ---
-          Write-Host "--- CHECKING DLL DEPENDENCIES ---"
-          # 'ntldd' or 'objdump -p' can show what is missing. 
-          # Using strings to find .dll requirements is a quick hack:
-          & "C:\Program Files\Git\usr\bin\strings.exe" libjpeg-62.dll | Select-String "\.dll"
-          & "C:\Program Files\Git\usr\bin\strings.exe" libcurl-4.dll | Select-String "\.dll"
-          & "C:\Program Files\Git\usr\bin\strings.exe" pdfium.dll | Select-String "\.dll"
