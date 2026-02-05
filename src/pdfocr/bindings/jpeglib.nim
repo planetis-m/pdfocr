@@ -1,10 +1,11 @@
 # Dynamic library configuration
+
+{.passC: "-include stdio.h".}
 when defined(windows):
   const jpegDll = "libjpeg-62.dll"
   {.push dynlib: jpegDll, header: "jpeglib.h".}
 else:
   {.push header: "jpeglib.h".}
-  {.passC: "-include stdio.h".}
 
 # Standard JPEGLib types
 type
