@@ -59,15 +59,21 @@ description: Operational rules for reliable Nim to C bindings across Linux, macO
 
 ### Windows
 - Toolchain: MSVC via `--cc:vcc` as used by Nim on CI.
-- System deps: install via a package manager (e.g., Chocolatey) with fixed install roots.
-- For vcpkg on CI: export `VCPKG_ROOT` to the installed triplet root and add its `bin` directory to `PATH` for runtime DLL resolution.
+- System deps: prefer `vcpkg` only. Avoid Chocolatey. Never use MSYS2.
+- For vcpkg on CI: export `VCPKG_ROOT` to the installed triplet root and add its `bin` directory to `PATH` for runtime DLL resolution (see `.github/workflows/ci.yml` and `src/config.nims`).
 - Include/link flags (typical):
   - `--passC:"-I<dep_root>/include"`
   - `--passL:"-L<dep_root>/lib"`
-  - `--passL:"-l<systemlib>"`
+  - `--passL:"<dep_root>/lib/<name>.lib"` (MSVC import libs from vcpkg)
   - `--passL:"<local_lib_dir>/<name>.dll.lib"` (for DLL import libraries)
 - Runtime: copy required `.dll` files next to the executable.
-- Incompatible: MSYS2 toolchains or guessing dependency paths.
+- Incompatible: guessing dependency paths.
+
+#### Windows CI Do/Don’t (from recent churn in `ci.yml`)
+- Do: keep Windows steps minimal and deterministic (vcpkg install, set `VCPKG_ROOT`, prepend `VCPKG_ROOT\\bin` to `PATH`, copy runtime DLLs).
+- Do: align Nim config with CI (MSVC + vcpkg triplet `x64-windows-release`).
+- Don’t: mix toolchains (MSVC + MSYS2/MinGW) or switch package managers midstream.
+- Don’t: rely on implicit `-l<name>` for MSVC; use `.lib`/`.dll.lib` paths instead.
 
 ## How to Locate Include/Lib Directories
 - Use explicit, deterministic paths:
@@ -77,6 +83,5 @@ description: Operational rules for reliable Nim to C bindings across Linux, macO
 - For vendored libs, always prefer repository-relative paths under `third_party/`.
 
 ## Anti-Patterns
-- Embedding `-l<name>` inside `-L...` strings.
-- Relying on environment variables for runtime library discovery.
-- Using build-tree-only rpaths or absolute paths to shared libraries.
+- Relying on environment variables for runtime discovery of vendored/local shared libs; colocate them instead.
+- Using build-tree-only rpaths or absolute paths to non-system shared libraries.
