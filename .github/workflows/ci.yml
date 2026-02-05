@@ -91,6 +91,9 @@ jobs:
           for /d %%D in (C:\ProgramData\chocolatey\lib\curl\tools\curl-*) do set CURL_ROOT=%%D
           if "%CURL_ROOT%"=="" exit /b 1
           echo CURL_ROOT=%CURL_ROOT%>> %GITHUB_ENV%
+          
+          dumpbin /exports C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll | findstr jpeg_create
+          dumpbin /exports C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll | findstr jpeg_Create
 
       - name: Run Tests
         working-directory: tests
@@ -98,4 +101,5 @@ jobs:
           $env:PATH = "C:\\libjpeg-turbo-gcc64\\bin;$env:CURL_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
+          # Copy-Item "C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll" . -Force
           nim test ci.nims
