@@ -91,18 +91,7 @@ jobs:
         working-directory: tests
         run: |
           cp "../third_party/pdfium/bin/pdfium.dll" .
-          
-          # Use the explicit C:/ path
           cp "C:/libjpeg-turbo-gcc64/bin/libjpeg-62.dll" .
-          
-          # For libcurl, it's usually in the MingW bin path provided by the Nim setup
-          # We can use 'which' to find exactly where it is and copy it
-          CURL_DLL_PATH=$(which libcurl.dll)
-          if [ -f "$CURL_DLL_PATH" ]; then
-            cp "$CURL_DLL_PATH" .
-          else
-            # Fallback to common MingW location if 'which' fails
-            cp "/c/Program Files/Git/mingw64/bin/libcurl*.dll" . || echo "libcurl not found, skipping copy"
-          fi
-          nim c -r test_jpeglib_wrapper.nim
+          cp "C:/Program Files/Git/mingw64/bin/libcurl-4.dll" .
+
           nim test ci.nims
