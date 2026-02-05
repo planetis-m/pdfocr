@@ -1,5 +1,6 @@
 # Shared config for tests.
 switch("path", "$projectdir/../src")
+switch("mm", "arc")
 
 when defined(windows):
   switch("cc", "vcc")

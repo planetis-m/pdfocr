@@ -23,6 +23,7 @@ elif defined(windows):
   let curlRoot = getEnv("CURL_ROOT", "C:/ProgramData/chocolatey/lib/curl/tools")
   switch("passC", "-I" & curlRoot & "/include")
   switch("passL", "-L" & curlRoot & "/lib")
+  switch("passC", "-I../third_party/libwebp/libwebp-1.6.0-windows-x64/include")
   switch("passL", "./third_party/libwebp/libwebp-1.6.0-windows-x64/lib/libwebp.lib")
   # Windows: PDFium library is pdfium.dll.lib
   switch("passL", "./third_party/pdfium/lib/pdfium.dll.lib")
@@ -32,15 +33,17 @@ else:
   switch("passL", "-lwebp")
 
 when defined(threadSanitizer) or defined(addressSanitizer):
+  switch("debugger", "native")
+  switch("define", "noSignalHandler")
+  switch("define", "useMalloc")
   when defined(windows):
-    {.warning: "Google Sanitizers (ASan/TSan) are not supported on Windows.".}
+    when defined(threadSanitizer):
+      switch("passC", "/fsanitize=address")
+    else:
+      {.warning: "Thread Sanitizer is not supported on Windows.".}
   else:
     # Logic for Linux/macOS
     switch("cc", "clang")
-    switch("debugger", "native")
-    switch("define", "noSignalHandler")
-    switch("define", "useMalloc")
-
     when defined(threadSanitizer):
       switch("passC", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
       switch("passL", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
