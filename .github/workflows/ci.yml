@@ -96,6 +96,11 @@ jobs:
           if "%CURL_ROOT%"=="" exit /b 1
           echo CURL_ROOT=%CURL_ROOT%>> %GITHUB_ENV%
 
+      - name: Debug Paths
+        run: |
+           ls C:\libjpeg-turbo-gcc64
+           ls C:\libjpeg-turbo-gcc64\bin
+
       - name: Run Tests
         working-directory: tests
         run: |
