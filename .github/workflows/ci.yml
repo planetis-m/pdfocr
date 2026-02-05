@@ -87,13 +87,6 @@ jobs:
           curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz
           tar -xf pdfium.tgz -C third_party/pdfium
 
-      - name: Set CURL_ROOT
-        shell: cmd
-        run: |
-          for /d %%D in (C:\ProgramData\chocolatey\lib\curl\tools\curl-*) do set CURL_ROOT=%%D
-          if "%CURL_ROOT%"=="" exit /b 1
-          echo CURL_ROOT=%CURL_ROOT%>> %GITHUB_ENV%
-
       - name: Run Tests
         working-directory: tests
         run: |
