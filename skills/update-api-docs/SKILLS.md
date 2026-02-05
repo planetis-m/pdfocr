@@ -1,3 +1,8 @@
+---
+name: update-api-docs
+description: Generate markdown API docs for Nim source files using jsondoc.
+---
+
 # Skill: Update API Documentation
 
 Generates markdown API documentation for all Nim source files in the project.

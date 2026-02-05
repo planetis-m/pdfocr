@@ -4,7 +4,7 @@
 
 This system is a command-line application that extracts text from selected pages of a PDF by:
 
-1. Rendering each selected page into an image (JPEG),
+1. Rendering each selected page into an image (WebP),
 2. Sending the image to DeepInfra’s OpenAI-compatible chat completion endpoint using the `allenai/olmOCR-2-7B-1025` model,
 3. Emitting one **ordered** result per selected page to **stdout** as **JSON Lines**.
 
@@ -127,7 +127,7 @@ The following constants SHALL be hardcoded (not configurable via CLI):
 - `WINDOW` (e.g., 64): maximum number of pages allowed “ahead” of the next page to be written to stdout.
 
 ### 7.3 Render Buffer Watermarks (bounded prefetch)
-- `HIGH_WATER` (e.g., 64): maximum number of rendered JPEG tasks buffered for network dispatch.
+- `HIGH_WATER` (e.g., 64): maximum number of rendered WebP tasks buffered for network dispatch.
 - `LOW_WATER` (e.g., 16): threshold at which the scheduler requests more renders.
 
 Constraints:
@@ -154,7 +154,7 @@ All inter-component queues SHALL be bounded to prevent unbounded memory growth.
 
 The system SHALL be implemented as three cooperating execution units (threads or equivalent concurrency primitives):
 
-1. **Renderer**: owns PDF rendering and JPEG encoding.
+1. **Renderer**: owns PDF rendering and WebP encoding.
 2. **Network Scheduler/Worker**: owns HTTP client multi-request machinery and scheduling policy.
 3. **Ordered Writer**: owns stdout writing and ordering buffer.
 
@@ -188,7 +188,7 @@ The writer MUST emit results in increasing `seq_id` order (0,1,2,...,N-1).
 ### 10.2 Rendered Task
 - `seq_id` (integer)
 - `page` (integer, 1-based)
-- `jpeg_bytes` (byte array)
+- `webp_bytes` (byte array)
 - `attempt` (integer, starts at 0 or 1 per chosen convention; MUST be consistent)
 
 ### 10.3 Page Result
@@ -278,7 +278,7 @@ Renderer SHALL:
 1. Open the PDF once.
 2. Render requested pages by `seq_id` mapping to the corresponding 1-based page number.
 3. Use a deterministic render configuration (hardcoded DPI/scale and pixel format).
-4. Encode rendered output to JPEG (hardcoded quality).
+4. Encode rendered output to WebP (hardcoded quality).
 
 ### 14.2 Ownership
 Renderer SHALL be the only component that owns/uses PDF rendering library objects.
@@ -307,9 +307,9 @@ The request SHALL use:
 - `model = "allenai/olmOCR-2-7B-1025"`
 - A message containing:
   - a text instruction to extract readable text
-  - the page image as a `data:image/jpeg;base64,...` URL
+  - the page image as a `data:image/webp;base64,...` URL
 
-The scheduler SHOULD base64-encode `jpeg_bytes` during request construction (not earlier), to avoid inflating queued memory.
+The scheduler SHOULD base64-encode `webp_bytes` during request construction (not earlier), to avoid inflating queued memory.
 
 ### 15.4 Response Parsing
 On HTTP 2xx, the system SHALL parse OCR text from:

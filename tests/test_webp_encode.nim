@@ -26,9 +26,11 @@ proc renderFirstPageAsWebp(pdfPath: string; outputPath: string) =
   let bytes = compressBgr(renderWidth, renderHeight, buf, rowStride, 80)
   doAssert bytes.len > 0
 
-  var f = open(outputPath, fmWrite)
-  defer: f.close()
-  discard f.writeBuffer(addr bytes[0], bytes.len)
+  let f = open(outputPath, fmWrite)
+  try:
+    discard f.writeBuffer(addr bytes[0], bytes.len)
+  finally:
+    if f != nil: f.close()
 
 proc testWebpEncode(pdfPath: string) =
   doAssert fileExists(pdfPath), &"Missing PDF file: {pdfPath}"

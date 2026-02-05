@@ -1,3 +1,8 @@
+---
+name: bindings
+description: Operational rules for reliable Nim to C bindings across Linux, macOS, and Windows.
+---
+
 # Nim ↔ C Bindings — Operational Rules
 
 ## Scope
@@ -28,6 +33,7 @@
 - Treat CI as the authoritative spec for supported platforms, toolchains, and flags.
 - Any local workflow not compatible with CI is disallowed.
 - Keep test builds simple and reproducible: compile, then run, with minimal environment mutation.
+- Ensure the CI toolchain and the dependency toolchain match (e.g., MSVC + vcpkg `x64-windows-release` with `--cc:vcc`).
 
 ## Platform-Specific Rules
 
@@ -52,8 +58,9 @@
 - Incompatible: relying on `DYLD_LIBRARY_PATH` or full-path linking to a `.dylib`.
 
 ### Windows
-- Toolchain: MinGW64 as used by Nim on CI.
+- Toolchain: MSVC via `--cc:vcc` as used by Nim on CI.
 - System deps: install via a package manager (e.g., Chocolatey) with fixed install roots.
+- For vcpkg on CI: export `VCPKG_ROOT` to the installed triplet root and add its `bin` directory to `PATH` for runtime DLL resolution.
 - Include/link flags (typical):
   - `--passC:"-I<dep_root>/include"`
   - `--passL:"-L<dep_root>/lib"`

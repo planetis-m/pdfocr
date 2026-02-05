@@ -1,3 +1,8 @@
+---
+name: wrapper
+description: Guidelines for building idiomatic Nim wrappers on top of C FFI bindings.
+---
+
 # C→Nim Manual Wrapping Skills
 
 ## 1. Purpose
@@ -37,7 +42,14 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 
 ---
 
-## 3. Naming & API Conventions (Idiomatic Nim)
+## 3. Wrapper Lessons (Grounded in Repo History)
+
+- Keep wrappers minimal: remove unused APIs, fields, and helpers so the binding reflects only what the project needs.
+- Prefer `incompleteStruct` for C structs and list only the fields you actually use. This reduces ABI risk and keeps bindings aligned with real usage.
+- Avoid stateful “isOpen/used” flags on stack objects with destructors: stack addresses are not stable and destructor timing is too implicit for multi‑step C workflows.
+- When a resource has a strict init/write/finish sequence, prefer single‑call convenience wrappers (or explicit `try/finally` blocks) over stateful objects.
+
+## 4. Naming & API Conventions (Idiomatic Nim)
 
 **Prefix stripping:**
 
@@ -63,7 +75,7 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 
 ---
 
-## 4. FFI Mechanics Cheatsheet
+## 5. FFI Mechanics Cheatsheet
 
 **Core pragmas:**
 
@@ -89,7 +101,7 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 
 ---
 
-## 5. C→Nim Type Mapping (Table + Examples)
+## 6. C→Nim Type Mapping (Table + Examples)
 
 ### Integer Types
 
