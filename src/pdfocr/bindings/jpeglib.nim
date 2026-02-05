@@ -1,20 +1,15 @@
-# We need stdio.h before jpeglib.h for FILE type
+# We rely on the system's C header for the actual size/layout during compilation.
 
-when hostOS == "windows":
-  const jpegDll = "libjpeg-62.dll"
-  {.push dynlib: jpegDll.}
-else:
-  {.passC: "-include stdio.h".}
-  {.push header: "<jpeglib.h>".}
+{.passC: "-include stdio.h".}
 
 # Standard JPEGLib types
 type
   j_common_ptr* = ptr jpeg_common_struct
   j_compress_ptr* = ptr jpeg_compress_struct
-  
+
   # We only define fields we read/write.
   # The "incompleteStruct" tells Nim to ignore size mismatches.
-  jpeg_compress_struct* {.importc: "struct jpeg_compress_struct", header: "<jpeglib.h>", incompleteStruct, pure.} = object
+  jpeg_compress_struct* {.importc: "struct jpeg_compress_struct", header: "jpeglib.h", incompleteStruct, pure.} = object
     err*: ptr jpeg_error_mgr
     image_width*: cuint
     image_height*: cuint
@@ -22,19 +17,19 @@ type
     in_color_space*: cint # J_COLOR_SPACE enum
     next_scanline*: cuint
     # We omit the hundreds of private fields; C handles them!
-  
-  jpeg_common_struct* {.importc: "struct jpeg_common_struct", header: "<jpeglib.h>", incompleteStruct, pure.} = object
+
+  jpeg_common_struct* {.importc: "struct jpeg_common_struct", header: "jpeglib.h", incompleteStruct, pure.} = object
     err*: ptr jpeg_error_mgr # Pointer to the error manager
-  
+
   # We only list the function pointers we need to override or call.
   # The C compiler handles the rest of the fields/size automatically.
-  jpeg_error_mgr* {.importc: "struct jpeg_error_mgr", header: "<jpeglib.h>", incompleteStruct, pure.} = object
+  jpeg_error_mgr* {.importc: "struct jpeg_error_mgr", header: "jpeglib.h", incompleteStruct, pure.} = object
     error_exit*: proc (cinfo: j_common_ptr) {.cdecl.}
     emit_message*: proc (cinfo: j_common_ptr, msg_level: cint) {.cdecl.}
     output_message*: proc (cinfo: j_common_ptr) {.cdecl.}
     format_message*: proc (cinfo: j_common_ptr, buffer: cstring) {.cdecl.}
     reset_error_mgr*: proc (cinfo: j_common_ptr) {.cdecl.}
-  
+
   # Typedef for row pointers
   JSAMPROW* = ptr UncheckedArray[byte]
   JSAMPARRAY* = ptr JSAMPROW
@@ -49,14 +44,11 @@ const
   JMSG_LENGTH_MAX* = 200
 
 # --- Function Imports ---
-{.push cdecl, importc.}
+{.push importc, callconv: cdecl, header: "jpeglib.h".}
 
+# Standard API
 proc jpeg_std_error*(err: ptr jpeg_error_mgr): ptr jpeg_error_mgr
-when hostOS == "windows":
-  # Windows DLL uses capitalized function names
-  proc jpeg_CreateCompress*(cinfo: ptr jpeg_compress_struct, version: cint, structsize: csize_t) {.importc.}
-else:
-  proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct)
+proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct)
 proc jpeg_stdio_dest*(cinfo: ptr jpeg_compress_struct, outfile: File)
 proc jpeg_mem_dest*(cinfo: ptr jpeg_compress_struct, outbuffer: ptr ptr byte, outsize: ptr culong)
 proc jpeg_set_defaults*(cinfo: ptr jpeg_compress_struct)
@@ -67,10 +59,3 @@ proc jpeg_finish_compress*(cinfo: ptr jpeg_compress_struct)
 proc jpeg_destroy_compress*(cinfo: ptr jpeg_compress_struct)
 
 {.pop.}
-{.pop.}
-
-# Wrapper for Windows (after the push/pop)
-when hostOS == "windows":
-  proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct) {.inline.} =
-    jpeg_CreateCompress(cinfo, JPEG_LIB_VERSION, csize_t(sizeof(jpeg_compress_struct)))
-

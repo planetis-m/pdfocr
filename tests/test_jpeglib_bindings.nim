@@ -93,6 +93,5 @@ proc testStructAccess() =
 
 when isMainModule:
   testStructAccess()
-  echo "before crash"
   testBasicFunctionality()
   testMultipleSizes()
