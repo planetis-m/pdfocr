@@ -1,12 +1,10 @@
 # config.nims for test_pdfium_wrapper.nim
 
 # Add the src directory to the import path so tests can find the modules
-switch("path", "$projectdir/../src")
 
 when defined(macosx):
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
-  switch("gcc.path", "C:/mingw64/bin")
   # Windows: PDFium library is pdfium.dll.lib
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:

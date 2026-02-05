@@ -1,7 +1,6 @@
 # config.nims for test_curl_bindings.nim
 
 # Add the src directory to the import path so tests can find the modules
-switch("path", "$projectdir/../src")
 
 # libcurl
 switch("passL", "-lcurl")
