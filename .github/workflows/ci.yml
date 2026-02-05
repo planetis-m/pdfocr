@@ -78,10 +78,23 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 1. Download and install libjpeg-turbo
-          curl -L -o jpeg_install.exe https://github.com/libjpeg-turbo/libjpeg-turbo/releases/latest/download/libjpeg-turbo-3.1.3-gcc-x64.exe
-          ./jpeg_install.exe //S
+          # 1. Download libjpeg-turbo
+          $jpegUrl = "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/latest/download/libjpeg-turbo-3.1.3-gcc-x64.exe"
+          Write-Host "Downloading libjpeg-turbo..."
+          Invoke-WebRequest -Uri $jpegUrl -OutFile "jpeg_install.exe"
+
+          # 2. SILENT INSTALL (Proper PowerShell way)
+          # -Wait ensures the script doesn't continue until the folder is actually created
+          Write-Host "Running Installer..."
+          Start-Process -FilePath ".\jpeg_install.exe" -ArgumentList "/S" -Wait
           
+          # 3. Verify it exists immediately
+          if (Test-Path "C:\libjpeg-turbo-gcc64") {
+              Write-Host "SUCCESS: libjpeg-turbo installed to C:\libjpeg-turbo-gcc64"
+          } else {
+              Write-Error "FAILURE: libjpeg-turbo directory was not created!"
+              exit 1
+          }
           # 2. Download and extract PDFium
           mkdir -p third_party/pdfium
           curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz
@@ -90,30 +103,16 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
-          # 1. libjpeg
-          $jpegDll = "C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll"
-          Write-Host "--- LOG: Copying libjpeg from $jpegDll ---"
-          if (Test-Path $jpegDll) {
-              Copy-Item -Path $jpegDll -Destination $PWD -Force
-          } else {
-              Write-Error "CRITICAL: Missing $jpegDll"
-              exit 1
-          }
+          # Copy Jpeg DLL
+          Copy-Item "C:\libjpeg-turbo-gcc64\bin\libjpeg-62.dll" . -Force
+          
+          # Copy PDFium
+          Copy-Item "..\third_party\pdfium\bin\pdfium.dll" . -Force
 
-          # 2. PDFium
-          $pdfDll = "..\third_party\pdfium\bin\pdfium.dll"
-          Write-Host "--- LOG: Copying PDFium from $pdfDll ---"
-          Copy-Item -Path $pdfDll -Destination $PWD -Force
-
-          # 3. libcurl (Search and Print)
-          Write-Host "--- LOG: Searching for libcurl ---"
-          $curlSearch = Get-ChildItem -Path "C:\Program Files" -Filter "libcurl-4.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-
-          if ($curlSearch) {
-              Write-Host "--- SUCCESS: Found libcurl at: $($curlSearch.FullName) ---"
-              Copy-Item -Path $curlSearch.FullName -Destination $PWD -Force
-          } else {
-              Write-Error "--- CRITICAL: libcurl-4.dll NOT FOUND ---"
-              exit 1
+          # Find and Print libcurl path
+          $curl = Get-ChildItem "C:\Program Files\Git\mingw64\bin\libcurl-4.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($curl) {
+              Write-Host "Found libcurl at: $($curl.FullName)"
+              Copy-Item $curl.FullName . -Force
           }
           nim test ci.nims
