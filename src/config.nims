@@ -8,7 +8,8 @@ switch("mm", "arc")
 # libcurl
 switch("passL", "-lcurl")
 switch("passC", "-DCURL_DISABLE_TYPECHECK")
-switch("passL", "-lwebp")
+when not defined(windows):
+  switch("passL", "-lwebp")
 
 # eminim: allow ignoring unknown/extra fields in API responses
 switch("define", "emiLenient")
