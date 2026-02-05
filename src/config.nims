@@ -11,6 +11,7 @@ switch("passC", "-DCURL_DISABLE_TYPECHECK")
 when not defined(windows):
   switch("passL", "-lcurl")
   switch("passL", "-lwebp")
+  switch("passL", "-lpdfium")
 
 # eminim: allow ignoring unknown/extra fields in API responses
 switch("define", "jsonxLenient")
@@ -21,7 +22,7 @@ when defined(macosx):
   switch("passL", "-L" & staticExec("brew --prefix curl") & "/lib")
   switch("passC", "-I" & staticExec("brew --prefix webp") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix webp") & "/lib")
-  switch("passL", "-L./third_party/pdfium/lib -lpdfium")
+  switch("passL", "-L./third_party/pdfium/lib")
 elif defined(windows):
   switch("cc", "vcc")
   let vcpkgRoot = getEnv("VCPKG_ROOT", "C:/vcpkg/installed/x64-windows-release")
@@ -32,12 +33,13 @@ elif defined(windows):
   switch("passL", "./third_party/pdfium/lib/pdfium.dll.lib")
 else:
   switch("passL", "-Wl,-rpath,\\$ORIGIN")
-  switch("passL", "-L./third_party/pdfium/lib -lpdfium")
+  switch("passL", "-L./third_party/pdfium/lib")
 
 when defined(threadSanitizer) or defined(addressSanitizer):
   switch("debugger", "native")
   switch("define", "noSignalHandler")
   switch("define", "useMalloc")
+
   when defined(windows):
     when defined(threadSanitizer):
       switch("passC", "/fsanitize=address")

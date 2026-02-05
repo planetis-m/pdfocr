@@ -8,6 +8,7 @@ switch("passC", "-DCURL_DISABLE_TYPECHECK")
 when defined(macosx):
   switch("passC", "-I" & staticExec("brew --prefix curl") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix curl") & "/lib")
+  switch("passL", "-lcurl")
 elif defined(windows):
   # Windows: MSVC-compatible curl
   let vcpkgRoot = getEnv("VCPKG_ROOT", "C:/vcpkg/installed/x64-windows-release")
@@ -16,4 +17,3 @@ elif defined(windows):
 else:
   # Linux: system libcurl
   switch("passL", "-lcurl")
-  discard
