@@ -1,7 +1,7 @@
 # Dynamic library configuration
 when defined(windows):
   const jpegDll = "libjpeg-62.dll"
-  {.push dynlib: jpegDll.}
+  {.push dynlib: jpegDll, header: "jpeglib.h".}
 else:
   {.push header: "jpeglib.h".}
   {.passC: "-include stdio.h".}
