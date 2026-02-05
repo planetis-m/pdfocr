@@ -82,8 +82,6 @@ jobs:
           curl -L -o libwebp.zip https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0-windows-x64.zip
           mkdir -p third_party/libwebp
           unzip -q libwebp.zip -d third_party/libwebp
-          Move-Item third_party/libwebp/libwebp-1.6.0-windows-x64/* third_party/libwebp/
-          Remove-Item -Recurse -Force third_party/libwebp/libwebp-1.6.0-windows-x64
           mkdir -p third_party/pdfium
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
@@ -101,5 +99,5 @@ jobs:
           $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
-          Copy-Item ..\third_party\libwebp\lib\libwebp.lib .
+          Copy-Item ..\third_party\libwebp\libwebp-1.6.0-windows-x64\lib\libwebp.lib .
           nim test ci.nims
