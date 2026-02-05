@@ -9,7 +9,7 @@ proc webpWrite(data: ptr WebPByte; dataSize: csize_t; picture: ptr WebPPicture):
   copyMem(addr buffer[][oldLen], data, dataSize)
   result = 1
 
-proc encodeBgrWithConfig*(width, height: Positive; pixels: pointer; stride: cint; quality: float32 = 80): seq[byte] =
+proc compressBgr*(width, height: Positive; pixels: pointer; stride: int; quality: float32 = 80): seq[byte] =
   ## Encodes a BGR buffer using the low-level WebPConfig/WebPPicture API.
   var config: WebPConfig
   if WebPConfigInitInternal(addr config, WEBP_PRESET_DEFAULT, quality, WEBP_ENCODER_ABI_VERSION) == 0:
@@ -28,7 +28,7 @@ proc encodeBgrWithConfig*(width, height: Positive; pixels: pointer; stride: cint
   picture.writer = cast[pointer](webpWrite)
   picture.custom_ptr = cast[pointer](addr buffer)
 
-  if WebPPictureImportBGR(addr picture, cast[ptr WebPByte](pixels), stride) == 0:
+  if WebPPictureImportBGR(addr picture, cast[ptr WebPByte](pixels), stride.cint) == 0:
     WebPPictureFree(addr picture)
     raise newException(ValueError, "WebPPictureImportBGR failed")
 

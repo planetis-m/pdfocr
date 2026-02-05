@@ -1,62 +1,52 @@
 # pdfocr
 
-A fast, concurrent PDF-to-text OCR pipeline built in Nim. It renders PDF pages with PDFium, encodes to JPEG, sends OCR requests to DeepInfra, and writes results as JSONL or per-page files. The architecture is a three-stage pipeline (producer → network worker → output writer) designed for throughput and deterministic output ordering.
+`pdfocr` is a planned Nim CLI that will extract text from selected PDF pages by:
+1. Rendering each selected page to JPEG.
+2. Sending the image to DeepInfra's OpenAI-compatible chat completion endpoint using the `allenai/olmOCR-2-7B-1025` model.
+3. Emitting exactly one JSON Lines result per selected page to stdout, strictly ordered by page number.
 
-## Features
-- Concurrent, bounded pipeline with backpressure
-- Deterministic output ordering (optional)
-- JSONL output (`results.jsonl`) or per-page text + metadata
-- Configurable retries, timeouts, and rate control
-- Debug dumps for requests/responses and extracted text
+This README describes intended behavior based on `SPEC.md`. The application is not built yet.
 
-## Requirements
-- Nim (ARC/ORC enabled)
-- PDFium shared library in `third_party/pdfium/lib`
-- libcurl
-- libwebp
-- DeepInfra API key
+## Planned Behavior
+- Strictly ordered stdout output (JSON Lines only).
+- No filesystem outputs (stdout is the sole result stream, stderr for logs).
+- Bounded memory usage with explicit backpressure handling.
+- Retries with exponential backoff and jitter for transient failures.
+- Fixed concurrency limits (hardcoded constants; not user-configurable).
 
-## Quick Start
-
+## Planned CLI
 ```bash
-# build (adjust flags as needed)
-nim c -r -d:release --threads:on src/app.nim
-
-# run
-export DEEPINFRA_API_KEY=...  # or load .env
-# for .env:
-# set -a; source .env; set +a
-./src/app tests/input.pdf --pages:1-1 --output-dir:/tmp/pdfocr_run_test
+pdf-olmocr INPUT.pdf --pages "1,4-6,12" > results.jsonl
 ```
 
-Output is written to the directory you pass via `--output-dir`. For JSONL output, see:
-- `/tmp/pdfocr_run_test/results.jsonl`
-- `/tmp/pdfocr_run_test/manifest.json`
+Arguments:
+- `INPUT.pdf` (positional, required): path to a local PDF file.
+- `--pages "<spec>"` (required): comma-separated list of 1-based selectors.
+  - `N` single page
+  - `A-B` inclusive range
 
-## Configuration
-The app is configured via CLI flags and compiled defaults. Key runtime options include:
-- `--pages:START-END` page range (1-based)
-- `--output-dir:PATH` output directory
-- `--output-format:jsonl|perpage`
-- `--ordering-mode:input|asap`
-- `--max-inflight:N` concurrent HTTP requests
+Environment:
+- `DEEPINFRA_API_KEY` (required): API key for DeepInfra.
 
-See `SPEC.md` for the full contract and behavior.
+## Planned Output (stdout)
+JSON Lines, one object per selected page, ordered by ascending page number. Each object includes:
+- `page` (int)
+- `status` (`ok` or `error`)
+- `attempts` (int)
+- `text` (string, only on `ok`)
+- `error_kind`, `error_message`, `http_status` (only on `error`)
 
-## Sanitizers
-Thread/Address sanitizer support is wired via `src/config.nims` (non-Windows). Examples:
+## Logs (stderr)
+All progress and diagnostics will go to stderr. Stdout will remain JSONL-only.
 
-```bash
-nim c --threads:on -d:threadSanitizer src/app.nim
-nim c --threads:on -d:addressSanitizer src/app.nim
-```
+## Requirements (Expected)
+- Nim with ARC/ORC enabled.
+- PDF rendering + JPEG encoding dependencies (exact library choices TBD).
+- HTTP client support for TLS.
+- DeepInfra API key.
 
-## Project Layout
-- `src/app.nim` main entry
-- `src/pdfocr/producer.nim` PDF rendering & JPEG encode
-- `src/pdfocr/network_worker.nim` HTTP + OCR parsing
-- `src/pdfocr/output_writer.nim` disk output
-- `SPEC.md` implementation contract
+## Specification
+`SPEC.md` is the contract for the system design, ordering guarantees, error handling, and concurrency model.
 
 ## License
 MIT. See `LICENSE.md`.

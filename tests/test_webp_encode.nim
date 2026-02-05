@@ -23,7 +23,7 @@ proc renderFirstPageAsWebp(pdfPath: string; outputPath: string) =
   let rowStride = stride(bitmap)
   doAssert rowStride > 0
 
-  let bytes = encodeBgrWithConfig(renderWidth, renderHeight, buf, rowStride, quality = 80.0'f32)
+  let bytes = compressBgr(renderWidth, renderHeight, buf, rowStride, 80)
   doAssert bytes.len > 0
 
   var f = open(outputPath, fmWrite)
