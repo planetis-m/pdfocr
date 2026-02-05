@@ -3,11 +3,6 @@
 
 when hostOS == "windows":
   import std/dynlib
-  
-  # Load the DLL
-  let jpegHandle = loadLib("libjpeg-62.dll")
-  if jpegHandle == nil:
-    {.error: "Failed to load libjpeg-62.dll at compile time check".}
 
 # Standard JPEGLib types (always need header for struct definitions)
 type
