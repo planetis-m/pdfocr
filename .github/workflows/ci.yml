@@ -81,6 +81,7 @@ jobs:
           # 1. Download and install libjpeg-turbo
           curl -L -o jpeg_install.exe https://github.com/libjpeg-turbo/libjpeg-turbo/releases/latest/download/libjpeg-turbo-3.1.3-gcc-x64.exe
           ./jpeg_install.exe //S
+          
           # 2. Download and extract PDFium
           mkdir -p third_party/pdfium
           curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz
@@ -90,17 +91,17 @@ jobs:
         working-directory: tests
         shell: bash
         run: |
-          # Find the libjpeg DLL wherever it ended up
-          JPEG_DLL=$(find /c/libjpeg-turbo* -name "libjpeg-62.dll" | head -n 1)
-          echo "Found Jpeg DLL at: $JPEG_DLL"
-          cp "$JPEG_DLL" .
-
-          # Find PDFium
+          cp "/c/libjpeg-turbo-gcc64/bin/libjpeg-62.dll" .
           cp "../third_party/pdfium/bin/pdfium.dll" .
           
-          # Find libcurl
-          CURL_DLL=$(find /c/Program\ Files/Git -name "libcurl-4.dll" | head -n 1)
-          echo "Found CURL DLL at: $CURL_DLL"
-          cp "$CURL_DLL" .
+          # 3. libcurl
+          CURL_BIN="/c/Program Files/Git/mingw64/bin/libcurl-4.dll"
+          if [ -f "$CURL_BIN" ]; then
+            cp "$CURL_BIN" .
+          else
+            echo "here"
+            # Fallback search if path changes
+            cp $(find "/c/Program Files/Git" -name "libcurl-4.dll" | head -n 1) .
+          fi
           ls -F *.dll
           nim test ci.nims
