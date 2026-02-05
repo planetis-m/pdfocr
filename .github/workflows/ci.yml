@@ -102,13 +102,20 @@ jobs:
           # libcurl
           Copy-Item "C:\Program Files\Git\mingw64\bin\libcurl-4.dll" . -Force
           
-          # --- ARCHITECTURE CHECK ---
-          Write-Host "--- ARCHITECTURE VERIFICATION ---"
-          $binaries = Get-ChildItem *.dll
-          foreach ($bin in $binaries) {
-              # Use dumpbin or file to check bitness
-              & "C:\Program Files\Git\usr\bin\file.exe" $bin.Name
-          }
+          # Copy Secondary Dependencies (The "Invisible" ones)
+          Copy-Item "$mingBin\zlib1.dll" . -Force -ErrorAction SilentlyContinue
+          Copy-Item "$mingBin\libgcc_s_seh-1.dll" . -Force -ErrorAction SilentlyContinue
+          Copy-Item "$mingBin\libwinpthread-1.dll" . -Force -ErrorAction SilentlyContinue
+          Copy-Item "$mingBin\libintl-8.dll" . -Force -ErrorAction SilentlyContinue
+          Copy-Item "$mingBin\libiconv-2.dll" . -Force -ErrorAction SilentlyContinue
+
+          # --- DIAGNOSTIC: Check for missing links ---
+          Write-Host "--- CHECKING DLL DEPENDENCIES ---"
+          # 'ntldd' or 'objdump -p' can show what is missing. 
+          # Using strings to find .dll requirements is a quick hack:
+          & "C:\Program Files\Git\usr\bin\strings.exe" libjpeg-62.dll | Select-String "\.dll"
+          & "C:\Program Files\Git\usr\bin\strings.exe" libcurl-4.dll | Select-String "\.dll"
+          & "C:\Program Files\Git\usr\bin\strings.exe" pdfium.dll | Select-String "\.dll"
           # --- DIAGNOSTICS ---
           Write-Host "`n--- READY TO EXECUTE ---"
           Get-ChildItem *.dll | Select-Object Name
