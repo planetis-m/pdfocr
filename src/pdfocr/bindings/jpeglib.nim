@@ -2,6 +2,17 @@
 {.passC: "-include stdio.h".}
 
 when hostOS == "windows":
+  import std/dynlib
+  
+  # Try to manually load the DLL to see what happens
+  let handle = loadLib("libjpeg-62.dll")
+  if handle == nil:
+    echo "Failed to load libjpeg-62.dll"
+    echo "Make sure the DLL is in the same directory as the exe or in PATH"
+    quit(1)
+  else:
+    echo "Successfully loaded libjpeg-62.dll"
+    
   const jpegDll = "libjpeg-62.dll"
   {.push dynlib: jpegDll.}
 else:
