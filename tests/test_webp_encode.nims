@@ -8,6 +8,7 @@ when defined(macosx):
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
   switch("passL", "-lwebp")
 elif defined(windows):
+  switch("cc", "vcc")
   switch("passC", "-I../third_party/libwebp/libwebp-1.6.0-windows-x64/include")
   switch("passL", "../third_party/libwebp/libwebp-1.6.0-windows-x64/lib/libwebp.lib")
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
