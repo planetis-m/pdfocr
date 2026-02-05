@@ -78,7 +78,6 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          choco install curl -y
           curl -L -o libwebp.zip https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0-windows-x64.zip
           mkdir -p third_party/libwebp
           unzip -q libwebp.zip -d third_party/libwebp
@@ -86,12 +85,18 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
 
+      - name: vcpkg build
+        uses: johnwason/vcpkg-action@v7
+        id: vcpkg
+        with:
+          pkgs: curl
+          triplet: x64-windows-release
+          token: ${{ github.token }}
+
       - name: Set CURL_ROOT
         shell: cmd
         run: |
-          for /d %%D in (C:\ProgramData\chocolatey\lib\curl\tools\curl-*) do set CURL_ROOT=%%D
-          if "%CURL_ROOT%"=="" exit /b 1
-          echo CURL_ROOT=%CURL_ROOT%>> %GITHUB_ENV%
+          echo CURL_ROOT=${{ github.workspace }}\vcpkg\installed\x64-windows-release>> %GITHUB_ENV%
 
       - name: Run Tests
         working-directory: tests
