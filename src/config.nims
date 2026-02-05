@@ -6,8 +6,11 @@ import mimalloc/config
 switch("mm", "arc")
 
 # libcurl
-switch("passL", "-lcurl")
 switch("passC", "-DCURL_DISABLE_TYPECHECK")
+
+when not defined(windows):
+  switch("passL", "-lcurl")
+  switch("passL", "-lwebp")
 
 # eminim: allow ignoring unknown/extra fields in API responses
 switch("define", "jsonxLenient")
@@ -16,21 +19,20 @@ switch("define", "jsonxLenient")
 when defined(macosx):
   switch("passC", "-I" & staticExec("brew --prefix curl") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix curl") & "/lib")
-  switch("passL", "-L" & staticExec("brew --prefix webp") & "/lib -lwebp")
+  switch("passC", "-I" & staticExec("brew --prefix webp") & "/include")
+  switch("passL", "-L" & staticExec("brew --prefix webp") & "/lib")
   switch("passL", "-L./third_party/pdfium/lib -lpdfium")
 elif defined(windows):
   switch("cc", "vcc")
-  let curlRoot = getEnv("CURL_ROOT", "C:/ProgramData/chocolatey/lib/curl/tools")
-  switch("passC", "-I" & curlRoot & "/include")
-  switch("passL", "-L" & curlRoot & "/lib")
-  switch("passC", "-I../third_party/libwebp/libwebp-1.6.0-windows-x64/include")
-  switch("passL", "./third_party/libwebp/libwebp-1.6.0-windows-x64/lib/libwebp.lib")
+  let vcpkgRoot = getEnv("VCPKG_ROOT", "C:/vcpkg/installed/x64-windows-release")
+  switch("passC", "-I" & vcpkgRoot & "/include")
+  switch("passL", vcpkgRoot & "/lib/libcurl.lib")
+  switch("passL", vcpkgRoot & "/lib/libwebp.lib")
   # Windows: PDFium library is pdfium.dll.lib
   switch("passL", "./third_party/pdfium/lib/pdfium.dll.lib")
 else:
   switch("passL", "-Wl,-rpath,\\$ORIGIN")
   switch("passL", "-L./third_party/pdfium/lib -lpdfium")
-  switch("passL", "-lwebp")
 
 when defined(threadSanitizer) or defined(addressSanitizer):
   switch("debugger", "native")

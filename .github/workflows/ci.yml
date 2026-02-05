@@ -78,9 +78,6 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          curl -L -o libwebp.zip https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0-windows-x64.zip
-          mkdir -p third_party/libwebp
-          unzip -q libwebp.zip -d third_party/libwebp
           mkdir -p third_party/pdfium
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz -o pdfium-win-x64.tgz
           tar -xf pdfium-win-x64.tgz -C third_party/pdfium
@@ -89,20 +86,19 @@ jobs:
         uses: johnwason/vcpkg-action@v7
         id: vcpkg
         with:
-          pkgs: curl
+          pkgs: curl libwebp
           triplet: x64-windows-release
           token: ${{ github.token }}
 
-      - name: Set CURL_ROOT
+      - name: Set vcpkg Root
         shell: cmd
         run: |
-          echo CURL_ROOT=${{ github.workspace }}\vcpkg\installed\x64-windows-release>> %GITHUB_ENV%
+          echo VCPKG_ROOT=${{ github.workspace }}\vcpkg\installed\x64-windows-release>> %GITHUB_ENV%
 
       - name: Run Tests
         working-directory: tests
         run: |
-          $env:PATH = "$env:CURL_ROOT\\bin;" + $env:PATH
+          $env:PATH = "$env:VCPKG_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
           Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
-          Copy-Item ..\third_party\libwebp\libwebp-1.6.0-windows-x64\lib\libwebp.lib .
           nim test ci.nims

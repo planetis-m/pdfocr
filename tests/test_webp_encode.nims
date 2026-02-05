@@ -3,12 +3,14 @@
 # Add the src directory to the import path so tests can find the modules
 
 when defined(macosx):
+  switch("passC", "-I" & staticExec("brew --prefix webp") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix webp") & "/lib")
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
   switch("passL", "-lwebp")
 elif defined(windows):
-  switch("passC", "-I../third_party/libwebp/libwebp-1.6.0-windows-x64/include")
-  switch("passL", "../third_party/libwebp/libwebp-1.6.0-windows-x64/lib/libwebp.lib")
+  let vcpkgRoot = getEnv("VCPKG_ROOT", "C:/vcpkg/installed/x64-windows-release")
+  switch("passC", "-I" & vcpkgRoot & "/include")
+  switch("passL", vcpkgRoot & "/lib/libwebp.lib")
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
   switch("passL", "-Wl,-rpath,\\$ORIGIN")
