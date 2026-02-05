@@ -11,8 +11,8 @@ when defined(macosx):
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
   switch("gcc.path", "C:/mingw64/bin")
-  switch("passC", "-IC:/libwebp/libwebp-1.6.0-windows-x64/include")
-  switch("passL", "C:/libwebp/libwebp-1.6.0-windows-x64/lib/libwebp.lib")
+  switch("passC", "-I../third_party/libwebp/include")
+  switch("passL", "../third_party/libwebp/lib/libwebp.lib")
   # Windows: PDFium library is pdfium.dll.lib
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
