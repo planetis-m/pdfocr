@@ -92,6 +92,10 @@ proc testStructAccess() =
   jpeg_destroy_compress(addr cinfo)
 
 when isMainModule:
+  echo "here"
   testStructAccess()
+  echo "ht"
   testBasicFunctionality()
+  echo "base"
   testMultipleSizes()
+  echo "final"
