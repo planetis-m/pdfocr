@@ -1,8 +1,7 @@
-import std/[os, strformat]
+import std/strformat
 import pdfocr/jpeglib
 
 proc main() =
-  let outputPath = "test_output_wrapper.jpg"
   let width = 320
   let height = 240
   let rowStride = width * 3
@@ -15,13 +14,12 @@ proc main() =
       buffer[offset + 1] = byte((y * 255) div height)
       buffer[offset + 2] = byte(128)
 
-  block:
-    var comp = initJpegCompressor(outputPath, width, height, quality = 85)
-    writeRgb(comp, buffer)
+  var comp = initJpegCompressor(width, height, quality = 85)
+  writeRgb(comp, buffer)
+  let bytes = finishJpeg(comp)
 
-  doAssert fileExists(outputPath)
-  let size = getFileSize(outputPath)
-  echo &"Wrote {outputPath} ({size} bytes)"
+  doAssert bytes.len > 0
+  echo &"Wrote in-memory JPEG ({bytes.len} bytes)"
 
 when isMainModule:
   main()

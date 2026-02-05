@@ -41,6 +41,7 @@ const
 proc jpeg_std_error*(err: ptr jpeg_error_mgr): ptr jpeg_error_mgr
 proc jpeg_create_compress*(cinfo: ptr jpeg_compress_struct)
 proc jpeg_stdio_dest*(cinfo: ptr jpeg_compress_struct, outfile: File)
+proc jpeg_mem_dest*(cinfo: ptr jpeg_compress_struct, outbuffer: ptr ptr byte, outsize: ptr culong)
 proc jpeg_set_defaults*(cinfo: ptr jpeg_compress_struct)
 proc jpeg_set_quality*(cinfo: ptr jpeg_compress_struct, quality: cint, force_baseline: cint)
 proc jpeg_start_compress*(cinfo: ptr jpeg_compress_struct, write_all_tables: cint)
@@ -49,4 +50,3 @@ proc jpeg_finish_compress*(cinfo: ptr jpeg_compress_struct)
 proc jpeg_destroy_compress*(cinfo: ptr jpeg_compress_struct)
 
 {.pop.}
-

@@ -1,13 +1,16 @@
 # Ergonomic libjpeg helpers built on top of the raw bindings.
 
-import std/[assertions, strformat]
+import std/assertions
 import ./bindings/jpeglib
+
+proc cFree(p: pointer) {.importc: "free", header: "<stdlib.h>".}
 
 type
   JpegCompressor* = object
     cinfo: jpeg_compress_struct
     jerr: jpeg_error_mgr
-    outfile: File
+    outBuffer: ptr byte
+    outSize: culong
     rowStride: int
     isOpen: bool
   JpegQuality* = range[1..100]
@@ -16,8 +19,8 @@ proc `=destroy`*(comp: JpegCompressor) =
   if comp.isOpen:
     jpeg_finish_compress(addr comp.cinfo)
     jpeg_destroy_compress(addr comp.cinfo)
-    if comp.outfile != nil:
-      close(comp.outfile)
+    if comp.outBuffer != nil:
+      cFree(comp.outBuffer)
 
 proc `=copy`*(dest: var JpegCompressor; src: JpegCompressor) {.error.}
 
@@ -25,25 +28,25 @@ proc `=sink`*(dest: var JpegCompressor; src: JpegCompressor) =
   `=destroy`(dest)
   dest.cinfo = src.cinfo
   dest.jerr = src.jerr
-  dest.outfile = src.outfile
+  dest.outBuffer = src.outBuffer
+  dest.outSize = src.outSize
   dest.rowStride = src.rowStride
   dest.isOpen = src.isOpen
 
 proc `=wasMoved`*(comp: var JpegCompressor) =
-  comp.outfile = nil
+  comp.outBuffer = nil
+  comp.outSize = 0
   comp.rowStride = 0
   comp.isOpen = false
 
-proc initJpegCompressor*(path: string; width, height: Positive; quality: JpegQuality = 90): JpegCompressor =
+proc initJpegCompressor*(width, height: Positive; quality: JpegQuality = 90): JpegCompressor =
   result.cinfo.err = jpeg_std_error(addr result.jerr)
   jpeg_create_compress(addr result.cinfo)
 
-  if not open(result.outfile, path, fmWrite):
-    jpeg_destroy_compress(addr result.cinfo)
-    raise newException(IOError, &"could not open output file: {path}")
-
   result.isOpen = true
-  jpeg_stdio_dest(addr result.cinfo, result.outfile)
+  result.outBuffer = nil
+  result.outSize = 0
+  jpeg_mem_dest(addr result.cinfo, addr result.outBuffer, addr result.outSize)
 
   result.cinfo.image_width = width.cuint
   result.cinfo.image_height = height.cuint
@@ -54,6 +57,19 @@ proc initJpegCompressor*(path: string; width, height: Positive; quality: JpegQua
   jpeg_set_defaults(addr result.cinfo)
   jpeg_set_quality(addr result.cinfo, quality.cint, TRUE)
   jpeg_start_compress(addr result.cinfo, TRUE)
+
+proc finishJpeg*(comp: var JpegCompressor): seq[byte] =
+  assert comp.isOpen, "compressor not initialized"
+  jpeg_finish_compress(addr comp.cinfo)
+  jpeg_destroy_compress(addr comp.cinfo)
+  if comp.outSize > 0 and comp.outBuffer != nil:
+    result.setLen(comp.outSize.int)
+    copyMem(addr result[0], comp.outBuffer, comp.outSize.int)
+  if comp.outBuffer != nil:
+    cFree(comp.outBuffer)
+  comp.outBuffer = nil
+  comp.outSize = 0
+  comp.isOpen = false
 
 proc writeRgb*(comp: var JpegCompressor; buffer: openArray[byte]) =
   assert comp.isOpen, "compressor not initialized"
@@ -66,16 +82,14 @@ proc writeRgb*(comp: var JpegCompressor; buffer: openArray[byte]) =
     rowPointer = cast[JSAMPROW](addr buffer[offset])
     discard jpeg_write_scanlines(addr comp.cinfo, addr rowPointer, 1)
 
-proc initJpegCompressorBgrx*(path: string; width, height: Positive; quality: JpegQuality = 90): JpegCompressor =
+proc initJpegCompressorBgrx*(width, height: Positive; quality: JpegQuality = 90): JpegCompressor =
   result.cinfo.err = jpeg_std_error(addr result.jerr)
   jpeg_create_compress(addr result.cinfo)
 
-  if not open(result.outfile, path, fmWrite):
-    jpeg_destroy_compress(addr result.cinfo)
-    raise newException(IOError, &"could not open output file: {path}")
-
   result.isOpen = true
-  jpeg_stdio_dest(addr result.cinfo, result.outfile)
+  result.outBuffer = nil
+  result.outSize = 0
+  jpeg_mem_dest(addr result.cinfo, addr result.outBuffer, addr result.outSize)
 
   result.cinfo.image_width = width.cuint
   result.cinfo.image_height = height.cuint
