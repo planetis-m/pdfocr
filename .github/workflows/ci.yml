@@ -93,6 +93,10 @@ jobs:
       - name: Run Tests
         working-directory: tests
         run: |
+          # 1. Define Paths explicitly
+          $turboBin = "C:\libjpeg-turbo-gcc64\bin"
+          $gitBin   = "C:\Program Files\Git\mingw64\bin"
+          $lddPath  = "C:\Program Files\Git\usr\bin\ldd.exe"
           # PDFium
           Copy-Item "..\third_party\pdfium\bin\pdfium.dll" . -Force
           
@@ -109,7 +113,14 @@ jobs:
           }
           Write-Host "`n--- DLL DEPENDENCY CHECK ---"
           nim c test_jpeglib_bindings.nim
-          & "$mingBin\ldd.exe" .\test_jpeglib_bindings.exe
+          # 4. RUN LDD (The Moment of Truth)
+          Write-Host "--- DLL DEPENDENCY CHECK ---"
+          if (Test-Path $lddPath) {
+              & $lddPath .\test_jpeglib_bindings.exe
+          } else {
+              Write-Warning "ldd.exe not found at $lddPath. Trying PATH..."
+              ldd .\test_jpeglib_bindings.exe
+          }
           # --- DIAGNOSTICS ---
           Write-Host "`n--- READY TO EXECUTE ---"
           $env:PATH = "$PWD;$env:PATH"
