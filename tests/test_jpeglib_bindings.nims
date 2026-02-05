@@ -11,10 +11,10 @@ when defined(macosx):
   switch("passC", "-I" & staticExec("brew --prefix jpeg-turbo") & "/include")
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
 elif defined(windows):
-  # Windows: MinGW-Builds + libjpeg-turbo from chocolatey
+  # Windows: MinGW-Builds + libjpeg-turbo (official GCC build)
   switch("gcc.path", "C:/mingw64/bin")
-  switch("passC", "-IC:/libjpeg-turbo64/include")
-  switch("passL", "-LC:/libjpeg-turbo64/lib")
+  switch("passC", "-IC:/libjpeg-turbo-gcc64/include")
+  switch("passL", "-LC:/libjpeg-turbo-gcc64/lib")
 else:
   # Linux: system libjpeg
   discard

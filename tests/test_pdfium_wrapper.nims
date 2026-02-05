@@ -12,10 +12,10 @@ when defined(macosx):
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
   switch("passL", "-L../third_party/pdfium/lib -lpdfium")
 elif defined(windows):
-  # Windows: MinGW-Builds + libjpeg-turbo from chocolatey
+  # Windows: MinGW-Builds + libjpeg-turbo (official GCC build)
   switch("gcc.path", "C:/mingw64/bin")
-  switch("passC", "-IC:/libjpeg-turbo64/include")
-  switch("passL", "-LC:/libjpeg-turbo64/lib")
+  switch("passC", "-IC:/libjpeg-turbo-gcc64/include")
+  switch("passL", "-LC:/libjpeg-turbo-gcc64/lib")
   # Windows: PDFium library is pdfium.dll.lib
   switch("passL", "../third_party/pdfium/lib/pdfium.dll.lib")
 else:
