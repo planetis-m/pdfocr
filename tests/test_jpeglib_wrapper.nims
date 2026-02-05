@@ -12,6 +12,9 @@ when defined(macosx):
   switch("passL", "-L" & staticExec("brew --prefix jpeg-turbo") & "/lib")
 elif defined(windows):
   # Windows: MinGW-Builds + libjpeg-turbo (official GCC build)
+  switch("passL", "-static-libgcc")
+  switch("passL", "-static-libstdc++")
+  
   switch("passC", "-IC:/libjpeg-turbo-gcc64/include")
   switch("passL", "-LC:/libjpeg-turbo-gcc64/lib")
 else:
