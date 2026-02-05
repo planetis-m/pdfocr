@@ -13,7 +13,7 @@ A fast, concurrent PDF-to-text OCR pipeline built in Nim. It renders PDF pages w
 - Nim (ARC/ORC enabled)
 - PDFium shared library in `third_party/pdfium/lib`
 - libcurl
-- libjpeg
+- libwebp
 - DeepInfra API key
 
 ## Quick Start

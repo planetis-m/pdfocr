@@ -9,7 +9,6 @@ These modules provide safe, idiomatic Nim wrappers around C libraries:
 | Module | Description | File |
 |--------|-------------|------|
 | **pdfium** | PDF document manipulation, rendering, and text extraction | [pdfium.md](pdfium.md) |
-| **jpeglib** | JPEG image compression | [jpeglib.md](jpeglib.md) |
 | **curl** | HTTP client for making web requests | [curl.md](curl.md) |
 
 ## Low-Level Bindings
@@ -17,7 +16,6 @@ These modules provide safe, idiomatic Nim wrappers around C libraries:
 The following modules contain direct C bindings (for advanced users):
 
 - `src/pdfocr/bindings/pdfium.nim`
-- `src/pdfocr/bindings/jpeglib.nim`
 - `src/pdfocr/bindings/curl.nim`
 
 ## Quick Start
@@ -48,16 +46,6 @@ finally:
   destroyPdfium()
 ```
 
-### JPEG Compression (jpeglib module)
-
-```nim
-import pdfocr/jpeglib
-
-var comp = initJpegCompressorBgrx(width, height, quality = 95)
-writeBgrx(comp, buffer, stride)
-let bytes = finishJpeg(comp)
-```
-
 ### HTTP Requests (curl module)
 
 ```nim
@@ -84,10 +72,8 @@ finally:
 src/pdfocr/
 ├── bindings/          # Low-level C bindings
 │   ├── pdfium.nim
-│   ├── jpeglib.nim
 │   └── curl.nim
 ├── pdfium.nim         # High-level PDF wrapper
-├── jpeglib.nim        # High-level JPEG wrapper
 └── curl.nim           # High-level HTTP wrapper
 ```
 
@@ -96,9 +82,7 @@ src/pdfocr/
 | File | Purpose | Documentation |
 |------|---------|---------------|
 | `src/pdfocr/pdfium.nim` | High-level PDF API | [pdfium.md](pdfium.md) |
-| `src/pdfocr/jpeglib.nim` | High-level JPEG API | [jpeglib.md](jpeglib.md) |
 | `src/pdfocr/curl.nim` | High-level HTTP API | [curl.md](curl.md) |
 | `src/app.nim` | Main application entry point | (no exported API) |
 | `src/pdfocr/bindings/pdfium.nim` | PDFium C bindings | (advanced users) |
-| `src/pdfocr/bindings/jpeglib.nim` | libjpeg C bindings | (advanced users) |
 | `src/pdfocr/bindings/curl.nim` | libcurl C bindings | (advanced users) |
