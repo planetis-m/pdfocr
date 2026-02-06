@@ -39,6 +39,11 @@ proc `=copy`*(dest: var PdfPage; src: PdfPage) {.error.}
 proc `=copy`*(dest: var PdfTextPage; src: PdfTextPage) {.error.}
 proc `=copy`*(dest: var PdfBitmap; src: PdfBitmap) {.error.}
 
+proc `=dup`*(src: PdfDocument): PdfDocument {.error.}
+proc `=dup`*(src: PdfPage): PdfPage {.error.}
+proc `=dup`*(src: PdfTextPage): PdfTextPage {.error.}
+proc `=dup`*(src: PdfBitmap): PdfBitmap {.error.}
+
 proc `=sink`*(dest: var PdfDocument; src: PdfDocument) =
   `=destroy`(dest)
   dest.raw = src.raw

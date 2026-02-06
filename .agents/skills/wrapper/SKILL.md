@@ -261,7 +261,8 @@ proc `=sink`*(dest: var Handle; src: Handle) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=copy`*(dest: var Handle; src: Handle) {.error: "Handle cannot be copied".}
+proc `=copy`*(dest: var Handle; src: Handle) {.error.}
+proc `=dup`*(src: Handle): Handle {.error.}
 
 proc initHandle*(width, height: int): Handle =
   result.raw = libCreate(cint width, cint height)
@@ -361,10 +362,12 @@ proc setLogCallback*(fn: LibLogFn; userdata: pointer) =
 * **Owned (Move-Only)**: Use the destructor pattern. The Nim object "owns" the C pointer. Use `ensureMove` to transfer ownership.
 * **Borrowed**: C owns memory; caller must not free. Return a raw `ptr` or thin wrapper without a `=destroy` hook.
 
-**When to use `{.error.}` on `=copy` hook:**
+**When to use `{.error.}` on `=copy`/`=dup` hooks:**
 
 * **No C Copy Mechanism**: Because the C library offers no way to copy the object, the wrapper does not offer it either.
 * **Pointer Stability**: To prevent multiple Nim objects from managing the same C pointer, which causes double-free crashes.
+
+Prefer `ensureMove()` (compiler-verified); use `move()` only to force a move.
 
 ---
 
@@ -508,7 +511,8 @@ proc `=sink`*(dest: var Handle; src: Handle) =
   `=destroy`(dest)
   dest.raw = src.raw
 
-proc `=copy`*(dest: var Handle; src: Handle) {.error: "Use move() or ensureMove()".}
+proc `=copy`*(dest: var Handle; src: Handle) {.error.}
+proc `=dup`*(src: Handle): Handle {.error.}
 
 proc open*(path: string): Handle =
   result.raw = libOpen(path.cstring)
@@ -538,6 +542,11 @@ proc `=copy`*(dest: var Asset; src: Asset) =
   `=destroy`(dest)
   dest.raw = src.raw
   dest.rc = src.rc
+
+proc `=dup`*(src: Asset): Asset =
+  result = src
+  if result.raw != nil:
+    inc result.rc[]
 
 proc `=sink`*(dest: var Asset; src: Asset) =
   `=destroy`(dest)
