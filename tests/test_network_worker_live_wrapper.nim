@@ -7,8 +7,7 @@ type
 
 proc writeCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer): csize_t {.cdecl.} =
   let total = int(size * nitems)
-  if total <= 0:
-    return 0
+  if total <= 0: return 0
   let state = cast[ptr RequestState](userdata)
   if state != nil:
     let start = state.response.len
@@ -18,9 +17,8 @@ proc writeCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer
 
 proc bytesFromString(raw: string): seq[byte] =
   result = newSeq[byte](raw.len)
-  if raw.len == 0:
-    return
-  let srcPtr = cast[ptr char](unsafeAddr raw[0])
+  if raw.len == 0: return
+  let srcPtr = cast[ptr char](addr raw[0])
   let dstPtr = cast[ptr byte](addr result[0])
   copyMem(dstPtr, srcPtr, raw.len)
 
@@ -70,40 +68,36 @@ proc main() =
 
   let body = buildRequestBody(jpegBytes)
 
-  let statePtr = cast[ptr RequestState](alloc0(sizeof(RequestState)))
-  doAssert statePtr != nil
-  defer:
-    dealloc(statePtr)
+  let state = RequestState(response: "")
 
   initCurlGlobal()
   try:
-    block:
-      var easy = initEasy()
-      var headers: CurlSlist
+    var easy = initEasy()
+    var headers: CurlSlist
 
-      easy.setUrl("https://api.deepinfra.com/v1/openai/chat/completions")
-      easy.setPostFields(body)
-      easy.setWriteCallback(writeCb, statePtr)
-      easy.setTimeoutMs(120_000)
-      easy.setConnectTimeoutMs(10_000)
-      easy.setSslVerify(true, true)
-      easy.setAcceptEncoding("gzip, deflate")
+    easy.setUrl("https://api.deepinfra.com/v1/openai/chat/completions")
+    easy.setPostFields(body)
+    easy.setWriteCallback(writeCb, addr state)
+    easy.setTimeoutMs(120_000)
+    easy.setConnectTimeoutMs(10_000)
+    easy.setSslVerify(true, true)
+    easy.setAcceptEncoding("gzip, deflate")
 
-      headers.addHeader("Authorization: Bearer " & apiKey)
-      headers.addHeader("Content-Type: application/json")
-      easy.setHeaders(headers)
+    headers.addHeader("Authorization: Bearer " & apiKey)
+    headers.addHeader("Content-Type: application/json")
+    easy.setHeaders(headers)
 
-      easy.perform()
+    easy.perform()
 
-      let httpCode = easy.responseCode()
-      if httpCode < 200 or httpCode >= 300:
-        let excerpt = responseExcerpt(statePtr.response)
-        doAssert false, "HTTP request failed: " & $httpCode & " body='" & excerpt & "'"
+    let httpCode = easy.responseCode()
+    if httpCode < Http200 or Http300 <= httpCode:
+      let excerpt = responseExcerpt(state.response)
+      doAssert false, "HTTP request failed: " & $httpCode & " body='" & excerpt & "'"
 
-      let response = statePtr.response
-      doAssert response.len > 0
-      doAssert response.contains("\"choices\"")
-      doAssert response.contains("\"content\"")
+    let response = state.response
+    doAssert response.len > 0
+    doAssert response.contains("\"choices\"")
+    doAssert response.contains("\"content\"")
   finally:
     cleanupCurlGlobal()
 

@@ -4,6 +4,8 @@ import ./bindings/curl
 export CurlMsgType, CURLMsg
 
 type
+  HttpCode* = distinct int
+
   CurlEasy* = object
     raw: CURL
     postData: string
@@ -14,6 +16,35 @@ type
 
   CurlSlist* = object
     raw: ptr curl_slist
+
+const
+  Http100* = HttpCode(100)
+  Http101* = HttpCode(101)
+  Http102* = HttpCode(102)
+  Http103* = HttpCode(103)
+  Http200* = HttpCode(200)
+  Http201* = HttpCode(201)
+  Http202* = HttpCode(202)
+  Http204* = HttpCode(204)
+  Http300* = HttpCode(300)
+  Http400* = HttpCode(400)
+  Http401* = HttpCode(401)
+  Http403* = HttpCode(403)
+  Http404* = HttpCode(404)
+  Http408* = HttpCode(408)
+  Http409* = HttpCode(409)
+  Http422* = HttpCode(422)
+  Http429* = HttpCode(429)
+  Http500* = HttpCode(500)
+  Http502* = HttpCode(502)
+  Http503* = HttpCode(503)
+  Http504* = HttpCode(504)
+
+func `==`*(a, b: HttpCode): bool {.borrow.}
+func `<`*(a, b: HttpCode): bool {.borrow.}
+func `<=`*(a, b: HttpCode): bool {.borrow.}
+proc `$`*(code: HttpCode): string =
+  $int(code)
 
 proc `=destroy`*(easy: CurlEasy) =
   if pointer(easy.raw) != nil:
@@ -30,6 +61,10 @@ proc `=destroy`*(list: CurlSlist) =
 proc `=copy`*(dest: var CurlEasy; src: CurlEasy) {.error.}
 proc `=copy`*(dest: var CurlMulti; src: CurlMulti) {.error.}
 proc `=copy`*(dest: var CurlSlist; src: CurlSlist) {.error.}
+
+proc `=dup`*(src: CurlEasy): CurlEasy {.error.}
+proc `=dup`*(src: CurlMulti): CurlMulti {.error.}
+proc `=dup`*(src: CurlSlist): CurlSlist {.error.}
 
 proc `=sink`*(dest: var CurlEasy; src: CurlEasy) =
   `=destroy`(dest)
@@ -56,12 +91,12 @@ proc `=wasMoved`*(multi: var CurlMulti) =
 proc `=wasMoved`*(list: var CurlSlist) =
   list.raw = nil
 
-proc checkCurl*(code: CURLcode; context: string) =
+proc checkCurl*(code: CURLcode; context: string) {.noinline.} =
   if code != CURLE_OK:
     let msg = $curl_easy_strerror(code)
     raise newException(IOError, context & ": " & msg)
 
-proc checkCurlMulti*(code: CURLMcode; context: string) =
+proc checkCurlMulti*(code: CURLMcode; context: string) {.noinline.} =
   if code != CURLM_OK:
     let msg = $curl_multi_strerror(code)
     raise newException(IOError, context & ": " & msg)
@@ -157,11 +192,11 @@ proc getPrivate*(easy: CurlEasy): pointer =
 proc perform*(easy: var CurlEasy) =
   checkCurl(curl_easy_perform(easy.raw), "curl_easy_perform failed")
 
-proc responseCode*(easy: CurlEasy): int =
+proc responseCode*(easy: CurlEasy): HttpCode =
   var code: clong
   checkCurl(curl_easy_getinfo(easy.raw, CURLINFO_RESPONSE_CODE, addr code),
     "CURLINFO_RESPONSE_CODE failed")
-  int(code)
+  HttpCode(code)
 
 proc addHeader*(list: var CurlSlist; headerLine: string) =
   list.raw = curl_slist_append(list.raw, headerLine.cstring)

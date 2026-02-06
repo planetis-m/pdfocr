@@ -7,8 +7,7 @@ type
 
 proc writeCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer): csize_t {.cdecl.} =
   let total = int(size * nitems)
-  if total <= 0:
-    return 0
+  if total <= 0: return 0
   let state = cast[ptr RequestState](userdata)
   if state != nil:
     let start = state.response.len
@@ -18,8 +17,7 @@ proc writeCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer
 
 proc bytesFromString(raw: string): seq[byte] =
   result = newSeq[byte](raw.len)
-  if raw.len == 0:
-    return
+  if raw.len == 0: return
   let srcPtr = cast[ptr char](addr raw[0])
   let dstPtr = cast[ptr byte](addr result[0])
   copyMem(dstPtr, srcPtr, raw.len)
@@ -90,7 +88,7 @@ proc main() =
   defer:
     curl_easy_cleanup(easy)
 
-  discard curl_easy_setopt(easy, CURLOPT_URL, "https://api.deepinfra.com/v1/openai/chat/completions".cstring)
+  discard curl_easy_setopt(easy, CURLOPT_URL, cstring"https://api.deepinfra.com/v1/openai/chat/completions")
   discard curl_easy_setopt(easy, CURLOPT_POST, clong(1))
   discard curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.cstring)
   discard curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, clong(body.len))

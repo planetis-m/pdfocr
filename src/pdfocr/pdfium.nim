@@ -172,7 +172,6 @@ proc extractText*(page: PdfPage): string =
   let count = FPDFText_CountChars(textPage.raw)
   if count <= 0:
     return ""
-
   # Pdfium expects buffer size including the null terminator.
   var wStr = newWideCString(count)
   discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
