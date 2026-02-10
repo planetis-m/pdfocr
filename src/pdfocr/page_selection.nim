@@ -1,4 +1,4 @@
-import std/[algorithm, os, sets, strutils]
+import std/[algorithm, os, parseopt, sets, strutils]
 import ./pdfium
 import ./types
 
@@ -19,30 +19,50 @@ proc parsePositiveInt(raw: string): int =
     raise newException(ValueError, "page must be >= 1: " & $result)
 
 proc parseCliArgs(cliArgs: seq[string]): CliArgs =
-  var i = 0
-  while i < cliArgs.len:
-    let arg = cliArgs[i]
-    if arg == "--pages":
-      if i + 1 >= cliArgs.len:
-        raise newException(ValueError, "missing value for --pages")
-      if result.pagesSpec.len > 0:
-        raise newException(ValueError, "--pages provided more than once")
-      result.pagesSpec = cliArgs[i + 1]
-      i += 2
-      continue
+  var parser = initOptParser(cliArgs)
+  var positional: seq[string] = @[]
+  var pagesSeen = 0
+  var parseError = ""
 
-    if arg.startsWith("--"):
-      raise newException(ValueError, "unknown argument: " & arg)
+  for kind, key, val in parser.getopt():
+    case kind
+    of cmdArgument:
+      positional.add(key)
+    of cmdLongOption:
+      case key
+      of "pages":
+        inc pagesSeen
+        if val.len > 0:
+          result.pagesSpec = val
+        else:
+          parseError = "missing value for --pages (use --pages:<spec>)"
+      else:
+        parseError = "unknown argument: --" & key
+    of cmdShortOption:
+      parseError = "unknown argument: -" & key
+    of cmdEnd:
+      discard
 
-    if result.inputPath.len > 0:
-      raise newException(ValueError, "unexpected extra positional argument: " & arg)
-    result.inputPath = arg
-    inc i
+    if parseError.len > 0:
+      break
 
-  if result.inputPath.len == 0:
-    raise newException(ValueError, "missing required INPUT.pdf argument")
-  if result.pagesSpec.len == 0:
-    raise newException(ValueError, "missing required --pages argument")
+  if parseError.len == 0:
+    case positional.len
+    of 0:
+      parseError = "missing required INPUT.pdf argument"
+    of 1:
+      result.inputPath = positional[0]
+    else:
+      parseError = "unexpected extra positional argument: " & positional[1]
+
+  if parseError.len == 0 and pagesSeen == 0:
+    parseError = "missing required --pages argument"
+
+  if parseError.len == 0 and pagesSeen > 1:
+    parseError = "--pages provided more than once"
+
+  if parseError.len > 0:
+    raise newException(ValueError, parseError)
 
 proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
   if totalPages < 1:
