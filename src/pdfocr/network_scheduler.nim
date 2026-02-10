@@ -33,6 +33,7 @@ type
     renderPendingCount: int
     finalCount: int
     rendererStopSent: bool
+    cancelFinalized: bool
     finalGuard: FinalizationGuard
     renderedReady: Table[int, RenderedTask]
     retryQueue: seq[RetryItem]
@@ -58,6 +59,7 @@ proc responseExcerpt(body: string): string =
   body[0 ..< RESPONSE_EXCERPT_LIMIT] & "..."
 
 proc sendFatal(ctx: SchedulerContext; kind: ErrorKind; message: string) =
+  SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
   ctx.fatalCh.send(FatalEvent(
     source: fesScheduler,
     errorKind: kind,
@@ -254,7 +256,8 @@ proc drainRendererOutputs(state: var SchedulerState; ctx: SchedulerContext): boo
       dec state.renderPendingCount
     case output.kind
     of rokRenderedTask:
-      state.renderedReady[output.task.seqId] = output.task
+      if not SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+        state.renderedReady[output.task.seqId] = output.task
     of rokRenderFailure:
       if not enqueueWriterResult(state, ctx, newErrorResult(
         output.failure.seqId,
@@ -390,19 +393,56 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
         return false
   true
 
+proc sendRendererStop(state: var SchedulerState; ctx: SchedulerContext) =
+  if state.rendererStopSent:
+    return
+  ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
+  state.rendererStopSent = true
+
+proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
+  if state.cancelFinalized:
+    return true
+  state.cancelFinalized = true
+
+  for _, req in state.activeTransfers.pairs:
+    try:
+      multi.removeHandle(req.easy)
+    except CatchableError:
+      discard
+  state.activeTransfers.clear()
+  updateInflightCount(state)
+  state.retryQueue.setLen(0)
+  state.renderedReady.clear()
+  state.renderPendingCount = 0
+
+  for seqId in 0 ..< ctx.selectedCount:
+    let page =
+      if seqId < ctx.selectedPages.len: ctx.selectedPages[seqId]
+      else: seqId + 1
+    if not enqueueWriterResult(state, ctx, newErrorResult(
+      seqId,
+      page,
+      1,
+      NETWORK_ERROR,
+      "cancelled before completion"
+    )):
+      return false
+
+  sendRendererStop(state, ctx)
+  true
+
 proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
+  if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+    return state.finalCount == selectedCount and
+      state.activeTransfers.len == 0 and
+      state.retryQueue.len == 0 and
+      state.writerPending.len == 0
   state.finalCount == selectedCount and
     state.activeTransfers.len == 0 and
     state.retryQueue.len == 0 and
     state.writerPending.len == 0 and
     state.renderedReady.len == 0 and
     state.renderPendingCount == 0
-
-proc sendRendererStop(state: var SchedulerState; ctx: SchedulerContext) =
-  if state.rendererStopSent:
-    return
-  ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
-  state.rendererStopSent = true
 
 proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
   var multi: CurlMulti
@@ -417,6 +457,7 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
     renderPendingCount: 0,
     finalCount: 0,
     rendererStopSent: false,
+    cancelFinalized: false,
     finalGuard: initFinalizationGuard(ctx.selectedCount),
     renderedReady: initTable[int, RenderedTask](),
     retryQueue: @[],
@@ -428,16 +469,26 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
   updateInflightCount(state)
 
   while true:
+    if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+      if not cancelAndFinalizeMissing(state, ctx, multi):
+        break
+
     flushWriterPending(state, ctx)
 
     if not drainRendererOutputs(state, ctx):
-      return
+      SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+      if not cancelAndFinalizeMissing(state, ctx, multi):
+        break
+      continue
 
     promoteReadyRetries(state)
     refillRenderRequests(state, ctx)
 
     if not dispatchRequests(state, ctx, multi):
-      return
+      SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+      if not cancelAndFinalizeMissing(state, ctx, multi):
+        break
+      continue
 
     if state.activeTransfers.len > 0:
       try:
@@ -445,9 +496,12 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
         discard multi.poll(MULTI_WAIT_MAX_MS)
       except CatchableError as exc:
         ctx.sendFatal(NETWORK_ERROR, exc.msg)
-        return
+        continue
       if not processCompletions(state, ctx, multi):
-        return
+        SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+        if not cancelAndFinalizeMissing(state, ctx, multi):
+          break
+        continue
     elif state.writerPending.len > 0:
       sleep(1)
 

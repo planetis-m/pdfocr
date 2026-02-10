@@ -85,6 +85,7 @@ type
 
   SchedulerContext* = object
     selectedCount*: int
+    selectedPages*: seq[int]
     renderReqCh*: Chan[RenderRequest]
     renderOutCh*: Chan[RendererOutput]
     writerInCh*: Chan[PageResult]

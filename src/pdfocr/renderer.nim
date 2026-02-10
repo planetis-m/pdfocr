@@ -1,4 +1,4 @@
-import std/strformat
+import std/[atomics, os, strformat]
 import threading/channels
 import ./constants
 import ./errors
@@ -14,7 +14,7 @@ proc sendFatal(ctx: RendererContext; kind: ErrorKind; message: string) =
   ))
 
 proc sendRenderFailure(ctx: RendererContext; seqId: SeqId; page: int; kind: ErrorKind; message: string) =
-  ctx.renderOutCh.send(RendererOutput(
+  let output = RendererOutput(
     kind: rokRenderFailure,
     failure: RenderFailure(
       seqId: seqId,
@@ -23,7 +23,11 @@ proc sendRenderFailure(ctx: RendererContext; seqId: SeqId; page: int; kind: Erro
       errorMessage: boundedErrorMessage(message),
       attempts: 1
     )
-  ))
+  )
+  while not ctx.renderOutCh.trySend(output):
+    if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+      return
+    sleep(1)
 
 proc runRenderer*(ctx: RendererContext) {.thread.} =
   var doc: PdfDocument
@@ -34,6 +38,8 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
     return
 
   while true:
+    if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+      break
     var req: RenderRequest
     ctx.renderReqCh.recv(req)
     if req.kind == rrkStop:
@@ -89,7 +95,7 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
       ctx.sendRenderFailure(seqId, page, ENCODE_ERROR, "encoded WebP output was empty")
       continue
 
-    ctx.renderOutCh.send(RendererOutput(
+    let output = RendererOutput(
       kind: rokRenderedTask,
       task: RenderedTask(
         seqId: seqId,
@@ -97,4 +103,8 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
         webpBytes: webpBytes,
         attempt: 1
       )
-    ))
+    )
+    while not ctx.renderOutCh.trySend(output):
+      if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+        return
+      sleep(1)
