@@ -20,35 +20,25 @@ Options:
 proc cliError(message: string) {.noreturn.} =
   quit(message & "\n\n" & HELP_TEXT, EXIT_FATAL_RUNTIME)
 
-proc skipSpaces(spec: string; idx: var int) =
-  while idx < spec.len and spec[idx].isSpaceAscii:
-    inc idx
-
-proc parsePageNumberAt(spec: string; idx: var int): int =
-  skipSpaces(spec, idx)
-  var parsed = 0
-  let consumed = parseInt(spec, parsed, idx)
-  if consumed <= 0:
+proc parsePageValue(token: string): int =
+  let raw = token.strip()
+  let consumed = parseInt(raw, result, 0)
+  if consumed != raw.len or result < 1:
     raise newException(ValueError, "invalid page token")
-  idx += consumed
-  skipSpaces(spec, idx)
-  if parsed < 1:
-    raise newException(ValueError, "page must be >= 1")
-  result = parsed
 
 proc parseCliArgs(cliArgs: seq[string]): CliArgs =
+  result = CliArgs()
   var parser = initOptParser(cliArgs)
-  var positional: seq[string] = @[]
-  var pagesSpec = ""
 
   for kind, key, val in parser.getopt():
     case kind
     of cmdArgument:
-      positional.add(key)
+      if result.inputPath.len == 0:
+        result.inputPath = key
     of cmdLongOption:
       case key
       of "pages":
-        pagesSpec = val
+        result.pagesSpec = val
       of "help":
         quit(HELP_TEXT, EXIT_ALL_OK)
       else:
@@ -61,50 +51,38 @@ proc parseCliArgs(cliArgs: seq[string]): CliArgs =
     of cmdEnd:
       discard
 
-  if positional.len == 0:
+  if result.inputPath.len == 0:
     cliError("missing required INPUT.pdf argument")
-  if pagesSpec.len == 0:
+  if result.pagesSpec.len == 0:
     cliError("missing required --pages argument")
-
-  result.inputPath = positional[0]
-  result.pagesSpec = pagesSpec
 
 proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
   if totalPages < 1:
     raise newException(ValueError, "PDF has no pages")
-  if spec.strip().len == 0:
+  if spec.len == 0:
     raise newException(ValueError, "--pages must not be empty")
 
   var selected = initHashSet[int]()
-  var idx = 0
 
-  while idx < spec.len:
-    skipSpaces(spec, idx)
-    while idx < spec.len and spec[idx] == ',':
-      inc idx
-      skipSpaces(spec, idx)
-    if idx >= spec.len:
-      break
+  for rawToken in spec.split(','):
+    let token = rawToken.strip()
+    if token.len == 0:
+      continue
 
-    let firstPage = parsePageNumberAt(spec, idx)
-    var lastPage = firstPage
+    let dash = token.find('-')
+    if dash < 0:
+      let page = parsePageValue(token)
+      if page <= totalPages:
+        selected.incl(page)
+      continue
 
-    if idx < spec.len and spec[idx] == '-':
-      inc idx
-      lastPage = parsePageNumberAt(spec, idx)
-
-    if firstPage > lastPage:
-      raise newException(ValueError, "range start must be <= end")
-    if lastPage > totalPages:
-      raise newException(ValueError, "selected page exceeds PDF page count")
-
-    for page in firstPage .. lastPage:
-      selected.incl(page)
-
-    if idx < spec.len and spec[idx] == ',':
-      inc idx
-    elif idx < spec.len:
-      raise newException(ValueError, "malformed page selector")
+    let a = parsePageValue(token[0 ..< dash])
+    let b = parsePageValue(token[dash + 1 .. ^1])
+    let first = min(a, b)
+    let last = max(a, b)
+    for page in first .. last:
+      if page <= totalPages:
+        selected.incl(page)
 
   result = newSeqOfCap[int](selected.len)
   for page in selected:
