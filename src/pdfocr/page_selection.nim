@@ -1,4 +1,5 @@
 import std/[algorithm, os, parseopt, sets, strutils]
+import ./constants
 import ./pdfium
 import ./types
 
@@ -7,22 +8,31 @@ type
     inputPath: string
     pagesSpec: string
 
+const HELP_TEXT = """
+Usage:
+  pdf-olmocr INPUT.pdf --pages:"1,4-6,12"
+
+Options:
+  --pages:<spec>   Comma-separated page selectors (1-based).
+  --help, -h       Show this help and exit.
+"""
+
+proc cliError(message: string) {.noreturn.} =
+  quit(message & "\n\n" & HELP_TEXT, EXIT_FATAL_RUNTIME)
+
 proc parsePositiveInt(raw: string): int =
-  let stripped = raw.strip()
-  if stripped.len == 0:
-    raise newException(ValueError, "empty page token")
-  for ch in stripped:
-    if ch < '0' or ch > '9':
-      raise newException(ValueError, "malformed page token: " & raw)
-  result = parseInt(stripped)
+  let token = raw.strip()
+  try:
+    result = parseInt(token)
+  except ValueError:
+    raise newException(ValueError, "invalid page token: " & raw)
   if result < 1:
-    raise newException(ValueError, "page must be >= 1: " & $result)
+    raise newException(ValueError, "page must be >= 1")
 
 proc parseCliArgs(cliArgs: seq[string]): CliArgs =
   var parser = initOptParser(cliArgs)
   var positional: seq[string] = @[]
-  var pagesSeen = 0
-  var parseError = ""
+  var pagesSpec = ""
 
   for kind, key, val in parser.getopt():
     case kind
@@ -31,38 +41,26 @@ proc parseCliArgs(cliArgs: seq[string]): CliArgs =
     of cmdLongOption:
       case key
       of "pages":
-        inc pagesSeen
-        if val.len > 0:
-          result.pagesSpec = val
-        else:
-          parseError = "missing value for --pages (use --pages:<spec>)"
+        pagesSpec = val
+      of "help":
+        quit(HELP_TEXT, EXIT_ALL_OK)
       else:
-        parseError = "unknown argument: --" & key
+        cliError("unknown option: --" & key)
     of cmdShortOption:
-      parseError = "unknown argument: -" & key
+      if key == "h":
+        quit(HELP_TEXT, EXIT_ALL_OK)
+      else:
+        cliError("unknown option: -" & key)
     of cmdEnd:
       discard
 
-    if parseError.len > 0:
-      break
+  if positional.len == 0:
+    cliError("missing required INPUT.pdf argument")
+  if pagesSpec.len == 0:
+    cliError("missing required --pages argument")
 
-  if parseError.len == 0:
-    case positional.len
-    of 0:
-      parseError = "missing required INPUT.pdf argument"
-    of 1:
-      result.inputPath = positional[0]
-    else:
-      parseError = "unexpected extra positional argument: " & positional[1]
-
-  if parseError.len == 0 and pagesSeen == 0:
-    parseError = "missing required --pages argument"
-
-  if parseError.len == 0 and pagesSeen > 1:
-    parseError = "--pages provided more than once"
-
-  if parseError.len > 0:
-    raise newException(ValueError, parseError)
+  result.inputPath = positional[0]
+  result.pagesSpec = pagesSpec
 
 proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
   if totalPages < 1:
@@ -75,28 +73,24 @@ proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
   for rawToken in spec.split(','):
     let token = rawToken.strip()
     if token.len == 0:
-      raise newException(ValueError, "malformed page selector in --pages: empty token")
+      continue
 
-    let dashCount = token.count('-')
-    if dashCount == 0:
+    if '-' notin token:
       let page = parsePositiveInt(token)
       if page > totalPages:
-        raise newException(ValueError, "selected page exceeds PDF page count: " & $page)
+        raise newException(ValueError, "selected page exceeds PDF page count")
       selected.incl(page)
       continue
 
-    if dashCount != 1:
-      raise newException(ValueError, "malformed range selector: " & token)
-
     let parts = token.split('-', maxsplit = 1)
     if parts.len != 2:
-      raise newException(ValueError, "malformed range selector: " & token)
+      raise newException(ValueError, "malformed range selector")
     let firstPage = parsePositiveInt(parts[0])
     let lastPage = parsePositiveInt(parts[1])
     if firstPage > lastPage:
-      raise newException(ValueError, "range start must be <= end: " & token)
+      raise newException(ValueError, "range start must be <= end")
     if lastPage > totalPages:
-      raise newException(ValueError, "selected page exceeds PDF page count: " & $lastPage)
+      raise newException(ValueError, "selected page exceeds PDF page count")
     for page in firstPage .. lastPage:
       selected.incl(page)
 
