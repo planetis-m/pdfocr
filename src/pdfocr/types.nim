@@ -92,6 +92,7 @@ type
     apiKey*: string
 
   WriterContext* = object
+    selectedCount*: int
     selectedPages*: seq[int]
     writerInCh*: Chan[PageResult]
     fatalCh*: Chan[FatalEvent]

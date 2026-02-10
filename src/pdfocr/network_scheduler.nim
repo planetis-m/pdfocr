@@ -116,10 +116,6 @@ proc enqueueWriterResult(state: var SchedulerState; ctx: SchedulerContext; pageR
     return true
 
   inc state.finalCount
-  if pageResult.status == psOk:
-    discard OK_COUNT.fetchAdd(1, moRelaxed)
-  else:
-    discard ERR_COUNT.fetchAdd(1, moRelaxed)
 
   discard flushPendingSends(ctx.writerInCh, state.writerPending, MAX_WRITER_PENDING)
   if ctx.writerInCh.trySend(pageResult):
