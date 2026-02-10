@@ -44,7 +44,7 @@ proc main() =
   ]
 
   let allOk = runApp(appPath, baseEnv & @[("PDFOCR_TEST_MODE", "all_ok")], @[
-    "tests/slides.pdf", "--pages", "1-3"
+    "tests/slides.pdf", "--pages:1-3"
   ])
   doAssert allOk.exitCode == 0
   let allOkLines = allOk.stdoutText.strip().splitLines()
@@ -53,7 +53,7 @@ proc main() =
     doAssert parseJson(line)["status"].getStr() == "ok"
 
   let mixed = runApp(appPath, baseEnv & @[("PDFOCR_TEST_MODE", "mixed")], @[
-    "tests/slides.pdf", "--pages", "1-4"
+    "tests/slides.pdf", "--pages:1-4"
   ])
   doAssert mixed.exitCode == 2
   let mixedLines = mixed.stdoutText.strip().splitLines()
@@ -69,12 +69,12 @@ proc main() =
   doAssert okSeen and errSeen
 
   let missingKey = runApp(appPath, @[("LD_LIBRARY_PATH", "third_party/pdfium/lib")], @[
-    "tests/slides.pdf", "--pages", "1"
+    "tests/slides.pdf", "--pages:1"
   ])
   doAssert missingKey.exitCode > 2
 
   let badPath = runApp(appPath, baseEnv & @[("PDFOCR_TEST_MODE", "all_ok")], @[
-    "tests/does-not-exist.pdf", "--pages", "1"
+    "tests/does-not-exist.pdf", "--pages:1"
   ])
   doAssert badPath.exitCode > 2
 

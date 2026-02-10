@@ -19,7 +19,7 @@ proc runApp(appPath: string; apiKey: string; mode: string): RunResult =
     " PDFOCR_TEST_MODE=" & quoteShell(mode) &
     " " & quoteShell(appPath) &
     " " & quoteShell("tests/slides.pdf") &
-    " --pages " & quoteShell("1-5") &
+    " --pages:" & quoteShell("1-5") &
     " > " & quoteShell(outPath) &
     " 2> " & quoteShell(errPath)
 
