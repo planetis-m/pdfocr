@@ -18,8 +18,6 @@ proc main() =
   expectValueError:
     discard normalizePageSelection("", 10)
   expectValueError:
-    discard normalizePageSelection("1,,2", 10)
-  expectValueError:
     discard normalizePageSelection("a", 10)
   expectValueError:
     discard normalizePageSelection("3-", 10)

@@ -211,6 +211,7 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     logError(exc.msg)
     EXIT_FATAL_RUNTIME
   finally:
-    unsetControlCHook()
+    when declared(unsetControlCHook):
+      unsetControlCHook()
     if globalsInitialized:
       cleanupGlobalLibraries()
