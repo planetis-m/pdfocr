@@ -1,4 +1,4 @@
-import std/[algorithm, os, parseopt, sets, strutils]
+import std/[algorithm, os, parseopt, parseutils, sets, strutils]
 import ./constants
 import ./pdfium
 import ./types
@@ -20,14 +20,21 @@ Options:
 proc cliError(message: string) {.noreturn.} =
   quit(message & "\n\n" & HELP_TEXT, EXIT_FATAL_RUNTIME)
 
-proc parsePositiveInt(raw: string): int =
-  let token = raw.strip()
-  try:
-    result = parseInt(token)
-  except ValueError:
-    raise newException(ValueError, "invalid page token: " & raw)
-  if result < 1:
+proc skipSpaces(spec: string; idx: var int) =
+  while idx < spec.len and spec[idx].isSpaceAscii:
+    inc idx
+
+proc parsePageNumberAt(spec: string; idx: var int): int =
+  skipSpaces(spec, idx)
+  var parsed = 0
+  let consumed = parseInt(spec, parsed, idx)
+  if consumed <= 0:
+    raise newException(ValueError, "invalid page token")
+  idx += consumed
+  skipSpaces(spec, idx)
+  if parsed < 1:
     raise newException(ValueError, "page must be >= 1")
+  result = parsed
 
 proc parseCliArgs(cliArgs: seq[string]): CliArgs =
   var parser = initOptParser(cliArgs)
@@ -69,30 +76,35 @@ proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
     raise newException(ValueError, "--pages must not be empty")
 
   var selected = initHashSet[int]()
+  var idx = 0
 
-  for rawToken in spec.split(','):
-    let token = rawToken.strip()
-    if token.len == 0:
-      continue
+  while idx < spec.len:
+    skipSpaces(spec, idx)
+    while idx < spec.len and spec[idx] == ',':
+      inc idx
+      skipSpaces(spec, idx)
+    if idx >= spec.len:
+      break
 
-    if '-' notin token:
-      let page = parsePositiveInt(token)
-      if page > totalPages:
-        raise newException(ValueError, "selected page exceeds PDF page count")
-      selected.incl(page)
-      continue
+    let firstPage = parsePageNumberAt(spec, idx)
+    var lastPage = firstPage
 
-    let parts = token.split('-', maxsplit = 1)
-    if parts.len != 2:
-      raise newException(ValueError, "malformed range selector")
-    let firstPage = parsePositiveInt(parts[0])
-    let lastPage = parsePositiveInt(parts[1])
+    if idx < spec.len and spec[idx] == '-':
+      inc idx
+      lastPage = parsePageNumberAt(spec, idx)
+
     if firstPage > lastPage:
       raise newException(ValueError, "range start must be <= end")
     if lastPage > totalPages:
       raise newException(ValueError, "selected page exceeds PDF page count")
+
     for page in firstPage .. lastPage:
       selected.incl(page)
+
+    if idx < spec.len and spec[idx] == ',':
+      inc idx
+    elif idx < spec.len:
+      raise newException(ValueError, "malformed page selector")
 
   result = newSeqOfCap[int](selected.len)
   for page in selected:
