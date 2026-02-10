@@ -67,6 +67,7 @@ type
 
   FatalEvent* = object
     source*: FatalEventSource
+    errorKind*: ErrorKind
     message*: string
 
   RuntimeChannels* = object
@@ -76,6 +77,7 @@ type
     fatalCh*: Chan[FatalEvent]          # small bounded channel
 
   RendererContext* = object
+    pdfPath*: string
     selectedPages*: seq[int]
     renderReqCh*: Chan[RenderRequest]
     renderOutCh*: Chan[RendererOutput]
