@@ -3,6 +3,7 @@ import ./curl
 import ./logging
 import ./page_selection
 import ./pdfium
+import ./types
 
 proc initGlobalLibraries*() =
   initPdfium()
@@ -15,8 +16,13 @@ proc cleanupGlobalLibraries*() =
 proc runOrchestrator*(cliArgs: seq[string]): int =
   try:
     let runtimeConfig = buildRuntimeConfig(cliArgs)
+    resetSharedAtomics()
+    let channels = initRuntimeChannels()
+    var finalizationGuard = initFinalizationGuard(runtimeConfig.selectedCount)
+    discard channels
+    discard finalizationGuard
     discard runtimeConfig
-    # Phase 02 ends after validated preflight + normalized selection mapping.
+    # Phase 03 ends after runtime contracts/channels are initialized.
     result = EXIT_ALL_OK
   except CatchableError as exc:
     logError(exc.msg)
