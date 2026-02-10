@@ -15,20 +15,17 @@ proc writeCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer
     copyMem(addr state.response[start], buffer, total)
   csize_t(total)
 
-proc bytesFromString(raw: string): seq[byte] =
-  result = newSeq[byte](raw.len)
-  if raw.len == 0: return
-  let srcPtr = cast[ptr char](addr raw[0])
-  let dstPtr = cast[ptr byte](addr result[0])
-  copyMem(dstPtr, srcPtr, raw.len)
-
-proc base64FromBytes(data: openArray[byte]): string =
-  if data.len == 0:
-    return ""
-  encode(data)
+proc readJpegFile(filename: string): seq[byte] =
+  let file = open(filename, fmRead)
+  try:
+    let len = getFileSize(file)
+    result = newSeq[byte](len)
+    discard readBuffer(file, addr(result[0]), len)
+  finally:
+    close(file)
 
 proc buildRequestBody(jpegBytes: seq[byte]): string =
-  let b64 = base64FromBytes(jpegBytes)
+  let b64 = base64.encode(jpegBytes)
   result = """
 {
   "model": "allenai/olmOCR-2-7B-1025",
@@ -62,8 +59,7 @@ proc main() =
   let apiKey = getEnv("DEEPINFRA_API_KEY")
   doAssert apiKey.len > 0, "DEEPINFRA_API_KEY is required for the live network test"
 
-  let rawJpeg = readFile("test.jpg")
-  let jpegBytes = bytesFromString(rawJpeg)
+  let jpegBytes = readJpegFile("test.jpg")
   doAssert jpegBytes.len > 0, "test.jpg must be present and non-empty"
 
   let body = buildRequestBody(jpegBytes)

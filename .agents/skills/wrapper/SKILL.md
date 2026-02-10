@@ -191,7 +191,7 @@ typedef enum LIB_Mode {
 
 ```nim
 type
-  LibMode* {.size: sizeof(cint), importc: "LIB_Mode".} = enum
+  LibMode* {.size: sizeof(cint).} = enum
     ModeA = 0,
     ModeB = 2
 ```
