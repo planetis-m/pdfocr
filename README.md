@@ -45,6 +45,10 @@ All progress and diagnostics will go to stderr. Stdout will remain JSONL-only.
 - HTTP client support for TLS.
 - DeepInfra API key.
 
+## Build Profiles
+- Default builds use `--mm:orc` and mimalloc (`-d:useMimalloc`).
+- Sanitizer builds (`-d:threadSanitizer` or `-d:addressSanitizer`) switch to system malloc (`-d:useMalloc`) and do not use mimalloc.
+
 ## Specification
 `SPEC.md` is the contract for the system design, ordering guarantees, error handling, and concurrency model.
 

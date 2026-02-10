@@ -1,9 +1,18 @@
 # config.nims for src/
-# This file configures Nim compiler options for the main application
-import mimalloc/config
+# This file configures Nim compiler options for the main application.
 
-# threading/channels requires ARC/ORC.
-switch("mm", "arc")
+# threading/channels requires ARC/ORC; ORC is the project default.
+switch("mm", "orc")
+
+# Build profile defaults:
+# - normal builds use mimalloc,
+# - sanitizer builds use system malloc.
+when defined(threadSanitizer) or defined(addressSanitizer):
+  switch("define", "useMalloc")
+else:
+  switch("define", "useMimalloc")
+
+import mimalloc/config
 
 # libcurl
 switch("passC", "-DCURL_DISABLE_TYPECHECK")
@@ -13,7 +22,7 @@ when not defined(windows):
   switch("passL", "-lwebp")
   switch("passL", "-lpdfium")
 
-# eminim: allow ignoring unknown/extra fields in API responses
+# jsonx: allow ignoring unknown/extra fields in API responses
 switch("define", "jsonxLenient")
 
 # --- Platform-specific settings ---
@@ -38,7 +47,6 @@ else:
 when defined(threadSanitizer) or defined(addressSanitizer):
   switch("debugger", "native")
   switch("define", "noSignalHandler")
-  switch("define", "useMalloc")
 
   when defined(windows):
     when defined(threadSanitizer):
