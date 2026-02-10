@@ -1,6 +1,6 @@
 # Shared config for tests.
 switch("path", "$projectdir/../src")
-switch("mm", "arc")
+switch("mm", "atomicArc")
 
 when defined(windows):
   switch("cc", "vcc")

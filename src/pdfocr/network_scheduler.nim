@@ -47,6 +47,8 @@ type
     readyAt: MonoTime
     task: RenderedTask
 
+  # Keep this `ref object` acyclic for ARC/atomicArc correctness.
+  # It must not hold Nim refs that (directly/indirectly) point back to itself.
   RequestContext = ref object
     seqId: SeqId
     page: int

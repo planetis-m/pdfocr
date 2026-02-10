@@ -40,13 +40,13 @@ JSON Lines, one object per selected page, ordered by ascending page number. Each
 All progress and diagnostics will go to stderr. Stdout will remain JSONL-only.
 
 ## Requirements
-- Nim with ARC/ORC enabled.
+- Nim with ARC/ORC/atomicArc support.
 - PDF rendering + WebP encoding dependencies (exact library choices TBD).
 - HTTP client support for TLS.
 - DeepInfra API key.
 
 ## Build Profiles
-- Default builds use `--mm:orc` and mimalloc (`-d:useMimalloc`).
+- Default builds use `--mm:atomicArc` and mimalloc (`-d:useMimalloc`).
 - Sanitizer builds (`-d:threadSanitizer` or `-d:addressSanitizer`) switch to system malloc (`-d:useMalloc`) and do not use mimalloc.
 
 ## Specification

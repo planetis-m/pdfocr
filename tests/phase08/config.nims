@@ -1,6 +1,6 @@
 # Shared config for Phase 08 tests.
 switch("path", "$projectdir/../../src")
-switch("mm", "orc")
+switch("mm", "atomicArc")
 
 when defined(windows):
   switch("cc", "vcc")

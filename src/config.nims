@@ -1,17 +1,12 @@
 # config.nims for src/
 # This file configures Nim compiler options for the main application.
 
-# threading/channels requires ARC/ORC; ORC is the project default.
-switch("mm", "orc")
+# threading/channels requires ARC/ORC/atomicArc; use atomicArc to keep
+# reference-count operations thread-safe for cross-thread shared refs.
+switch("mm", "atomicArc")
 
-# Build profile defaults:
-# - normal builds use mimalloc,
-# - sanitizer builds use system malloc.
-when defined(threadSanitizer) or defined(addressSanitizer):
-  switch("define", "useMalloc")
-else:
-  switch("define", "useMimalloc")
-
+# Allocator selection (`useMimalloc` / `useMalloc`) is set in top-level
+# `config.nims` (outer scope) or by explicit CLI `-d:` flags.
 import mimalloc/config
 
 # libcurl
