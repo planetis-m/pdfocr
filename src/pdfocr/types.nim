@@ -84,6 +84,7 @@ type
     fatalCh*: Chan[FatalEvent]
 
   SchedulerContext* = object
+    selectedCount*: int
     renderReqCh*: Chan[RenderRequest]
     renderOutCh*: Chan[RendererOutput]
     writerInCh*: Chan[PageResult]
