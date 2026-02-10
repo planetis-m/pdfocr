@@ -14,6 +14,34 @@ const
   RETRY_JITTER_DIVISOR = 2
   RESPONSE_EXCERPT_LIMIT = 240
 
+proc slidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
+  seqId < nextToWrite + WINDOW
+
+proc classifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
+  if curlCode == CURLE_OPERATION_TIMEDOUT: TIMEOUT else: NETWORK_ERROR
+
+proc httpStatusRetryable*(httpStatus: int): bool {.inline.} =
+  httpStatus == 429 or (httpStatus >= 500 and httpStatus < 600)
+
+proc backoffBaseMs*(attempt: int; baseDelayMs: int = RETRY_BASE_DELAY_MS;
+                    maxDelayMs: int = RETRY_MAX_DELAY_MS): int =
+  let exponent = if attempt <= 1: 0 else: attempt - 1
+  var raw = baseDelayMs.int64
+  for _ in 0 ..< exponent:
+    raw = raw * 2
+    if raw >= maxDelayMs.int64:
+      raw = maxDelayMs.int64
+      break
+  min(raw, maxDelayMs.int64).int
+
+proc backoffWithJitterMs*(attempt: int; seed: int;
+                          baseDelayMs: int = RETRY_BASE_DELAY_MS;
+                          maxDelayMs: int = RETRY_MAX_DELAY_MS): int =
+  let capped = backoffBaseMs(attempt, baseDelayMs, maxDelayMs)
+  let jitterMax = max(1, capped div RETRY_JITTER_DIVISOR)
+  var rng = initRand(seed)
+  capped + rng.rand(jitterMax)
+
 type
   RetryItem = object
     readyAt: MonoTime
@@ -135,14 +163,7 @@ proc scheduleRetry(state: var SchedulerState; task: RenderedTask; delayMs: int) 
   ))
 
 proc retryDelayMs(state: var SchedulerState; attempt: int): int =
-  let exponent = if attempt <= 1: 0 else: attempt - 1
-  var raw = RETRY_BASE_DELAY_MS.int64
-  for _ in 0 ..< exponent:
-    raw = raw * 2
-    if raw >= RETRY_MAX_DELAY_MS.int64:
-      raw = RETRY_MAX_DELAY_MS.int64
-      break
-  let capped = min(raw, RETRY_MAX_DELAY_MS.int64).int
+  let capped = backoffBaseMs(attempt)
   let jitterMax = max(1, capped div RETRY_JITTER_DIVISOR)
   let jitter = state.rng.rand(jitterMax)
   capped + jitter
@@ -293,7 +314,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
 
     let curlCode = msg.data.result
     if curlCode != CURLE_OK:
-      let errorKind = if curlCode == CURLE_OPERATION_TIMEDOUT: TIMEOUT else: NETWORK_ERROR
+      let errorKind = classifyCurlErrorKind(curlCode)
       let errMsg = "curl transfer failed code=" & $int(curlCode)
       if not maybeRetry(state, ctx, req, errorKind, errMsg, retryable = true):
         return false
@@ -314,7 +335,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         return false
       continue
 
-    if httpCode >= Http500 and httpCode < HttpCode(600):
+    if httpStatusRetryable(int(httpCode)) and httpCode != Http429:
       let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.responseBody)
       if not maybeRetry(
         state,
@@ -445,6 +466,34 @@ proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
     state.renderPendingCount == 0
 
 proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
+  when defined(testing):
+    let testMode = getEnv("PDFOCR_TEST_MODE")
+    if testMode.len > 0:
+      case testMode
+      of "all_ok":
+        for seqId in 0 ..< ctx.selectedCount:
+          let page =
+            if seqId < ctx.selectedPages.len: ctx.selectedPages[seqId]
+            else: seqId + 1
+          ctx.writerInCh.send(newSuccessResult(seqId, page, 1, "ok"))
+        ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
+      of "mixed":
+        for seqId in 0 ..< ctx.selectedCount:
+          let page =
+            if seqId < ctx.selectedPages.len: ctx.selectedPages[seqId]
+            else: seqId + 1
+          if seqId mod 2 == 0:
+            ctx.writerInCh.send(newSuccessResult(seqId, page, 1, "ok"))
+          else:
+            ctx.writerInCh.send(newErrorResult(seqId, page, 1, HTTP_ERROR, "synthetic mixed failure"))
+        ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
+      of "fatal":
+        ctx.sendFatal(NETWORK_ERROR, "synthetic fatal scheduler failure")
+        ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
+      else:
+        discard
+      return
+
   var multi: CurlMulti
   try:
     multi = initMulti()

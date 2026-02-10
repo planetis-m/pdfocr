@@ -80,6 +80,9 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
 
     let webpBytes =
       try:
+        when defined(testing):
+          if getEnv("PDFOCR_TEST_FORCE_ENCODE_ERROR") == "1":
+            raise newException(ValueError, "forced encode failure for tests")
         compressBgr(
           Positive(bitmapWidth),
           Positive(bitmapHeight),
