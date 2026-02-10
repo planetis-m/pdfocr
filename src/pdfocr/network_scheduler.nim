@@ -47,14 +47,17 @@ type
     readyAt: MonoTime
     task: RenderedTask
 
+  RequestResponseBuffer = object
+    body: string
+
   # Keep this `ref object` acyclic for ARC/atomicArc correctness.
-  # It must not hold Nim refs that (directly/indirectly) point back to itself.
+  # Callback userdata points to `response` (plain object), not this ref itself.
   RequestContext = ref object
     seqId: SeqId
     page: int
     attempt: int
     webpBytes: seq[byte]
-    responseBody: string
+    response: RequestResponseBuffer
     easy: CurlEasy
     headers: CurlSlist
 
@@ -76,11 +79,11 @@ proc writeResponseCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata:
   let total = int(size * nitems)
   if total <= 0:
     return 0
-  let req = cast[RequestContext](userdata)
-  if req != nil:
-    let start = req.responseBody.len
-    req.responseBody.setLen(start + total)
-    copyMem(addr req.responseBody[start], buffer, total)
+  let state = cast[ptr RequestResponseBuffer](userdata)
+  if state != nil:
+    let start = state.body.len
+    state.body.setLen(start + total)
+    copyMem(addr state.body[start], buffer, total)
   csize_t(total)
 
 proc responseExcerpt(body: string): string =
@@ -201,7 +204,7 @@ proc requestToCtx(task: RenderedTask; apiKey: string): RequestContext =
     page: task.page,
     attempt: task.attempt,
     webpBytes: task.webpBytes,
-    responseBody: ""
+    response: RequestResponseBuffer(body: "")
   )
 
   let imageDataUrl = "data:image/webp;base64," & base64.encode(task.webpBytes)
@@ -211,14 +214,13 @@ proc requestToCtx(task: RenderedTask; apiKey: string): RequestContext =
   result.headers.addHeader("Authorization: Bearer " & apiKey)
   result.headers.addHeader("Content-Type: application/json")
   result.easy.setUrl(API_URL)
-  result.easy.setWriteCallback(writeResponseCb, cast[pointer](result))
+  result.easy.setWriteCallback(writeResponseCb, cast[pointer](addr result.response))
   result.easy.setPostFields(body)
   result.easy.setHeaders(result.headers)
   result.easy.setTimeoutMs(TOTAL_TIMEOUT_MS)
   result.easy.setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
   result.easy.setSslVerify(true, true)
   result.easy.setAcceptEncoding("gzip, deflate")
-  result.easy.setPrivate(cast[pointer](result))
 
 proc takeNextDispatchTask(state: var SchedulerState; seqId: var SeqId; task: var RenderedTask): bool =
   let limit = windowLimitExclusive()
@@ -338,7 +340,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
       continue
 
     if httpStatusRetryable(int(httpCode)) and httpCode != Http429:
-      let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.responseBody)
+      let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body)
       if not maybeRetry(
         state,
         ctx,
@@ -358,13 +360,13 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         req.page,
         req.attempt,
         HTTP_ERROR,
-        "HTTP " & $httpCode & ": " & responseExcerpt(req.responseBody),
+        "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body),
         int(httpCode)
       )):
         return false
       continue
 
-    let parsed = parseChatCompletionResponse(req.responseBody)
+    let parsed = parseChatCompletionResponse(req.response.body)
     if not parsed.ok:
       if not enqueueWriterResult(state, ctx, newErrorResult(
         req.seqId,
@@ -407,7 +409,7 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
           page: task.page,
           attempt: task.attempt,
           webpBytes: task.webpBytes,
-          responseBody: ""
+          response: RequestResponseBuffer(body: "")
         ),
         NETWORK_ERROR,
         exc.msg,
