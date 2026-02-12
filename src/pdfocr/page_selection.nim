@@ -1,4 +1,4 @@
-import std/[algorithm, os, parseopt, parseutils, sets, strutils]
+import std/[algorithm, os, parseopt, parseutils, sequtils, strutils]
 import ./constants
 import ./pdfium
 import ./types
@@ -17,24 +17,20 @@ Options:
   --help, -h       Show this help and exit.
 """
 
-proc cliError(message: string) {.noreturn.} =
+template cliError(message) =
   quit(message & "\n\n" & HELP_TEXT, EXIT_FATAL_RUNTIME)
 
-proc parsePageValue(token: string): int =
-  let raw = token.strip()
-  let consumed = parseInt(raw, result, 0)
-  if consumed != raw.len or result < 1:
-    raise newException(ValueError, "invalid page token")
-
 proc parseCliArgs(cliArgs: seq[string]): CliArgs =
-  result = CliArgs()
+  result = CliArgs(inputPath: "", pagesSpec: "")
   var parser = initOptParser(cliArgs)
 
   for kind, key, val in parser.getopt():
     case kind
     of cmdArgument:
-      if result.inputPath.len == 0:
-        result.inputPath = key
+      if inputPath.len == 0:
+        result.inputPath = parser.key
+      else:
+        cliError("multiple input files specified")
     of cmdLongOption:
       case key
       of "pages":
@@ -56,57 +52,57 @@ proc parseCliArgs(cliArgs: seq[string]): CliArgs =
   if result.pagesSpec.len == 0:
     cliError("missing required --pages argument")
 
+proc parsePageAt(spec: string; idx: var int): int =
+  let consumed = parseInt(spec, result, idx)
+  if consumed <= 0 or result < 1:
+    raise newException(ValueError, "invalid page token")
+  inc(idx, consumed)
+
 proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
-  if totalPages < 1:
-    raise newException(ValueError, "PDF has no pages")
+  result = @[]
   if spec.len == 0:
-    raise newException(ValueError, "--pages must not be empty")
+    return
 
-  var selected = initHashSet[int]()
+  var idx = 0
+  while idx < spec.len:
+    let first = parsePageAt(spec, idx)
+    var last = first
 
-  for rawToken in spec.split(','):
-    let token = rawToken.strip()
-    if token.len == 0:
-      continue
+    if idx < spec.len and spec[idx] == '-':
+      inc idx
+      if idx < spec.len:
+        last = parsePageAt(spec, idx)
 
-    let dash = token.find('-')
-    if dash < 0:
-      let page = parsePageValue(token)
-      if page <= totalPages:
-        selected.incl(page)
-      continue
+    let lo = min(first, last)
+    let hi = max(first, last)
+    for page in lo .. hi:
+      result.add(page)
 
-    let a = parsePageValue(token[0 ..< dash])
-    let b = parsePageValue(token[dash + 1 .. ^1])
-    let first = min(a, b)
-    let last = max(a, b)
-    for page in first .. last:
-      if page <= totalPages:
-        selected.incl(page)
+    if idx < spec.len and spec[idx] == ',':
+      inc idx
 
-  result = newSeqOfCap[int](selected.len)
-  for page in selected:
-    result.add(page)
   result.sort()
+  result = deduplicate(result, isSorted = true)
 
-  if result.len == 0:
-    raise newException(ValueError, "page selection resolved to empty set")
-
-proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
-  let parsed = parseCliArgs(cliArgs)
-  let apiKey = getEnv("DEEPINFRA_API_KEY").strip()
-  if apiKey.len == 0:
-    raise newException(ValueError, "DEEPINFRA_API_KEY is required")
-
-  var totalPages = 0
+proc getPdfPageCount(path: string): int =
   initPdfium()
   try:
-    let doc = loadDocument(parsed.inputPath)
-    totalPages = pageCount(doc)
+    let doc = loadDocument(path)
+    result = pageCount(doc)
   finally:
     destroyPdfium()
 
+proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
+  let parsed = parseCliArgs(cliArgs)
+  let apiKey = getEnv("DEEPINFRA_API_KEY")
+  if apiKey.len == 0:
+    raise newException(ValueError, "DEEPINFRA_API_KEY is required")
+
+  let totalPages = getPdfPageCount(parsed.inputPath)
   let selectedPages = normalizePageSelection(parsed.pagesSpec, totalPages)
+  if selectedPages.len == 0:
+    raise newException(ValueError, "no valid pages selected")
+
   stderr.writeLine(
     "preflight: total_pages=", totalPages,
     " selected_count=", selectedPages.len,
