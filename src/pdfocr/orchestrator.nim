@@ -1,52 +1,35 @@
-import std/atomics
-import std/os
+import std/[atomics, os]
 import threading/channels
-import ./constants
-import ./curl
-import ./errors
-import ./logging
-import ./network_scheduler
-import ./page_selection
-import ./pdfium
-import ./renderer
-import ./types
-import ./writer
+import ./[constants, curl, errors, logging, network_scheduler,
+         page_selection, pdfium, renderer, types, writer]
 
-var ORCH_SIGINT_REQUESTED: Atomic[bool]
-
-type
-  WriterThreadArg = object
-    ctx: WriterContext
-    done: ptr Atomic[bool]
-
-  RendererThreadArg = object
-    ctx: RendererContext
-    done: ptr Atomic[bool]
-
-  SchedulerThreadArg = object
-    ctx: SchedulerContext
-    done: ptr Atomic[bool]
+var
+  OrchSigintRequested: Atomic[bool]
+  WriterDone: Atomic[bool]
+  RendererDone: Atomic[bool]
+  SchedulerDone: Atomic[bool]
+  RuntimeChannels: RuntimeChannels
 
 proc ctrlCHook() {.noconv.} =
-  ORCH_SIGINT_REQUESTED.store(true, moRelaxed)
+  OrchSigintRequested.store(true, moRelaxed)
 
-proc writerThreadMain(arg: WriterThreadArg) {.thread.} =
+proc writerThreadMain(ctx: WriterContext) {.thread.} =
   try:
-    runWriter(arg.ctx)
+    runWriter(ctx)
   finally:
-    arg.done[].store(true, moRelaxed)
+    WriterDone.store(true, moRelaxed)
 
-proc rendererThreadMain(arg: RendererThreadArg) {.thread.} =
+proc rendererThreadMain(ctx: RendererContext) {.thread.} =
   try:
-    runRenderer(arg.ctx)
+    runRenderer(ctx)
   finally:
-    arg.done[].store(true, moRelaxed)
+    RendererDone.store(true, moRelaxed)
 
-proc schedulerThreadMain(arg: SchedulerThreadArg) {.thread.} =
+proc schedulerThreadMain(ctx: SchedulerContext) {.thread.} =
   try:
-    runNetworkScheduler(arg.ctx)
+    runNetworkScheduler(ctx)
   finally:
-    arg.done[].store(true, moRelaxed)
+    SchedulerDone.store(true, moRelaxed)
 
 proc initGlobalLibraries*() =
   initPdfium()
@@ -56,10 +39,10 @@ proc cleanupGlobalLibraries*() =
   cleanupCurlGlobal()
   destroyPdfium()
 
-proc requestCancel(channels: RuntimeChannels; rendererStopSent: var bool) =
-  SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+proc requestCancel(rendererStopSent: var bool) =
+  SchedulerStopRequested.store(true, moRelaxed)
   if not rendererStopSent:
-    channels.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
+    RuntimeChannels.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
     rendererStopSent = true
 
 proc fallbackResult(runtimeConfig: RuntimeConfig; seqId: int; reason: string): PageResult =
@@ -69,7 +52,7 @@ proc fallbackResult(runtimeConfig: RuntimeConfig; seqId: int; reason: string): P
     status: psError,
     attempts: 1,
     text: "",
-    errorKind: NETWORK_ERROR,
+    errorKind: NetworkError,
     errorMessage: boundedErrorMessage(reason),
     httpStatus: 0,
     hasHttpStatus: false
@@ -79,112 +62,96 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
   var runtimeConfig: RuntimeConfig
   try:
     runtimeConfig = buildRuntimeConfig(cliArgs)
-  except CatchableError as exc:
-    logError(exc.msg)
-    return EXIT_FATAL_RUNTIME
+  except CatchableError:
+    logError(getCurrentExceptionMsg())
+    return ExitFatalRuntime
 
-  ORCH_SIGINT_REQUESTED.store(false, moRelaxed)
+  OrchSigintRequested.store(false, moRelaxed)
   resetSharedAtomics()
   setControlCHook(ctrlCHook)
 
-  var globalsInitialized = false
-  var channels: RuntimeChannels
-  var fatalDetected = false
-  var sigintDetected = false
-  var rendererStopSent = false
-  var firstFatal: FatalEvent
+  var
+    globalsInitialized = false
+    fatalDetected = false
+    sigintDetected = false
+    rendererStopSent = false
+    firstFatal: FatalEvent
 
-  var writerDone: Atomic[bool]
-  var rendererDone: Atomic[bool]
-  var schedulerDone: Atomic[bool]
-  writerDone.store(false, moRelaxed)
-  rendererDone.store(false, moRelaxed)
-  schedulerDone.store(false, moRelaxed)
-
-  var writerThread: Thread[WriterThreadArg]
-  var rendererThread: Thread[RendererThreadArg]
-  var schedulerThread: Thread[SchedulerThreadArg]
+    writerThread: Thread[WriterContext]
+    rendererThread: Thread[RendererContext]
+    schedulerThread: Thread[SchedulerContext]
 
   try:
     initGlobalLibraries()
     globalsInitialized = true
 
-    channels = initRuntimeChannels()
+    RuntimeChannels = initRuntimeChannels()
     logInfo("startup: selected_count=" & $runtimeConfig.selectedCount &
       " first_page=" & $runtimeConfig.selectedPages[0] &
       " last_page=" & $runtimeConfig.selectedPages[^1])
 
-    createThread(writerThread, writerThreadMain, WriterThreadArg(
-      ctx: WriterContext(
-        selectedCount: runtimeConfig.selectedCount,
-        selectedPages: runtimeConfig.selectedPages,
-        writerInCh: channels.writerInCh,
-        fatalCh: channels.fatalCh
-      ),
-      done: addr writerDone
+    createThread(writerThread, writerThreadMain, WriterContext(
+      selectedCount: runtimeConfig.selectedCount,
+      selectedPages: runtimeConfig.selectedPages,
+      writerInCh: RuntimeChannels.writerInCh,
+      fatalCh: RuntimeChannels.fatalCh
     ))
 
-    createThread(rendererThread, rendererThreadMain, RendererThreadArg(
-      ctx: RendererContext(
-        pdfPath: runtimeConfig.inputPath,
-        selectedPages: runtimeConfig.selectedPages,
-        renderReqCh: channels.renderReqCh,
-        renderOutCh: channels.renderOutCh,
-        fatalCh: channels.fatalCh
-      ),
-      done: addr rendererDone
+    createThread(rendererThread, rendererThreadMain, RendererContext(
+      pdfPath: runtimeConfig.inputPath,
+      selectedPages: runtimeConfig.selectedPages,
+      renderReqCh: RuntimeChannels.renderReqCh,
+      renderOutCh: RuntimeChannels.renderOutCh,
+      fatalCh: RuntimeChannels.fatalCh
     ))
 
-    createThread(schedulerThread, schedulerThreadMain, SchedulerThreadArg(
-      ctx: SchedulerContext(
-        selectedCount: runtimeConfig.selectedCount,
-        selectedPages: runtimeConfig.selectedPages,
-        renderReqCh: channels.renderReqCh,
-        renderOutCh: channels.renderOutCh,
-        writerInCh: channels.writerInCh,
-        fatalCh: channels.fatalCh,
-        apiKey: runtimeConfig.apiKey
-      ),
-      done: addr schedulerDone
+    createThread(schedulerThread, schedulerThreadMain, SchedulerContext(
+      selectedCount: runtimeConfig.selectedCount,
+      selectedPages: runtimeConfig.selectedPages,
+      renderReqCh: RuntimeChannels.renderReqCh,
+      renderOutCh: RuntimeChannels.renderOutCh,
+      writerInCh: RuntimeChannels.writerInCh,
+      fatalCh: RuntimeChannels.fatalCh,
+      apiKey: runtimeConfig.apiKey
     ))
 
-    while not schedulerDone.load(moRelaxed):
-      if ORCH_SIGINT_REQUESTED.load(moRelaxed) and not sigintDetected:
+    while not SchedulerDone.load(moRelaxed):
+      if OrchSigintRequested.load(moRelaxed) and not sigintDetected:
         sigintDetected = true
         logWarn("SIGINT received; stopping scheduling and finalizing unfinished pages")
-        requestCancel(channels, rendererStopSent)
+        requestCancel(rendererStopSent)
 
       var ev: FatalEvent
-      while channels.fatalCh.tryRecv(ev):
+      while RuntimeChannels.fatalCh.tryRecv(ev):
         if not fatalDetected:
           fatalDetected = true
           firstFatal = ev
           logError("fatal event: source=" & $ev.source &
             " kind=" & $ev.errorKind &
             " message=" & ev.message)
-        requestCancel(channels, rendererStopSent)
+        requestCancel(rendererStopSent)
 
       if fatalDetected:
-        requestCancel(channels, rendererStopSent)
+        requestCancel(rendererStopSent)
       sleep(1)
 
     joinThread(schedulerThread)
     if fatalDetected:
-      requestCancel(channels, rendererStopSent)
+      requestCancel(rendererStopSent)
     joinThread(rendererThread)
 
     if fatalDetected or sigintDetected:
       let reason =
         if fatalDetected: "fatal shutdown before completion"
         else: "interrupted by SIGINT"
-      let nextSeq = NEXT_TO_WRITE.load(moRelaxed)
+      let nextSeq = NextToWrite.load(moRelaxed)
       for seqId in nextSeq ..< runtimeConfig.selectedCount:
-        channels.writerInCh.send(fallbackResult(runtimeConfig, seqId, reason))
+        RuntimeChannels.writerInCh.send(fallbackResult(runtimeConfig, seqId, reason))
 
     joinThread(writerThread)
 
     var ev: FatalEvent
-    while channels.fatalCh.tryRecv(ev):
+    while RuntimeChannels.fatalCh.tryRecv(ev):
       if not fatalDetected:
         fatalDetected = true
         firstFatal = ev
@@ -192,26 +159,27 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
           " kind=" & $ev.errorKind &
           " message=" & ev.message)
 
-    let okCount = OK_COUNT.load(moRelaxed)
-    let errCount = ERR_COUNT.load(moRelaxed)
-    let written = NEXT_TO_WRITE.load(moRelaxed)
+    let
+      okCount = OkCount.load(moRelaxed)
+      errCount = ErrCount.load(moRelaxed)
+      written = NextToWrite.load(moRelaxed)
     logInfo("completion: written=" & $written &
       " ok=" & $okCount &
       " err=" & $errCount &
-      " retries=" & $RETRY_COUNT.load(moRelaxed))
+      " retries=" & $RetryCount.load(moRelaxed))
 
     if fatalDetected:
-      return EXIT_FATAL_RUNTIME
-    if sigintDetected:
-      return EXIT_HAS_PAGE_ERRORS
-    if errCount > 0:
-      return EXIT_HAS_PAGE_ERRORS
-    EXIT_ALL_OK
-  except CatchableError as exc:
-    logError(exc.msg)
-    EXIT_FATAL_RUNTIME
+      result = ExitFatalRuntime
+    elif sigintDetected:
+      result = ExitHasPageErrors
+    elif errCount > 0:
+      result = ExitHasPageErrors
+    else:
+      result = ExitAllOk
+  except CatchableError:
+    logError(getCurrentExceptionMsg())
+    result = ExitFatalRuntime
   finally:
-    when declared(unsetControlCHook):
-      unsetControlCHook()
+    unsetControlCHook()
     if globalsInitialized:
       cleanupGlobalLibraries()

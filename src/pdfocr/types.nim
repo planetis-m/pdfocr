@@ -1,7 +1,6 @@
 import std/[atomics, deques]
 import threading/channels
-import ./constants
-import ./errors
+import ./[constants, errors]
 
 type
   SeqId* = int
@@ -103,68 +102,68 @@ type
 
 # Shared atomics: NEXT_TO_WRITE is correctness-critical.
 var
-  NEXT_TO_WRITE*: Atomic[int]
-  OK_COUNT*: Atomic[int]
-  ERR_COUNT*: Atomic[int]
-  RETRY_COUNT*: Atomic[int]
-  INFLIGHT_COUNT*: Atomic[int]
-  SCHEDULER_STOP_REQUESTED*: Atomic[bool]
+  NextToWrite*: Atomic[int]
+  OkCount*: Atomic[int]
+  ErrCount*: Atomic[int]
+  RetryCount*: Atomic[int]
+  InflightCount*: Atomic[int]
+  SchedulerStopRequested*: Atomic[bool]
 
 proc resetSharedAtomics*() =
-  NEXT_TO_WRITE.store(0, moRelaxed)
-  OK_COUNT.store(0, moRelaxed)
-  ERR_COUNT.store(0, moRelaxed)
-  RETRY_COUNT.store(0, moRelaxed)
-  INFLIGHT_COUNT.store(0, moRelaxed)
-  SCHEDULER_STOP_REQUESTED.store(false, moRelaxed)
+  NextToWrite.store(0, moRelaxed)
+  OkCount.store(0, moRelaxed)
+  ErrCount.store(0, moRelaxed)
+  RetryCount.store(0, moRelaxed)
+  InflightCount.store(0, moRelaxed)
+  SchedulerStopRequested.store(false, moRelaxed)
 
 proc initRuntimeChannels*(): RuntimeChannels =
-  RuntimeChannels(
-    renderReqCh: newChan[RenderRequest](Positive(HIGH_WATER)),
-    renderOutCh: newChan[RendererOutput](Positive(HIGH_WATER)),
-    writerInCh: newChan[PageResult](Positive(WINDOW)),
-    fatalCh: newChan[FatalEvent](Positive(4))
+  result = RuntimeChannels(
+    renderReqCh: newChan[RenderRequest](HighWater),
+    renderOutCh: newChan[RendererOutput](HighWater),
+    writerInCh: newChan[PageResult](Window),
+    fatalCh: newChan[FatalEvent](4)
   )
 
-proc initFinalizationGuard*(selectedCount: int): FinalizationGuard =
-  if selectedCount < 0:
-    raise newException(ValueError, "selectedCount must be >= 0")
-  FinalizationGuard(seen: newSeq[bool](selectedCount))
+proc initFinalizationGuard*(selectedCount: Positive): FinalizationGuard =
+  result = FinalizationGuard(seen: newSeq[bool](selectedCount))
 
 proc tryFinalizeSeqId*(guard: var FinalizationGuard; seqId: SeqId): bool =
   if seqId < 0 or seqId >= guard.seen.len:
-    return false
-  if guard.seen[seqId]:
-    return false
-  guard.seen[seqId] = true
-  true
+    result = false
+  elif guard.seen[seqId]:
+    result = false
+  else:
+    guard.seen[seqId] = true
+    result = true
 
 proc tryRecvBatch*[T](channel: Chan[T]; target: var Deque[T]; maxItems: int): int =
-  if maxItems <= 0:
-    return 0
-  while result < maxItems:
-    var value: T
-    if not channel.tryRecv(value):
-      break
-    target.addLast(value)
-    inc result
+  result = 0
+  if maxItems > 0:
+    while result < maxItems:
+      var value: T
+      if not channel.tryRecv(value):
+        break
+      target.addLast(value)
+      inc result
 
 proc flushPendingSends*[T](channel: Chan[T]; pending: var Deque[T]; maxItems: int = high(int)): int =
-  if maxItems <= 0:
-    return 0
-  while result < maxItems and pending.len > 0:
-    let nextValue = pending.peekFirst()
-    if not channel.trySend(nextValue):
-      break
-    discard pending.popFirst()
-    inc result
+  result = 0
+  if maxItems > 0:
+    while result < maxItems and pending.len > 0:
+      let nextValue = pending.peekFirst()
+      if not channel.trySend(nextValue):
+        break
+      discard pending.popFirst()
+      inc result
 
 proc trySendOrBuffer*[T](channel: Chan[T]; value: T; pending: var Deque[T]; maxPending: int): bool =
   if channel.trySend(value):
-    return true
-  if maxPending <= 0 or pending.len >= maxPending:
-    return false
-  pending.addLast(value)
-  true
+    result = true
+  elif maxPending <= 0 or pending.len >= maxPending:
+    result = false
+  else:
+    pending.addLast(value)
+    result = true
 
 # Channel payloads intentionally use value types / strings / byte sequences only.

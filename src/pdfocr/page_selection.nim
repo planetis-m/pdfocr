@@ -1,7 +1,5 @@
-import std/[algorithm, os, parseopt, parseutils, sequtils, strutils]
-import ./constants
-import ./pdfium
-import ./types
+import std/[algorithm, os, parseopt, parseutils, strutils]
+import ./[constants, pdfium, types]
 
 type
   CliArgs = object
@@ -60,31 +58,27 @@ proc parsePageAt(spec: string; idx: var int): int =
 
 proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
   result = @[]
-  if spec.len == 0:
-    return
-
+  if spec.len == 0: return
   var idx = 0
   while idx < spec.len:
     let first = parsePageAt(spec, idx)
     var last = first
-
     if idx < spec.len and spec[idx] == '-':
       inc idx
       if idx < spec.len:
         last = parsePageAt(spec, idx)
-
     let lo = min(first, last)
     let hi = max(first, last)
-    for page in lo .. hi:
-      result.add(page)
-
+    for page in countup(lo, hi):
+      # Insert while maintaining sorted order and uniqueness
+      let pos = result.lowerBound(page)
+      if pos >= result.len or result[pos] != page:
+        result.insert(page, pos)
     if idx < spec.len and spec[idx] == ',':
       inc idx
 
-  result.sort()
-  result = deduplicate(result, isSorted = true)
-
 proc getPdfPageCount(path: string): int =
+  result = 0
   initPdfium()
   try:
     let doc = loadDocument(path)
@@ -103,14 +97,7 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
   if selectedPages.len == 0:
     raise newException(ValueError, "no valid pages selected")
 
-  stderr.writeLine(
-    "preflight: total_pages=", totalPages,
-    " selected_count=", selectedPages.len,
-    " first_page=", selectedPages[0],
-    " last_page=", selectedPages[^1]
-  )
-
-  RuntimeConfig(
+  result = RuntimeConfig(
     inputPath: parsed.inputPath,
     apiKey: apiKey,
     selectedPages: selectedPages,
