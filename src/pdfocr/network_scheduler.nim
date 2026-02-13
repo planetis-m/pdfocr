@@ -1,12 +1,7 @@
 import std/[atomics, base64, deques, monotimes, os, random, tables, times]
 import threading/channels
 import ./bindings/curl
-import ./constants
-import ./curl
-import ./errors
-import ./json_codec
-import ./logging
-import ./types
+import ./[constants, curl, errors, json_codec, logging, types]
 
 const
   OCR_INSTRUCTION = "Extract all readable text exactly."

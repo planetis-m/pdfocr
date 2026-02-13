@@ -1,10 +1,17 @@
-import std/strutils
+import std/locks
+
+var logLock: Lock
+initLock(logLock)
+
+proc log(level: string; message: string) =
+  withLock(logLock):
+    stderr.writeLine(level & message)
 
 proc logInfo*(message: string) =
-  stderr.writeLine("[info] " & message.strip())
+  log("[info] ", message)
 
 proc logWarn*(message: string) =
-  stderr.writeLine("[warn] " & message.strip())
+  log("[warn] ", message)
 
 proc logError*(message: string) =
-  stderr.writeLine("[error] " & message.strip())
+  log("[error] ", message)
