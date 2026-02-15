@@ -25,7 +25,7 @@ proc parseCliArgs(cliArgs: seq[string]): CliArgs =
   for kind, key, val in parser.getopt():
     case kind
     of cmdArgument:
-      if inputPath.len == 0:
+      if result.inputPath.len == 0:
         result.inputPath = parser.key
       else:
         cliError("multiple input files specified")

@@ -9,10 +9,10 @@ const
   RetryJitterDivisor = 2
   ResponseExcerptLimit = 240
 
-proc SlidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
+proc slidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
   result = seqId < nextToWrite + Window
 
-proc ClassifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
+proc classifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
   result = if curlCode == CURLE_OPERATION_TIMEDOUT: Timeout else: NetworkError
 
 proc httpStatusRetryable*(httpStatus: HttpCode): bool {.inline.} =
