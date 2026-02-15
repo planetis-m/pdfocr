@@ -64,6 +64,7 @@ proc `=destroy`*(list: CurlSlist) =
 proc `=copy`*(dest: var CurlEasyObj; src: CurlEasyObj) {.error.}
 proc `=dup`*(src: CurlEasyObj): CurlEasyObj {.error.}
 proc `=sink`*(dest: var CurlEasyObj; src: CurlEasyObj) {.error.}
+proc `=wasMoved`*(easy: var CurlEasyObj) {.error.}
 
 proc `=copy`*(dest: var CurlMulti; src: CurlMulti) {.error.}
 proc `=copy`*(dest: var CurlSlist; src: CurlSlist) {.error.}
