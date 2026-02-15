@@ -5,18 +5,18 @@ import ./bindings/pdfium
 
 type
   PdfDocument* = object
-    raw: FpdfDocument
+    raw: FPDF_DOCUMENT
 
   PdfPage* = object
-    raw: FpdfPage
+    raw: FPDF_PAGE
 
   PdfBitmap* = object
-    raw: FpdfBitmap
+    raw: FPDF_BITMAP
     width: int
     height: int
 
   PdfTextPage* = object
-    raw: FpdfTextPage
+    raw: FPDF_TEXTPAGE
 
 proc `=destroy`*(doc: PdfDocument) =
   if pointer(doc.raw) != nil:
@@ -63,16 +63,16 @@ proc `=sink`*(dest: var PdfBitmap; src: PdfBitmap) =
   dest.height = src.height
 
 proc `=wasMoved`*(doc: var PdfDocument) =
-  doc.raw = FpdfDocument(nil)
+  doc.raw = FPDF_DOCUMENT(nil)
 
 proc `=wasMoved`*(page: var PdfPage) =
-  page.raw = FpdfPage(nil)
+  page.raw = FPDF_PAGE(nil)
 
 proc `=wasMoved`*(textPage: var PdfTextPage) =
-  textPage.raw = FpdfTextPage(nil)
+  textPage.raw = FPDF_TEXTPAGE(nil)
 
 proc `=wasMoved`*(bitmap: var PdfBitmap) =
-  bitmap.raw = FpdfBitmap(nil)
+  bitmap.raw = FPDF_BITMAP(nil)
   bitmap.width = 0
   bitmap.height = 0
 
@@ -95,7 +95,7 @@ proc raisePdfiumError*(context: string) {.noinline.} =
   raise newException(IOError, &"{context}: {detail} (code {code})")
 
 proc initPdfium*() =
-  var config = FpdfLibraryConfig(
+  var config = FPDF_LIBRARY_CONFIG(
     version: 2,
     m_pUserFontPaths: nil,
     m_pIsolate: nil,
@@ -129,7 +129,7 @@ proc pageSize*(page: PdfPage): tuple[width, height: float] =
   (float(FPDF_GetPageWidth(page.raw)), float(FPDF_GetPageHeight(page.raw)))
 
 proc createBitmap*(width, height: int): PdfBitmap =
-  result.raw = FPDFBitmap_CreateEx(width.cint, height.cint, FpdfBitmapBgr.cint, nil, 0)
+  result.raw = FPDFBitmap_CreateEx(width.cint, height.cint, FPDFBitmap_BGR.cint, nil, 0)
   result.width = width
   result.height = height
   if pointer(result.raw) == nil:

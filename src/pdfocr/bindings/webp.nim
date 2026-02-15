@@ -17,8 +17,8 @@ type
     methodField*: cint
 
 const
-  WebpPresetDefault* = 0
-  WebpEncoderAbiVersion* = 0x0210
+  WEBP_PRESET_DEFAULT* = 0
+  WEBP_ENCODER_ABI_VERSION* = 0x0210
 
 {.push importc, callconv: cdecl, header: "<webp/encode.h>".}
 
