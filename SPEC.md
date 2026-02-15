@@ -119,30 +119,30 @@ Logging MUST NOT include the API key.
 The following constants SHALL be hardcoded (not configurable via CLI):
 
 ### 7.1 API
-- `API_URL` = `https://api.deepinfra.com/v1/openai/chat/completions`
-- `MODEL` = `allenai/olmOCR-2-7B-1025`
+- `ApiUrl` = `https://api.deepinfra.com/v1/openai/chat/completions`
+- `Model` = `allenai/olmOCR-2-7B-1025`
 
 ### 7.2 Concurrency and Ordering Window
-- `MAX_INFLIGHT` (e.g., 32): maximum number of simultaneous HTTP requests.
-- `WINDOW` (e.g., 64): maximum number of pages allowed “ahead” of the next page to be written to stdout.
+- `MaxInflight` (e.g., 32): maximum number of simultaneous HTTP requests.
+- `Window` (e.g., 64): maximum number of pages allowed “ahead” of the next page to be written to stdout.
 
 ### 7.3 Render Buffer Watermarks (bounded prefetch)
-- `HIGH_WATER` (e.g., 64): maximum number of rendered WebP tasks buffered for network dispatch.
-- `LOW_WATER` (e.g., 16): threshold at which the scheduler requests more renders.
+- `HighWater` (e.g., 64): maximum number of rendered WebP tasks buffered for network dispatch.
+- `LowWater` (e.g., 16): threshold at which the scheduler requests more renders.
 
 Constraints:
-- `HIGH_WATER <= WINDOW`
-- `LOW_WATER < HIGH_WATER`
+- `HighWater <= Window`
+- `LowWater < HighWater`
 
 ### 7.4 Timeouts
-- `CONNECT_TIMEOUT_MS` (e.g., 10_000)
-- `TOTAL_TIMEOUT_MS` per request (e.g., 120_000)
-- `MULTI_WAIT_MAX_MS` (e.g., 250): maximum poll/wait duration in the network loop.
+- `ConnectTimeoutMs` (e.g., 10_000)
+- `TotalTimeoutMs` per request (e.g., 120_000)
+- `MultiWaitMaxMs` (e.g., 250): maximum poll/wait duration in the network loop.
 
 ### 7.5 Retries
-- `MAX_RETRIES` (e.g., 5) additional retries after the first attempt (or equivalently max attempts = 1 + MAX_RETRIES; implementation SHALL define and apply consistently).
-- `RETRY_BASE_DELAY_MS` (e.g., 500)
-- `RETRY_MAX_DELAY_MS` (e.g., 20_000)
+- `MaxRetries` (e.g., 5) additional retries after the first attempt (or equivalently max attempts = 1 + MaxRetries; implementation SHALL define and apply consistently).
+- `RetryBaseDelayMs` (e.g., 500)
+- `RetryMaxDelayMs` (e.g., 20_000)
 - Jitter MUST be applied to backoff delays.
 
 ### 7.6 Channels / Queues (bounded)
@@ -205,14 +205,14 @@ The writer MUST emit results in increasing `seq_id` order (0,1,2,...,N-1).
 
 The system SHALL use shared atomic variables (or equivalent lock-free primitives) for:
 
-- `NEXT_TO_WRITE` (integer): writer-owned progress marker.
+- `NextToWrite` (integer): writer-owned progress marker.
   - Definition: the smallest `seq_id` not yet written to stdout.
   - Initialized to 0.
   - Updated by the writer after each successful write of the next ordered result.
 
 Additional atomic counters (recommended):
-- `OK_COUNT`, `ERR_COUNT`, `RETRY_COUNT`
-- `INFLIGHT_COUNT`
+- `OkCount`, `ErrCount`, `RetryCount`
+- `InflightCount`
 
 These counters are for diagnostics/progress only and SHALL NOT be required for correctness.
 
@@ -222,13 +222,13 @@ These counters are for diagnostics/progress only and SHALL NOT be required for c
 
 Each failure result SHALL be classified as one of:
 
-- `PDF_ERROR`: PDF open/parse/render failures.
-- `ENCODE_ERROR`: image encoding failures.
-- `NETWORK_ERROR`: transport-level failures (DNS, connect, TLS, etc.).
-- `TIMEOUT`: request timed out (connect or total).
-- `RATE_LIMIT`: HTTP 429.
-- `HTTP_ERROR`: non-2xx HTTP response (excluding 429).
-- `PARSE_ERROR`: invalid/unexpected response body structure.
+- `PdfError`: PDF open/parse/render failures.
+- `EncodeError`: image encoding failures.
+- `NetworkError`: transport-level failures (DNS, connect, TLS, etc.).
+- `Timeout`: request timed out (connect or total).
+- `RateLimit`: HTTP 429.
+- `HttpError`: non-2xx HTTP response (excluding 429).
+- `ParseError`: invalid/unexpected response body structure.
 
 Error messages MUST be bounded in size (e.g., truncate response excerpts).
 
@@ -239,7 +239,7 @@ Error messages MUST be bounded in size (e.g., truncate response excerpts).
 ### 13.1 Sliding Window Constraint
 The network scheduler MUST enforce:
 
-> At any time, it SHALL NOT schedule work for any `seq_id >= NEXT_TO_WRITE + WINDOW`.
+> At any time, it SHALL NOT schedule work for any `seq_id >= NextToWrite + Window`.
 
 This is the primary mechanism ensuring:
 - bounded out-of-order buffering,
@@ -250,22 +250,22 @@ This is the primary mechanism ensuring:
 Rendering SHALL be **demand-driven** by the network scheduler.
 
 The scheduler requests renders for `seq_id` values within the current window, maintaining a bounded buffer of rendered tasks:
-- If buffered rendered tasks fall below `LOW_WATER`, request additional renders up to `HIGH_WATER`,
+- If buffered rendered tasks fall below `LowWater`, request additional renders up to `HighWater`,
 - but never request beyond the window end.
 
 Renderer SHALL block (or naturally backpressure) when the rendered-task output queue is full.
 
 ### 13.3 Network Dispatch Policy
-The scheduler SHALL maintain up to `MAX_INFLIGHT` active HTTP requests while:
+The scheduler SHALL maintain up to `MaxInflight` active HTTP requests while:
 - there exists schedulable work within the window, and
 - stdout backpressure has not halted progress (which halts the window).
 
 ### 13.4 stdout Backpressure Behavior
 If stdout blocks:
-- the writer stops advancing `NEXT_TO_WRITE`,
+- the writer stops advancing `NextToWrite`,
 - the window stops advancing,
 - the scheduler naturally stops requesting/scheduling pages beyond the window,
-- memory remains bounded by queue sizes + `WINDOW` + `MAX_INFLIGHT`.
+- memory remains bounded by queue sizes + `Window` + `MaxInflight`.
 
 The system MAY stall (intentionally) under a blocked stdout consumer; it MUST NOT deadlock internally or grow memory without bound.
 
@@ -315,28 +315,28 @@ The scheduler SHOULD base64-encode `webp_bytes` during request construction (not
 On HTTP 2xx, the system SHALL parse OCR text from:
 - `choices[0].message.content` (string)
 
-If missing/unparseable, classify as `PARSE_ERROR`.
+If missing/unparseable, classify as `ParseError`.
 
 ### 15.5 Retry Rules
 Retryable conditions:
-- HTTP 429 (`RATE_LIMIT`)
+- HTTP 429 (`RateLimit`)
 - HTTP 5xx
-- transport errors (`NETWORK_ERROR`)
-- timeouts (`TIMEOUT`)
+- transport errors (`NetworkError`)
+- timeouts (`Timeout`)
 
 Non-retryable by default:
 - HTTP 4xx except 429
 
 ### 15.6 Backoff with Jitter
 Retries SHALL use exponential backoff:
-- `delay = min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2^attempt) + jitter`
+- `delay = min(RetryMaxDelayMs, RetryBaseDelayMs * 2^attempt) + jitter`
 
 Jitter MUST be applied (uniform or decorrelated jitter acceptable).
 
 ### 15.7 Non-Blocking Progress Loop
 The network scheduler MUST NOT block indefinitely on sending results to the writer queue.
 
-If the writer-result queue is full, the scheduler SHALL buffer results in a bounded in-memory structure whose maximum growth is bounded by the sliding window and in-flight limit (i.e., it MUST NOT allow unbounded accumulation beyond what `WINDOW` and `MAX_INFLIGHT` imply).
+If the writer-result queue is full, the scheduler SHALL buffer results in a bounded in-memory structure whose maximum growth is bounded by the sliding window and in-flight limit (i.e., it MUST NOT allow unbounded accumulation beyond what `Window` and `MaxInflight` imply).
 
 ---
 
@@ -346,14 +346,14 @@ If the writer-result queue is full, the scheduler SHALL buffer results in a boun
 Only the writer component may write to stdout.
 
 ### 16.2 Ordering Buffer
-The writer SHALL buffer out-of-order results until `seq_id == NEXT_TO_WRITE` becomes available, then write sequentially until the next missing `seq_id`.
+The writer SHALL buffer out-of-order results until `seq_id == NextToWrite` becomes available, then write sequentially until the next missing `seq_id`.
 
-Because the scheduler enforces the sliding window constraint, the writer’s out-of-order buffer SHALL remain bounded by `WINDOW`.
+Because the scheduler enforces the sliding window constraint, the writer’s out-of-order buffer SHALL remain bounded by `Window`.
 
 ### 16.3 Atomic Progress Updates
 After writing the JSONL line for `seq_id = k`, the writer SHALL:
 - increment its expected `seq_id`,
-- update `NEXT_TO_WRITE` atomically.
+- update `NextToWrite` atomically.
 
 ### 16.4 Output Durability
 The writer SHOULD flush stdout periodically or rely on line buffering when appropriate. At program end it SHALL flush any buffered stdout content.
@@ -365,7 +365,7 @@ The writer SHOULD flush stdout periodically or rely on line buffering when appro
 ### 17.1 Normal Completion
 Normal completion occurs when:
 1. Every selected `seq_id` has produced a final result (success or terminal failure),
-2. The writer has written all `N` JSONL lines to stdout (i.e., `NEXT_TO_WRITE == N`),
+2. The writer has written all `N` JSONL lines to stdout (i.e., `NextToWrite == N`),
 3. All components terminate cleanly.
 
 ### 17.2 Exit Codes
@@ -404,8 +404,8 @@ An implementation satisfies this specification if:
 3. **No filesystem writes**: does not create manifests, temp files, or per-page files.
 4. **Bounded memory**: memory does not grow unbounded with document size or out-of-order completions; the sliding window constraint is enforced.
 5. **Backpressure correctness**: if stdout is slow/blocked, the system does not deadlock internally and does not leak memory; it stalls safely.
-6. **Robust retries**: retries occur for 429/5xx/timeouts/transport errors with exponential backoff and jitter, capped by `MAX_RETRIES`.
-7. **Stable concurrency (within constraints)**: maintains up to `MAX_INFLIGHT` in-flight requests when schedulable work exists within the sliding window.
+6. **Robust retries**: retries occur for 429/5xx/timeouts/transport errors with exponential backoff and jitter, capped by `MaxRetries`.
+7. **Stable concurrency (within constraints)**: maintains up to `MaxInflight` in-flight requests when schedulable work exists within the sliding window.
 8. **Deterministic shutdown**: clean completion with correct exit codes; all pages produce a final success or error result unless a fatal error prevents completion.
 
 ---

@@ -25,7 +25,7 @@ proc sendRenderFailure(ctx: RendererContext; seqId: SeqId; page: int; kind: Erro
     )
   )
   while not ctx.renderOutCh.trySend(output):
-    if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+    if SchedulerStopRequested.load(moRelaxed):
       return
     sleep(1)
 
@@ -34,11 +34,11 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
   try:
     doc = loadDocument(ctx.pdfPath)
   except CatchableError as exc:
-    ctx.sendFatal(PDF_ERROR, exc.msg)
+    ctx.sendFatal(PdfError, exc.msg)
     return
 
   while true:
-    if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+    if SchedulerStopRequested.load(moRelaxed):
       break
     var req: RenderRequest
     ctx.renderReqCh.recv(req)
@@ -47,7 +47,7 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
 
     let seqId = req.seqId
     if seqId < 0 or seqId >= ctx.selectedPages.len:
-      ctx.sendRenderFailure(seqId, 0, PDF_ERROR, &"invalid seq_id for renderer: {seqId}")
+      ctx.sendRenderFailure(seqId, 0, PdfError, &"invalid seq_id for renderer: {seqId}")
       continue
 
     let page = ctx.selectedPages[seqId]
@@ -57,12 +57,12 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
       var pdfPage = loadPage(doc, page - 1)
       bitmap = renderPageAtScale(
         pdfPage,
-        RENDER_SCALE,
-        rotate = RENDER_ROTATE,
-        flags = RENDER_FLAGS
+        RenderScale,
+        rotate = RenderRotate,
+        flags = RenderFlags
       )
     except CatchableError as exc:
-      ctx.sendRenderFailure(seqId, page, PDF_ERROR, exc.msg)
+      ctx.sendRenderFailure(seqId, page, PdfError, exc.msg)
       continue
 
     let bitmapWidth = width(bitmap)
@@ -73,7 +73,7 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
       ctx.sendRenderFailure(
         seqId,
         page,
-        PDF_ERROR,
+        PdfError,
         "invalid bitmap state from renderer"
       )
       continue
@@ -88,14 +88,14 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
           Positive(bitmapHeight),
           pixels,
           rowStride,
-          WEBP_QUALITY
+          WebpQuality
         )
       except CatchableError as exc:
-        ctx.sendRenderFailure(seqId, page, ENCODE_ERROR, exc.msg)
+        ctx.sendRenderFailure(seqId, page, EncodeError, exc.msg)
         continue
 
     if webpBytes.len == 0:
-      ctx.sendRenderFailure(seqId, page, ENCODE_ERROR, "encoded WebP output was empty")
+      ctx.sendRenderFailure(seqId, page, EncodeError, "encoded WebP output was empty")
       continue
 
     let output = RendererOutput(
@@ -108,6 +108,6 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
       )
     )
     while not ctx.renderOutCh.trySend(output):
-      if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+      if SchedulerStopRequested.load(moRelaxed):
         return
       sleep(1)

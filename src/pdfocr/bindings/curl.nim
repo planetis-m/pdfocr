@@ -11,9 +11,9 @@ type
   curl_slist* {.importc: "struct curl_slist", header: "<curl/curl.h>", incompleteStruct.} = object
 
   CurlMsgType* = enum
-    CURLMSG_NONE = 0,
-    CURLMSG_DONE = 1,
-    CURLMSG_LAST = 2
+    CurlmsgNone = 0,
+    CurlmsgDone = 1,
+    CurlmsgLast = 2
 
   CURLMsgData* {.union.} = object
     whatever*: pointer
@@ -27,55 +27,55 @@ type
   curl_write_callback* = proc(buffer: ptr char, size: csize_t, nitems: csize_t, outstream: pointer): csize_t {.cdecl.}
 
 const
-  CURL_GLOBAL_SSL* = 1
-  CURL_GLOBAL_WIN32* = 2
-  CURL_GLOBAL_ALL* = 3
-  CURL_GLOBAL_NOTHING* = 0
-  CURL_GLOBAL_DEFAULT* = 3
-  CURL_GLOBAL_ACK_EINTR* = 4
+  CurlGlobalSsl* = 1
+  CurlGlobalWin32* = 2
+  CurlGlobalAll* = 3
+  CurlGlobalNothing* = 0
+  CurlGlobalDefault* = 3
+  CurlGlobalAckEintr* = 4
 
-  CURLE_OK* = CURLcode(0)
-  CURLE_COULDNT_RESOLVE_PROXY* = CURLcode(5)
-  CURLE_COULDNT_RESOLVE_HOST* = CURLcode(6)
-  CURLE_COULDNT_CONNECT* = CURLcode(7)
-  CURLE_HTTP_RETURNED_ERROR* = CURLcode(22)
-  CURLE_WRITE_ERROR* = CURLcode(23)
-  CURLE_OPERATION_TIMEDOUT* = CURLcode(28)
-  CURLE_SSL_CONNECT_ERROR* = CURLcode(35)
-  CURLE_ABORTED_BY_CALLBACK* = CURLcode(42)
-  CURLE_SEND_ERROR* = CURLcode(55)
-  CURLE_RECV_ERROR* = CURLcode(56)
-  CURLE_PEER_FAILED_VERIFICATION* = CURLcode(60)
-  CURLE_AGAIN* = CURLcode(81)
+  CurleOk* = CURLcode(0)
+  CurleCouldntResolveProxy* = CURLcode(5)
+  CurleCouldntResolveHost* = CURLcode(6)
+  CurleCouldntConnect* = CURLcode(7)
+  CurleHttpReturnedError* = CURLcode(22)
+  CurleWriteError* = CURLcode(23)
+  CurleOperationTimedout* = CURLcode(28)
+  CurleSslConnectError* = CURLcode(35)
+  CurleAbortedByCallback* = CURLcode(42)
+  CurleSendError* = CURLcode(55)
+  CurleRecvError* = CURLcode(56)
+  CurlePeerFailedVerification* = CURLcode(60)
+  CurleAgain* = CURLcode(81)
 
-  CURLM_CALL_MULTI_PERFORM* = CURLMcode(-1)
-  CURLM_OK* = CURLMcode(0)
+  CurlmCallMultiPerform* = CURLMcode(-1)
+  CurlmOk* = CURLMcode(0)
 
-  CURLOPTTYPE_LONG* = 0
-  CURLOPTTYPE_OBJECTPOINT* = 10000
-  CURLOPTTYPE_FUNCTIONPOINT* = 20000
-  CURLOPTTYPE_OFF_T* = 30000
+  CurlopttypeLong* = 0
+  CurlopttypeObjectpoint* = 10000
+  CurlopttypeFunctionpoint* = 20000
+  CurlopttypeOffT* = 30000
 
-  CURLOPT_WRITEDATA* = CURLoption(CURLOPTTYPE_OBJECTPOINT + 1)
-  CURLOPT_URL* = CURLoption(CURLOPTTYPE_OBJECTPOINT + 2)
-  CURLOPT_ERRORBUFFER* = CURLoption(CURLOPTTYPE_OBJECTPOINT + 10)
-  CURLOPT_WRITEFUNCTION* = CURLoption(CURLOPTTYPE_FUNCTIONPOINT + 11)
-  CURLOPT_POSTFIELDS* = CURLoption(CURLOPTTYPE_OBJECTPOINT + 15)
-  CURLOPT_HTTPHEADER* = CURLoption(CURLOPTTYPE_OBJECTPOINT + 23)
-  CURLOPT_POST* = CURLoption(CURLOPTTYPE_LONG + 47)
-  CURLOPT_POSTFIELDSIZE* = CURLoption(CURLOPTTYPE_LONG + 60)
-  CURLOPT_SSL_VERIFYPEER* = CURLoption(CURLOPTTYPE_LONG + 64)
-  CURLOPT_SSL_VERIFYHOST* = CURLoption(CURLOPTTYPE_LONG + 81)
-  CURLOPT_NOSIGNAL* = CURLoption(CURLOPTTYPE_LONG + 99)
-  CURLOPT_ACCEPT_ENCODING* = CURLoption(CURLOPTTYPE_OBJECTPOINT + 102)
-  CURLOPT_PRIVATE* = CURLoption(CURLOPTTYPE_OBJECTPOINT + 103)
-  CURLOPT_TIMEOUT_MS* = CURLoption(CURLOPTTYPE_LONG + 155)
-  CURLOPT_CONNECTTIMEOUT_MS* = CURLoption(CURLOPTTYPE_LONG + 156)
+  CurloptWritedata* = CURLoption(CurlopttypeObjectpoint + 1)
+  CurloptUrl* = CURLoption(CurlopttypeObjectpoint + 2)
+  CurloptErrorbuffer* = CURLoption(CurlopttypeObjectpoint + 10)
+  CurloptWritefunction* = CURLoption(CurlopttypeFunctionpoint + 11)
+  CurloptPostfields* = CURLoption(CurlopttypeObjectpoint + 15)
+  CurloptHttpheader* = CURLoption(CurlopttypeObjectpoint + 23)
+  CurloptPost* = CURLoption(CurlopttypeLong + 47)
+  CurloptPostfieldsize* = CURLoption(CurlopttypeLong + 60)
+  CurloptSslVerifypeer* = CURLoption(CurlopttypeLong + 64)
+  CurloptSslVerifyhost* = CURLoption(CurlopttypeLong + 81)
+  CurloptNosignal* = CURLoption(CurlopttypeLong + 99)
+  CurloptAcceptEncoding* = CURLoption(CurlopttypeObjectpoint + 102)
+  CurloptPrivate* = CURLoption(CurlopttypeObjectpoint + 103)
+  CurloptTimeoutMs* = CURLoption(CurlopttypeLong + 155)
+  CurloptConnecttimeoutMs* = CURLoption(CurlopttypeLong + 156)
 
-  CURLINFO_LONG* = 0x200000
-  CURLINFO_RESPONSE_CODE* = CURLINFO(CURLINFO_LONG + 2)
-  CURLINFO_STRING* = 0x100000
-  CURLINFO_PRIVATE* = CURLINFO(CURLINFO_STRING + 21)
+  CurlinfoLong* = 0x200000
+  CurlinfoResponseCode* = CURLINFO(CurlinfoLong + 2)
+  CurlinfoString* = 0x100000
+  CurlinfoPrivate* = CURLINFO(CurlinfoString + 21)
 
 {.push importc, callconv: cdecl, header: "<curl/curl.h>".}
 
