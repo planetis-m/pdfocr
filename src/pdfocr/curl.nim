@@ -127,6 +127,9 @@ proc addHandle*(multi: var CurlMulti; easy: CurlEasy) =
 proc removeHandle*(multi: var CurlMulti; easy: CurlEasy) =
   checkCurlMulti(curl_multi_remove_handle(multi.raw, easy.raw), "curl_multi_remove_handle failed")
 
+proc removeHandle*(multi: var CurlMulti; msg: CURLMsg) =
+  checkCurlMulti(curl_multi_remove_handle(multi.raw, msg.easy_handle), "curl_multi_remove_handle failed")
+
 proc perform*(multi: var CurlMulti): int =
   var running: cint
   checkCurlMulti(curl_multi_perform(multi.raw, addr running), "curl_multi_perform failed")

@@ -40,8 +40,11 @@ type
     attempt: int
     webpBytes: seq[byte]
     response: RequestResponseBuffer
-    easy: CurlEasy
     headers: CurlSlist
+
+  ActiveTransfer = object
+    req: RequestContext
+    easy: CurlEasy
 
   SchedulerState = object
     nextSeqToRequestRender: int
@@ -52,7 +55,7 @@ type
     finalGuard: FinalizationGuard
     renderedReady: Table[int, RenderedTask]
     retryQueue: seq[RetryItem]
-    activeTransfers: Table[uint, RequestContext]
+    activeTransfers: Table[uint, ActiveTransfer]
     idleEasy: seq[CurlEasy]
     writerPending: Deque[PageResult]
     renderOutBatch: Deque[RendererOutput]
@@ -204,7 +207,7 @@ proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestCo
       newErrorResult(req.seqId, req.page, req.attempt, kind, message)
   enqueueWriterResult(state, ctx, finalResult)
 
-proc requestToCtx(state: var SchedulerState; task: RenderedTask; apiKey: string): RequestContext =
+proc requestToCtx(task: RenderedTask; apiKey: string; easy: var CurlEasy): RequestContext =
   result = RequestContext(
     seqId: task.seqId,
     page: task.page,
@@ -216,7 +219,6 @@ proc requestToCtx(state: var SchedulerState; task: RenderedTask; apiKey: string)
   let imageDataUrl = "data:image/webp;base64," & base64.encode(task.webpBytes)
   let body = buildChatCompletionRequest(OCRInstruction, imageDataUrl)
 
-  var easy = state.acquireEasy()
   result.headers.addHeader("Authorization: Bearer " & apiKey)
   result.headers.addHeader("Content-Type: application/json")
   easy.setUrl(ApiUrl)
@@ -227,7 +229,6 @@ proc requestToCtx(state: var SchedulerState; task: RenderedTask; apiKey: string)
   easy.setConnectTimeoutMs(ConnectTimeoutMs)
   easy.setSslVerify(true, true)
   easy.setAcceptEncoding("gzip, deflate")
-  result.easy = ensureMove(easy)
 
 proc takeNextDispatchTask(state: var SchedulerState; seqId: var SeqId; task: var RenderedTask): bool =
   let limit = windowLimitExclusive()
@@ -310,77 +311,79 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
       if not state.activeTransfers.hasKey(key):
         logWarn("scheduler completion had unknown easy handle")
       else:
-        var req = state.activeTransfers[key]
         var removeOk = true
         try:
-          multi.removeHandle(req.easy)
+          multi.removeHandle(msg)
         except CatchableError as exc:
           ctx.sendFatal(NetworkError, exc.msg)
           removeOk = false
           result = false
 
         if removeOk:
-          var easy: CurlEasy
-          swap(easy, req.easy)
-          state.activeTransfers.del(key)
+          var transfer: ActiveTransfer
+          if not state.activeTransfers.pop(key, transfer):
+            logWarn("scheduler completion missing active transfer during pop")
+            result = false
+            removeOk = false
           updateInflightCount(state)
-          try:
-            let curlCode = msg.data.result
-            if curlCode != CurleOk:
-              let errorKind = classifyCurlErrorKind(curlCode)
-              let errMsg = "curl transfer failed code=" & $int(curlCode)
-              result = maybeRetry(state, ctx, req, errorKind, errMsg, retryable = true)
-            else:
-              let httpCode = easy.responseCode()
-              if httpCode == Http429:
-                result = maybeRetry(
-                  state,
-                  ctx,
-                  req,
-                  RateLimit,
-                  "HTTP 429 rate limited",
-                  retryable = true,
-                  httpStatus = httpCode
-                )
-              elif httpStatusRetryable(httpCode) and httpCode != Http429:
-                let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body)
-                result = maybeRetry(
-                  state,
-                  ctx,
-                  req,
-                  HttpError,
-                  msg500,
-                  retryable = true,
-                  httpStatus = httpCode
-                )
-              elif httpCode < Http200 or httpCode >= Http300:
-                result = enqueueWriterResult(state, ctx, newHttpErrorResult(
-                  req.seqId,
-                  req.page,
-                  req.attempt,
-                  HttpError,
-                  "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body),
-                  httpCode
-                ))
+          if removeOk:
+            try:
+              let curlCode = msg.data.result
+              if curlCode != CurleOk:
+                let errorKind = classifyCurlErrorKind(curlCode)
+                let errMsg = "curl transfer failed code=" & $int(curlCode)
+                result = maybeRetry(state, ctx, transfer.req, errorKind, errMsg, retryable = true)
               else:
-                let parsed = parseChatCompletionResponse(req.response.body)
-                if not parsed.ok:
-                  result = enqueueWriterResult(state, ctx, newErrorResult(
-                    req.seqId,
-                    req.page,
-                    req.attempt,
-                    ParseError,
-                    parsed.error_message
+                let httpCode = transfer.easy.responseCode()
+                if httpCode == Http429:
+                  result = maybeRetry(
+                    state,
+                    ctx,
+                    transfer.req,
+                    RateLimit,
+                    "HTTP 429 rate limited",
+                    retryable = true,
+                    httpStatus = httpCode
+                  )
+                elif httpStatusRetryable(httpCode) and httpCode != Http429:
+                  let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(transfer.req.response.body)
+                  result = maybeRetry(
+                    state,
+                    ctx,
+                    transfer.req,
+                    HttpError,
+                    msg500,
+                    retryable = true,
+                    httpStatus = httpCode
+                  )
+                elif httpCode < Http200 or httpCode >= Http300:
+                  result = enqueueWriterResult(state, ctx, newHttpErrorResult(
+                    transfer.req.seqId,
+                    transfer.req.page,
+                    transfer.req.attempt,
+                    HttpError,
+                    "HTTP " & $httpCode & ": " & responseExcerpt(transfer.req.response.body),
+                    httpCode
                   ))
                 else:
-                  result = enqueueWriterResult(state, ctx, newSuccessResult(
-                    req.seqId,
-                    req.page,
-                    req.attempt,
-                    parsed.text
-                  ))
-          finally:
-            state.recycleEasy(ensureMove(easy))
+                  let parsed = parseChatCompletionResponse(transfer.req.response.body)
+                  if not parsed.ok:
+                    result = enqueueWriterResult(state, ctx, newErrorResult(
+                      transfer.req.seqId,
+                      transfer.req.page,
+                      transfer.req.attempt,
+                      ParseError,
+                      parsed.error_message
+                    ))
+                  else:
+                    result = enqueueWriterResult(state, ctx, newSuccessResult(
+                      transfer.req.seqId,
+                      transfer.req.page,
+                      transfer.req.attempt,
+                      parsed.text
+                    ))
+            finally:
+              state.recycleEasy(ensureMove(transfer.easy))
 
 proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
   if SchedulerStopRequested.load(moRelaxed):
@@ -391,9 +394,12 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
     if not takeNextDispatchTask(state, seqId, task):
       break
     try:
-      let req = requestToCtx(state, task, ctx.apiKey)
-      multi.addHandle(req.easy)
-      state.activeTransfers[handleKey(req.easy)] = req
+      var easy = state.acquireEasy()
+      let req = requestToCtx(task, ctx.apiKey, easy)
+      multi.addHandle(easy)
+      let key = handleKey(easy)
+      var transfer = ActiveTransfer(req: req, easy: ensureMove(easy))
+      state.activeTransfers[key] = ensureMove(transfer)
       updateInflightCount(state)
     except CatchableError as exc:
       if not maybeRetry(
@@ -424,12 +430,17 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
     return true
   state.cancelFinalized = true
 
-  for _, req in state.activeTransfers.pairs:
-    try:
-      multi.removeHandle(req.easy)
-    except CatchableError:
-      discard
-  state.activeTransfers.clear()
+  var activeKeys = newSeqOfCap[uint](state.activeTransfers.len)
+  for key in state.activeTransfers.keys:
+    activeKeys.add(key)
+  for key in activeKeys:
+    var transfer: ActiveTransfer
+    if state.activeTransfers.pop(key, transfer):
+      try:
+        multi.removeHandle(transfer.easy)
+      except CatchableError:
+        discard
+      state.recycleEasy(ensureMove(transfer.easy))
   updateInflightCount(state)
   state.retryQueue.setLen(0)
   state.renderedReady.clear()
@@ -509,7 +520,7 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
     finalGuard: initFinalizationGuard(ctx.selectedCount),
     renderedReady: initTable[int, RenderedTask](),
     retryQueue: @[],
-    activeTransfers: initTable[uint, RequestContext](),
+    activeTransfers: initTable[uint, ActiveTransfer](),
     idleEasy: @[],
     writerPending: initDeque[PageResult](),
     renderOutBatch: initDeque[RendererOutput](),
