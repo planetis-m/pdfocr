@@ -13,7 +13,7 @@ proc slidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
   result = seqId < nextToWrite + Window
 
 proc classifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
-  result = if curlCode == CURLE_OPERATION_TIMEDOUT: Timeout else: NetworkError
+  result = if curlCode == CurleOperationTimedout: Timeout else: NetworkError
 
 proc httpStatusRetryable*(httpStatus: HttpCode): bool {.inline.} =
   result = httpStatus == Http429 or (httpStatus >= Http500 and httpStatus < Http600)
@@ -132,11 +132,11 @@ proc enqueueWriterResult(state: var SchedulerState; ctx: SchedulerContext; pageR
 
   inc state.finalCount
 
-  discard flushPendingSends(ctx.writerInCh, state.writerPending, MAX_WRITER_PENDING)
+  discard flushPendingSends(ctx.writerInCh, state.writerPending, MaxWriterPending)
   if ctx.writerInCh.trySend(pageResult):
     return true
-  if state.writerPending.len >= MAX_WRITER_PENDING:
-    ctx.sendFatal(NETWORK_ERROR, "writer pending buffer exceeded bound")
+  if state.writerPending.len >= MaxWriterPending:
+    ctx.sendFatal(NetworkError, "writer pending buffer exceeded bound")
     return false
   state.writerPending.addLast(pageResult)
   true
@@ -149,10 +149,10 @@ proc scheduleRetry(state: var SchedulerState; task: RenderedTask; delayMs: int) 
 
 proc msUntilNextRetry(state: SchedulerState): int =
   if state.retryQueue.len == 0:
-    return MULTI_WAIT_MAX_MS
+    return MultiWaitMaxMs
 
   let now = getMonoTime()
-  var minMs = MULTI_WAIT_MAX_MS
+  var minMs = MultiWaitMaxMs
   for item in state.retryQueue:
     let remaining = item.readyAt - now
     if remaining <= DurationZero:
@@ -209,12 +209,12 @@ proc requestToCtx(task: RenderedTask; apiKey: string): RequestContext =
   result.easy = initEasy()
   result.headers.addHeader("Authorization: Bearer " & apiKey)
   result.headers.addHeader("Content-Type: application/json")
-  result.easy.setUrl(API_URL)
+  result.easy.setUrl(ApiUrl)
   result.easy.setWriteCallback(writeResponseCb, cast[pointer](addr result.response))
   result.easy.setPostFields(body)
   result.easy.setHeaders(result.headers)
-  result.easy.setTimeoutMs(TOTAL_TIMEOUT_MS)
-  result.easy.setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
+  result.easy.setTimeoutMs(TotalTimeoutMs)
+  result.easy.setConnectTimeoutMs(ConnectTimeoutMs)
   result.easy.setSslVerify(true, true)
   result.easy.setAcceptEncoding("gzip, deflate")
 
@@ -248,12 +248,12 @@ proc promoteReadyRetries(state: var SchedulerState) =
   state.retryQueue = move remaining
 
 proc refillRenderRequests(state: var SchedulerState; ctx: SchedulerContext) =
-  if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+  if SchedulerStopRequested.load(moRelaxed):
     return
-  if state.renderPendingCount >= LOW_WATER:
+  if state.renderPendingCount >= LowWater:
     return
   var sendMisses = 0
-  while state.renderPendingCount < HIGH_WATER and state.nextSeqToRequestRender < ctx.selectedCount:
+  while state.renderPendingCount < HighWater and state.nextSeqToRequestRender < ctx.selectedCount:
     let seqId = state.nextSeqToRequestRender
     if seqId >= windowLimitExclusive():
       break
@@ -267,17 +267,17 @@ proc refillRenderRequests(state: var SchedulerState; ctx: SchedulerContext) =
         break
 
 proc flushWriterPending(state: var SchedulerState; ctx: SchedulerContext) =
-  discard flushPendingSends(ctx.writerInCh, state.writerPending, MAX_WRITER_PENDING)
+  discard flushPendingSends(ctx.writerInCh, state.writerPending, MaxWriterPending)
 
 proc drainRendererOutputs(state: var SchedulerState; ctx: SchedulerContext): bool =
-  discard tryRecvBatch(ctx.renderOutCh, state.renderOutBatch, HIGH_WATER)
+  discard tryRecvBatch(ctx.renderOutCh, state.renderOutBatch, HighWater)
   while state.renderOutBatch.len > 0:
     let output = state.renderOutBatch.popFirst()
     if state.renderPendingCount > 0:
       dec state.renderPendingCount
     case output.kind
     of rokRenderedTask:
-      if not SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+      if not SchedulerStopRequested.load(moRelaxed):
         state.renderedReady[output.task.seqId] = output.task
     of rokRenderFailure:
       if not enqueueWriterResult(state, ctx, newErrorResult(
@@ -294,7 +294,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
   var msg: CURLMsg
   var msgsInQueue = 0
   while multi.tryInfoRead(msg, msgsInQueue):
-    if msg.msg != CURLMSG_DONE:
+    if msg.msg != CurlmsgDone:
       continue
 
     let key = handleKey(msg)
@@ -306,14 +306,14 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
     try:
       multi.removeHandle(req.easy)
     except CatchableError as exc:
-      ctx.sendFatal(NETWORK_ERROR, exc.msg)
+      ctx.sendFatal(NetworkError, exc.msg)
       return false
 
     state.activeTransfers.del(key)
     updateInflightCount(state)
 
     let curlCode = msg.data.result
-    if curlCode != CURLE_OK:
+    if curlCode != CurleOk:
       let errorKind = classifyCurlErrorKind(curlCode)
       let errMsg = "curl transfer failed code=" & $int(curlCode)
       if not maybeRetry(state, ctx, req, errorKind, errMsg, retryable = true):
@@ -326,7 +326,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         state,
         ctx,
         req,
-        RATE_LIMIT,
+        RateLimit,
         "HTTP 429 rate limited",
         retryable = true,
         httpStatus = httpCode
@@ -340,7 +340,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         state,
         ctx,
         req,
-        HTTP_ERROR,
+        HttpError,
         msg500,
         retryable = true,
         httpStatus = httpCode
@@ -353,7 +353,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         req.seqId,
         req.page,
         req.attempt,
-        HTTP_ERROR,
+        HttpError,
         "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body),
         httpCode
       )):
@@ -366,7 +366,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         req.seqId,
         req.page,
         req.attempt,
-        PARSE_ERROR,
+        ParseError,
         parsed.error_message
       )):
         return false
@@ -382,9 +382,9 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
   true
 
 proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
-  if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+  if SchedulerStopRequested.load(moRelaxed):
     return true
-  while state.writerPending.len == 0 and state.activeTransfers.len < MAX_INFLIGHT:
+  while state.writerPending.len == 0 and state.activeTransfers.len < MaxInflight:
     var seqId: SeqId
     var task: RenderedTask
     if not takeNextDispatchTask(state, seqId, task):
@@ -405,7 +405,7 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
           webpBytes: task.webpBytes,
           response: RequestResponseBuffer(body: "")
         ),
-        NETWORK_ERROR,
+        NetworkError,
         exc.msg,
         retryable = true
       ):
@@ -442,7 +442,7 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
       seqId,
       page,
       1,
-      NETWORK_ERROR,
+      NetworkError,
       "cancelled before completion"
     )):
       return false
@@ -451,7 +451,7 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
   true
 
 proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
-  if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+  if SchedulerStopRequested.load(moRelaxed):
     return state.finalCount == selectedCount and
       state.activeTransfers.len == 0 and
       state.retryQueue.len == 0 and
@@ -483,10 +483,10 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
           if seqId mod 2 == 0:
             ctx.writerInCh.send(newSuccessResult(seqId, page, 1, "ok"))
           else:
-            ctx.writerInCh.send(newErrorResult(seqId, page, 1, HTTP_ERROR, "synthetic mixed failure"))
+            ctx.writerInCh.send(newErrorResult(seqId, page, 1, HttpError, "synthetic mixed failure"))
         ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
       of "fatal":
-        ctx.sendFatal(NETWORK_ERROR, "synthetic fatal scheduler failure")
+        ctx.sendFatal(NetworkError, "synthetic fatal scheduler failure")
         ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
       else:
         discard
@@ -496,7 +496,7 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
   try:
     multi = initMulti()
   except CatchableError as exc:
-    ctx.sendFatal(NETWORK_ERROR, exc.msg)
+    ctx.sendFatal(NetworkError, exc.msg)
     return
 
   var state = SchedulerState(
@@ -516,14 +516,14 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
   updateInflightCount(state)
 
   while true:
-    if SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+    if SchedulerStopRequested.load(moRelaxed):
       if not cancelAndFinalizeMissing(state, ctx, multi):
         break
 
     flushWriterPending(state, ctx)
 
     if not drainRendererOutputs(state, ctx):
-      SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+      SchedulerStopRequested.store(true, moRelaxed)
       if not cancelAndFinalizeMissing(state, ctx, multi):
         break
       continue
@@ -532,7 +532,7 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
     refillRenderRequests(state, ctx)
 
     if not dispatchRequests(state, ctx, multi):
-      SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+      SchedulerStopRequested.store(true, moRelaxed)
       if not cancelAndFinalizeMissing(state, ctx, multi):
         break
       continue
@@ -540,17 +540,17 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
     if state.activeTransfers.len > 0:
       try:
         discard multi.perform()
-        discard multi.poll(MULTI_WAIT_MAX_MS)
+        discard multi.poll(MultiWaitMaxMs)
       except CatchableError as exc:
-        ctx.sendFatal(NETWORK_ERROR, exc.msg)
+        ctx.sendFatal(NetworkError, exc.msg)
         continue
       if not processCompletions(state, ctx, multi):
-        SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+        SchedulerStopRequested.store(true, moRelaxed)
         if not cancelAndFinalizeMissing(state, ctx, multi):
           break
         continue
     else:
-      let waitMs = min(MULTI_WAIT_MAX_MS, msUntilNextRetry(state))
+      let waitMs = min(MultiWaitMaxMs, msUntilNextRetry(state))
       if waitMs > 0:
         sleep(waitMs)
 

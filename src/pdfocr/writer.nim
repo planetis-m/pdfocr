@@ -51,14 +51,14 @@ proc runWriter*(ctx: WriterContext) {.thread.} =
           inc errCount
 
         inc expectedSeq
-        NEXT_TO_WRITE.store(expectedSeq, moRelaxed)
-        OK_COUNT.store(okCount, moRelaxed)
-        ERR_COUNT.store(errCount, moRelaxed)
+        NextToWrite.store(expectedSeq, moRelaxed)
+        OkCount.store(okCount, moRelaxed)
+        ErrCount.store(errCount, moRelaxed)
 
     flushFile(stdout)
   except CatchableError as exc:
     ctx.fatalCh.send(FatalEvent(
       source: fesWriter,
-      errorKind: NETWORK_ERROR,
+      errorKind: NetworkError,
       message: boundedErrorMessage(exc.msg)
     ))

@@ -69,9 +69,9 @@ type
     message*: string
 
   RuntimeChannels* = object
-    renderReqCh*: Chan[RenderRequest]   # capacity = HIGH_WATER
-    renderOutCh*: Chan[RendererOutput]  # capacity = HIGH_WATER
-    writerInCh*: Chan[PageResult]       # capacity = WINDOW
+    renderReqCh*: Chan[RenderRequest]   # capacity = HighWater
+    renderOutCh*: Chan[RendererOutput]  # capacity = HighWater
+    writerInCh*: Chan[PageResult]       # capacity = Window
     fatalCh*: Chan[FatalEvent]          # small bounded channel
 
   RendererContext* = object
@@ -99,7 +99,7 @@ type
   FinalizationGuard* = object
     seen*: seq[bool]
 
-# Shared atomics: NEXT_TO_WRITE is correctness-critical.
+# Shared atomics: NextToWrite is correctness-critical.
 var
   NextToWrite*: Atomic[int]
   OkCount*: Atomic[int]
