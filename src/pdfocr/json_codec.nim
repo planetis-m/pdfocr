@@ -59,7 +59,6 @@ type
 
 proc encodeResultLine*(pageResult: PageResult): string =
   let bounded = boundedErrorMessage(pageResult.errorMessage)
-  
   if pageResult.status == psOk:
     result = toJson(OkResultLine(
       page: pageResult.page,
@@ -86,7 +85,7 @@ proc encodeResultLine*(pageResult: PageResult): string =
     ))
 
 proc buildChatCompletionRequest*(instruction: string; imageDataUrl: string): string =
-  let request = Request(
+  toJson(Request(
     model: Model,
     messages: @[
       Message(
@@ -97,20 +96,17 @@ proc buildChatCompletionRequest*(instruction: string; imageDataUrl: string): str
         ]
       )
     ]
-  )
-  toJson(request)
+  ))
 
 proc parseChatCompletionResponse*(payload: string): ChatCompletionParseContract =
   try:
     let parsed = fromJson(payload, ChatCompletionResponse)
-    
     result = ChatCompletionParseContract(
       ok: true,
       text: parsed.choices[0].message.content,
       error_kind: NoError,
       error_message: ""
     )
-    
   except CatchableError:
     result = ChatCompletionParseContract(
       ok: false,
