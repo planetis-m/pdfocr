@@ -55,8 +55,7 @@ type
     text*: string
     errorKind*: ErrorKind
     errorMessage*: string
-    httpStatus*: int
-    hasHttpStatus*: bool
+    httpStatus*: HttpCode
 
   FatalEventSource* = enum
     fesRenderer,

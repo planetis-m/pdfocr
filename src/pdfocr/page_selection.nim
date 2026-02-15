@@ -6,7 +6,7 @@ type
     inputPath: string
     pagesSpec: string
 
-const HELP_TEXT = """
+const HelpText = """
 Usage:
   pdf-olmocr INPUT.pdf --pages:"1,4-6,12"
 
@@ -16,7 +16,7 @@ Options:
 """
 
 template cliError(message) =
-  quit(message & "\n\n" & HELP_TEXT, EXIT_FATAL_RUNTIME)
+  quit(message & "\n\n" & HelpText, ExitFatalRuntime)
 
 proc parseCliArgs(cliArgs: seq[string]): CliArgs =
   result = CliArgs(inputPath: "", pagesSpec: "")
@@ -34,12 +34,12 @@ proc parseCliArgs(cliArgs: seq[string]): CliArgs =
       of "pages":
         result.pagesSpec = val
       of "help":
-        quit(HELP_TEXT, EXIT_ALL_OK)
+        quit(HelpText, ExitAllOk)
       else:
         cliError("unknown option: --" & key)
     of cmdShortOption:
       if key == "h":
-        quit(HELP_TEXT, EXIT_ALL_OK)
+        quit(HelpText, ExitAllOk)
       else:
         cliError("unknown option: -" & key)
     of cmdEnd:

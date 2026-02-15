@@ -4,38 +4,25 @@ import ./bindings/curl
 import ./[constants, curl, errors, json_codec, logging, types]
 
 const
-  OCR_INSTRUCTION = "Extract all readable text exactly."
-  MAX_WRITER_PENDING = WINDOW + MAX_INFLIGHT
-  RETRY_JITTER_DIVISOR = 2
-  RESPONSE_EXCERPT_LIMIT = 240
+  OCRInstruction = "Extract all readable text exactly."
+  MaxWriterPending = Window + MaxInflight
+  RetryJitterDivisor = 2
+  ResponseExcerptLimit = 240
 
-proc slidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
-  seqId < nextToWrite + WINDOW
+proc SlidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
+  result = seqId < nextToWrite + Window
 
-proc classifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
-  if curlCode == CURLE_OPERATION_TIMEDOUT: TIMEOUT else: NETWORK_ERROR
+proc ClassifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
+  result = if curlCode == CURLE_OPERATION_TIMEDOUT: Timeout else: NetworkError
 
-proc httpStatusRetryable*(httpStatus: int): bool {.inline.} =
-  httpStatus == 429 or (httpStatus >= 500 and httpStatus < 600)
+proc httpStatusRetryable*(httpStatus: HttpCode): bool {.inline.} =
+  result = httpStatus == Http429 or (httpStatus >= Http500 and httpStatus < Http600)
 
-proc backoffBaseMs*(attempt: int; baseDelayMs: int = RETRY_BASE_DELAY_MS;
-                    maxDelayMs: int = RETRY_MAX_DELAY_MS): int =
+proc backoffBaseMs*(attempt: int): int =
+  # Safe from overflow: MaxRetries=5 yields max shift of 5 (500*32=16000 < 2^31).
   let exponent = if attempt <= 1: 0 else: attempt - 1
-  var raw = baseDelayMs.int64
-  for _ in 0 ..< exponent:
-    raw = raw * 2
-    if raw >= maxDelayMs.int64:
-      raw = maxDelayMs.int64
-      break
-  min(raw, maxDelayMs.int64).int
-
-proc backoffWithJitterMs*(attempt: int; seed: int;
-                          baseDelayMs: int = RETRY_BASE_DELAY_MS;
-                          maxDelayMs: int = RETRY_MAX_DELAY_MS): int =
-  let capped = backoffBaseMs(attempt, baseDelayMs, maxDelayMs)
-  let jitterMax = max(1, capped div RETRY_JITTER_DIVISOR)
-  var rng = initRand(seed)
-  capped + rng.rand(jitterMax)
+  let raw = RetryBaseDelayMs shl exponent
+  result = min(raw, RetryMaxDelayMs)
 
 type
   RetryItem = object
@@ -79,15 +66,16 @@ proc writeResponseCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata:
     let start = state.body.len
     state.body.setLen(start + total)
     copyMem(addr state.body[start], buffer, total)
-  csize_t(total)
+  result = csize_t(total)
 
-proc responseExcerpt(body: string): string =
-  if body.len <= RESPONSE_EXCERPT_LIMIT:
-    return body
-  body[0 ..< RESPONSE_EXCERPT_LIMIT] & "..."
+proc responseExcerpt(body: string): string {.inline.} =
+  if body.len <= ResponseExcerptLimit:
+    result = body
+  else:
+    result = body.substr(0, ResponseExcerptLimit - 1) & "..."
 
 proc sendFatal(ctx: SchedulerContext; kind: ErrorKind; message: string) =
-  SCHEDULER_STOP_REQUESTED.store(true, moRelaxed)
+  SchedulerStopRequested.store(true, moRelaxed)
   ctx.fatalCh.send(FatalEvent(
     source: fesScheduler,
     errorKind: kind,
@@ -95,10 +83,10 @@ proc sendFatal(ctx: SchedulerContext; kind: ErrorKind; message: string) =
   ))
 
 proc updateInflightCount(state: SchedulerState) =
-  INFLIGHT_COUNT.store(state.activeTransfers.len, moRelaxed)
+  InflightCount.store(state.activeTransfers.len, moRelaxed)
 
 proc windowLimitExclusive(): int =
-  NEXT_TO_WRITE.load(moRelaxed) + WINDOW
+  NextToWrite.load(moRelaxed) + Window
 
 proc newErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind; message: string): PageResult =
   PageResult(
@@ -109,12 +97,11 @@ proc newErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind; mes
     text: "",
     errorKind: kind,
     errorMessage: boundedErrorMessage(message),
-    httpStatus: 0,
-    hasHttpStatus: false
+    httpStatus: HttpNone
   )
 
 proc newHttpErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind;
-                        message: string; httpStatus: int): PageResult =
+                        message: string; httpStatus: HttpCode): PageResult =
   PageResult(
     seqId: seqId,
     page: page,
@@ -123,8 +110,7 @@ proc newHttpErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind;
     text: "",
     errorKind: kind,
     errorMessage: boundedErrorMessage(message),
-    httpStatus: httpStatus,
-    hasHttpStatus: true
+    httpStatus: httpStatus
   )
 
 proc newSuccessResult(seqId: SeqId; page: int; attempts: int; text: string): PageResult =
@@ -134,10 +120,9 @@ proc newSuccessResult(seqId: SeqId; page: int; attempts: int; text: string): Pag
     status: psOk,
     attempts: attempts,
     text: text,
-    errorKind: PARSE_ERROR,
+    errorKind: NoError,
     errorMessage: "",
-    httpStatus: 0,
-    hasHttpStatus: false
+    httpStatus: HttpNone
   )
 
 proc enqueueWriterResult(state: var SchedulerState; ctx: SchedulerContext; pageResult: PageResult): bool =
@@ -164,17 +149,16 @@ proc scheduleRetry(state: var SchedulerState; task: RenderedTask; delayMs: int) 
 
 proc retryDelayMs(state: var SchedulerState; attempt: int): int =
   let capped = backoffBaseMs(attempt)
-  let jitterMax = max(1, capped div RETRY_JITTER_DIVISOR)
+  let jitterMax = max(1, capped div RetryJitterDivisor)
   let jitter = state.rng.rand(jitterMax)
-  capped + jitter
+  result = capped + jitter
 
 proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestContext;
-                kind: ErrorKind; message: string; retryable: bool;
-                hasHttpStatus: bool = false; httpStatus: int = 0): bool =
-  let maxAttempts = 1 + MAX_RETRIES
+                kind: ErrorKind; message: string; retryable: bool; httpStatus = HttpCode(0)): bool =
+  let maxAttempts = 1 + MaxRetries
   let isWindowEligible = req.seqId < windowLimitExclusive()
   if retryable and req.attempt < maxAttempts and isWindowEligible and
-     not SCHEDULER_STOP_REQUESTED.load(moRelaxed):
+      not SchedulerStopRequested.load(moRelaxed):
     let nextAttempt = req.attempt + 1
     let delayMs = retryDelayMs(state, nextAttempt)
     scheduleRetry(state, RenderedTask(
@@ -183,11 +167,11 @@ proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestCo
       webpBytes: req.webpBytes,
       attempt: nextAttempt
     ), delayMs)
-    discard RETRY_COUNT.fetchAdd(1, moRelaxed)
+    discard RetryCount.fetchAdd(1, moRelaxed)
     return true
 
   let finalResult =
-    if hasHttpStatus:
+    if httpStatus != HttpNone:
       newHttpErrorResult(req.seqId, req.page, req.attempt, kind, message, httpStatus)
     else:
       newErrorResult(req.seqId, req.page, req.attempt, kind, message)
@@ -203,7 +187,7 @@ proc requestToCtx(task: RenderedTask; apiKey: string): RequestContext =
   )
 
   let imageDataUrl = "data:image/webp;base64," & base64.encode(task.webpBytes)
-  let body = buildChatCompletionRequest(OCR_INSTRUCTION, imageDataUrl)
+  let body = buildChatCompletionRequest(OCRInstruction, imageDataUrl)
 
   result.easy = initEasy()
   result.headers.addHeader("Authorization: Bearer " & apiKey)
@@ -328,13 +312,12 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         RATE_LIMIT,
         "HTTP 429 rate limited",
         retryable = true,
-        hasHttpStatus = true,
-        httpStatus = int(httpCode)
+        httpStatus = httpCode
       ):
         return false
       continue
 
-    if httpStatusRetryable(int(httpCode)) and httpCode != Http429:
+    if httpStatusRetryable(httpCode) and httpCode != Http429:
       let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body)
       if not maybeRetry(
         state,
@@ -343,8 +326,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         HTTP_ERROR,
         msg500,
         retryable = true,
-        hasHttpStatus = true,
-        httpStatus = int(httpCode)
+        httpStatus = httpCode
       ):
         return false
       continue
@@ -356,7 +338,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         req.attempt,
         HTTP_ERROR,
         "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body),
-        int(httpCode)
+        httpCode
       )):
         return false
       continue

@@ -1,5 +1,6 @@
 type
   ErrorKind* = enum
+    NoError,
     PdfError,
     EncodeError,
     NetworkError,
