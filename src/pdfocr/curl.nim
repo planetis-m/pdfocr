@@ -18,6 +18,7 @@ type
     raw: ptr curl_slist
 
 const
+  HttpNone = HttpCode(0)
   Http100* = HttpCode(100)
   Http101* = HttpCode(101)
   Http102* = HttpCode(102)
@@ -39,6 +40,7 @@ const
   Http502* = HttpCode(502)
   Http503* = HttpCode(503)
   Http504* = HttpCode(504)
+  Http600* = HttpCode(600)
 
 func `==`*(a, b: HttpCode): bool {.borrow.}
 func `<`*(a, b: HttpCode): bool {.borrow.}

@@ -1,8 +1,6 @@
 import jsonx
-import jsonx/streams
-import ./constants
-import ./errors
-import ./types
+import jsonx/[streams, parser]
+import ./[constants, errors, types]
 
 type
   OkResultLine = object
@@ -26,27 +24,30 @@ type
     error_message: string
     http_status: int
 
-  ChatCompletionContentPart = object
+  ImageUrl = object
+    url: string
+  
+  ContentPart = object
     `type`: string
     text: string
+    image_url: ImageUrl
+  
+  Message = object
+    role: string
+    content: seq[ContentPart]
+  
+  Request = object
+    model: string
+    messages: seq[Message]
 
-  ChatCompletionMessageText = object
+  ChatCompletionMessage = object
     content: string
 
-  ChatCompletionMessageParts = object
-    content: seq[ChatCompletionContentPart]
+  ChatCompletionChoice = object
+    message: ChatCompletionMessage
 
-  ChatCompletionChoiceText = object
-    message: ChatCompletionMessageText
-
-  ChatCompletionChoiceParts = object
-    message: ChatCompletionMessageParts
-
-  ChatCompletionResponseText = object
-    choices: seq[ChatCompletionChoiceText]
-
-  ChatCompletionResponseParts = object
-    choices: seq[ChatCompletionChoiceParts]
+  ChatCompletionResponse = object
+    choices: seq[ChatCompletionChoice]
 
   ChatCompletionParseContract* = object
     ok*: bool
@@ -55,17 +56,17 @@ type
     error_message*: string
 
 proc encodeResultLine*(pageResult: PageResult): string =
+  let bounded = boundedErrorMessage(pageResult.errorMessage)
+  
   if pageResult.status == psOk:
-    return toJson(OkResultLine(
+    result = toJson(OkResultLine(
       page: pageResult.page,
       status: "ok",
       attempts: pageResult.attempts,
       text: pageResult.text
     ))
-
-  let bounded = boundedErrorMessage(pageResult.errorMessage)
-  if pageResult.hasHttpStatus:
-    return toJson(ErrorResultLineWithHttp(
+  elif pageResult.hasHttpStatus:
+    result = toJson(ErrorResultLineWithHttp(
       page: pageResult.page,
       status: "error",
       attempts: pageResult.attempts,
@@ -73,66 +74,92 @@ proc encodeResultLine*(pageResult: PageResult): string =
       error_message: bounded,
       http_status: pageResult.httpStatus
     ))
-
-  toJson(ErrorResultLineNoHttp(
-    page: pageResult.page,
-    status: "error",
-    attempts: pageResult.attempts,
-    error_kind: $pageResult.errorKind,
-    error_message: bounded
-  ))
+  else:
+    result = toJson(ErrorResultLineNoHttp(
+      page: pageResult.page,
+      status: "error",
+      attempts: pageResult.attempts,
+      error_kind: $pageResult.errorKind,
+      error_message: bounded
+    ))
 
 proc buildChatCompletionRequest*(instruction: string; imageDataUrl: string): string =
-  let s = streams.open("")
-  streams.write(s, "{\"model\":")
-  writeJson(s, MODEL)
-  streams.write(s, ",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":")
-  writeJson(s, instruction)
-  streams.write(s, "},{\"type\":\"image_url\",\"image_url\":{\"url\":")
-  writeJson(s, imageDataUrl)
-  streams.write(s, "}}]}]}")
-  s.s
+  let request = Request(
+    model: Model,
+    messages: @[
+      Message(
+        role: "user",
+        content: @[
+          ContentPart(`type`: "text", text: instruction, image_url: ImageUrl()),
+          ContentPart(`type`: "image_url", text: "", image_url: ImageUrl(url: imageDataUrl))
+        ]
+      )
+    ]
+  )
+  toJson(request)
+
+proc readContentParts(p: var JsonParser; result: var string) =
+  ## Reads an array of content parts and extracts the first non-empty text
+  eat(p, tkBracketLe)
+  while p.tok != tkBracketRi:
+    eat(p, tkCurlyLe)
+    while p.tok != tkCurlyRi:
+      if p.tok != tkString:
+        raiseParseErr(p, "string literal as key")
+      if p.a == "text":
+        discard getTok(p)
+        eat(p, tkColon)
+        if result.len == 0:
+          readJson(result, p)
+        else:
+          skipJson(p)
+      else:
+        discard getTok(p)
+        eat(p, tkColon)
+        skipJson(p)
+      expectObjectSeparator(p)
+    eat(p, tkCurlyRi)
+
+    expectArraySeparator(p)
+  eat(p, tkBracketRi)
+
+proc readJson*(dst: var ChatCompletionMessage; p: var JsonParser) =
+  eat(p, tkCurlyLe)
+  while p.tok != tkCurlyRi:
+    if p.tok != tkString:
+      raiseParseErr(p, "string literal as key")
+    if p.a == "content":
+      discard getTok(p)
+      eat(p, tkColon)
+      if p.tok == tkString:
+        readJson(dst.content, p)
+      elif p.tok == tkBracketLe:
+        dst.content = readContentParts(p)
+      else:
+        raiseParseErr(p, "string or array")
+    else:
+      discard getTok(p)
+      eat(p, tkColon)
+      skipJson(p)
+    
+    expectObjectSeparator(p)
+  eat(p, tkCurlyRi)
 
 proc parseChatCompletionResponse*(payload: string): ChatCompletionParseContract =
   try:
-    let parsedText = fromJson(payload, ChatCompletionResponseText)
-    if parsedText.choices.len > 0 and parsedText.choices[0].message.content.len > 0:
-      return ChatCompletionParseContract(
-        ok: true,
-        text: parsedText.choices[0].message.content,
-        error_kind: PARSE_ERROR,
-        error_message: ""
-      )
-  except CatchableError:
-    discard
-
-  try:
-    let parsedParts = fromJson(payload, ChatCompletionResponseParts)
-    if parsedParts.choices.len == 0:
-      return ChatCompletionParseContract(
-        ok: false,
-        text: "",
-        error_kind: PARSE_ERROR,
-        error_message: boundedErrorMessage("missing choices[0].message.content")
-      )
-    for part in parsedParts.choices[0].message.content:
-      if part.text.len > 0:
-        return ChatCompletionParseContract(
-          ok: true,
-          text: part.text,
-          error_kind: PARSE_ERROR,
-          error_message: ""
-        )
-    ChatCompletionParseContract(
-      ok: false,
-      text: "",
-      error_kind: PARSE_ERROR,
-      error_message: boundedErrorMessage("missing text in choices[0].message.content")
+    let parsed = fromJson(payload, ChatCompletionResponse)
+    
+    result = ChatCompletionParseContract(
+      ok: true,
+      text: parsed.choices[0].message.content,
+      error_kind: NoError,
+      error_message: ""
     )
-  except CatchableError as exc:
-    ChatCompletionParseContract(
+    
+  except CatchableError:
+    result = ChatCompletionParseContract(
       ok: false,
       text: "",
-      error_kind: PARSE_ERROR,
-      error_message: boundedErrorMessage(exc.msg)
+      error_kind: ParseError,
+      error_message: boundedErrorMessage(getCurrentExceptionMsg())
     )
