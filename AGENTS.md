@@ -29,3 +29,6 @@ These are project-specific instructions for coding agents working in this repo.
 ## Communication
 - If unclear or a plan conflicts with the spec, stop and ask for clarification.
 - Show file references for all changes.
+
+## Protected Files
+- Do not modify `src/pdfocr/page_selection.nim` unless the user gives explicit permission in the current conversation.

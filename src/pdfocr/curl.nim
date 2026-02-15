@@ -6,10 +6,11 @@ export CurlMsgType, CURLMsg
 type
   HttpCode* = distinct int
 
-  CurlEasy* = object
+  CurlEasyObj = object
     raw: CURL
     postData: string
     errorBuf: array[256, char]
+  CurlEasy* = ref CurlEasyObj
 
   CurlMulti* = object
     raw: CURLM
@@ -48,7 +49,7 @@ func `<=`*(a, b: HttpCode): bool {.borrow.}
 proc `$`*(code: HttpCode): string =
   $int(code)
 
-proc `=destroy`*(easy: CurlEasy) =
+proc `=destroy`*(easy: CurlEasyObj) =
   if pointer(easy.raw) != nil:
     curl_easy_cleanup(easy.raw)
 
@@ -60,31 +61,15 @@ proc `=destroy`*(list: CurlSlist) =
   if pointer(list.raw) != nil:
     curl_slist_free_all(list.raw)
 
-proc `=copy`*(dest: var CurlEasy; src: CurlEasy) {.error.}
+proc `=copy`*(dest: var CurlEasyObj; src: CurlEasyObj) {.error.}
+proc `=dup`*(src: CurlEasyObj): CurlEasyObj {.error.}
+proc `=sink`*(dest: var CurlEasyObj; src: CurlEasyObj) {.error.}
+
 proc `=copy`*(dest: var CurlMulti; src: CurlMulti) {.error.}
 proc `=copy`*(dest: var CurlSlist; src: CurlSlist) {.error.}
 
-proc `=dup`*(src: CurlEasy): CurlEasy {.error.}
 proc `=dup`*(src: CurlMulti): CurlMulti {.error.}
 proc `=dup`*(src: CurlSlist): CurlSlist {.error.}
-
-proc rebindInternalPointers(easy: var CurlEasy) =
-  # libcurl stores raw pointers for these options; when `CurlEasy` moves, those
-  # pointers must be rebound to this object's storage.
-  if pointer(easy.raw) == nil:
-    return
-  discard curl_easy_setopt(easy.raw, CURLOPT_ERRORBUFFER, addr easy.errorBuf[0])
-  discard curl_easy_setopt(easy.raw, CURLOPT_NOSIGNAL, clong(1))
-  if easy.postData.len > 0:
-    discard curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDS, easy.postData.cstring)
-    discard curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDSIZE, clong(easy.postData.len))
-
-proc `=sink`*(dest: var CurlEasy; src: CurlEasy) =
-  `=destroy`(dest)
-  dest.raw = src.raw
-  dest.postData = src.postData
-  dest.errorBuf = src.errorBuf
-  rebindInternalPointers(dest)
 
 proc `=sink`*(dest: var CurlMulti; src: CurlMulti) =
   `=destroy`(dest)
@@ -93,11 +78,6 @@ proc `=sink`*(dest: var CurlMulti; src: CurlMulti) =
 proc `=sink`*(dest: var CurlSlist; src: CurlSlist) =
   `=destroy`(dest)
   dest.raw = src.raw
-
-proc `=wasMoved`*(easy: var CurlEasy) =
-  easy.raw = CURL(nil)
-  easy.postData.setLen(0)
-  easy.errorBuf = default(array[256, char])
 
 proc `=wasMoved`*(multi: var CurlMulti) =
   multi.raw = CURLM(nil)
@@ -122,6 +102,7 @@ proc cleanupCurlGlobal*() =
   curl_global_cleanup()
 
 proc initEasy*(): CurlEasy =
+  new(result)
   result.raw = curl_easy_init()
   if pointer(result.raw) == nil:
     raise newException(IOError, "curl_easy_init failed")
