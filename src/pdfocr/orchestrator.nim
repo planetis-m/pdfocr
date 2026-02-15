@@ -54,8 +54,7 @@ proc fallbackResult(runtimeConfig: RuntimeConfig; seqId: int; reason: string): P
     text: "",
     errorKind: NetworkError,
     errorMessage: boundedErrorMessage(reason),
-    httpStatus: 0,
-    hasHttpStatus: false
+    httpStatus: HttpNone
   )
 
 proc runOrchestrator*(cliArgs: seq[string]): int =
