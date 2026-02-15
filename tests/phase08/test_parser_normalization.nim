@@ -13,12 +13,13 @@ proc main() =
   doAssert normalizePageSelection("1", 10) == @[1]
   doAssert normalizePageSelection("3-5", 10) == @[3, 4, 5]
   doAssert normalizePageSelection("5,1,3-4,4,1", 10) == @[1, 3, 4, 5]
-  doAssert normalizePageSelection("5-3", 10) == @[3, 4, 5]
 
   expectValueError:
     discard normalizePageSelection("", 10)
   expectValueError:
     discard normalizePageSelection("a", 10)
+  expectValueError:
+    discard normalizePageSelection("5-3", 10)
   expectValueError:
     discard normalizePageSelection("5, 1", 10)
   expectValueError:

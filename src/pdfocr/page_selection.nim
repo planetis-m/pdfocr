@@ -67,9 +67,9 @@ proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
       inc idx
       if idx < spec.len:
         last = parsePageAt(spec, idx)
-    let lo = min(first, last)
-    let hi = max(first, last)
-    for page in countup(lo, hi):
+      if first > last:
+        raise newException(ValueError, "invalid --pages selection")
+    for page in countup(first, last):
       # Insert while maintaining sorted order and uniqueness
       let pos = result.lowerBound(page)
       if pos >= result.len or result[pos] != page:
