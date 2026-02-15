@@ -398,7 +398,7 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
       let key = handleKey(easy)
       state.activeTransfers[key] = req
       updateInflightCount(state)
-    except CatchableError as exc:
+    except CatchableError:
       if not maybeRetry(
         state,
         ctx,
@@ -410,7 +410,7 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
           response: RequestResponseBuffer(body: "")
         ),
         NetworkError,
-        exc.msg,
+        getCurrentExceptionMsg(),
         retryable = true
       ):
         return false
@@ -476,8 +476,8 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
   var multi: CurlMulti
   try:
     multi = initMulti()
-  except CatchableError as exc:
-    ctx.sendFatal(NetworkError, exc.msg)
+  except CatchableError:
+    ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
     return
 
   var state = SchedulerState(
@@ -523,8 +523,8 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
       try:
         discard multi.perform()
         discard multi.poll(MultiWaitMaxMs)
-      except CatchableError as exc:
-        ctx.sendFatal(NetworkError, exc.msg)
+      except CatchableError:
+        ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
         continue
       if not processCompletions(state, ctx, multi):
         SchedulerStopRequested.store(true, moRelaxed)

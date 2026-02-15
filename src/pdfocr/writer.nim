@@ -56,9 +56,9 @@ proc runWriter*(ctx: WriterContext) {.thread.} =
         ErrCount.store(errCount, moRelaxed)
 
     flushFile(stdout)
-  except CatchableError as exc:
+  except CatchableError:
     ctx.fatalCh.send(FatalEvent(
       source: fesWriter,
       errorKind: NetworkError,
-      message: boundedErrorMessage(exc.msg)
+      message: boundedErrorMessage(getCurrentExceptionMsg())
     ))
