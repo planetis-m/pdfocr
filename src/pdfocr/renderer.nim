@@ -33,8 +33,8 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
   var doc: PdfDocument
   try:
     doc = loadDocument(ctx.pdfPath)
-  except CatchableError as exc:
-    ctx.sendFatal(PdfError, exc.msg)
+  except CatchableError:
+    ctx.sendFatal(PdfError, getCurrentExceptionMsg())
     return
 
   while true:
@@ -61,8 +61,8 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
         rotate = RenderRotate,
         flags = RenderFlags
       )
-    except CatchableError as exc:
-      ctx.sendRenderFailure(seqId, page, PdfError, exc.msg)
+    except CatchableError:
+      ctx.sendRenderFailure(seqId, page, PdfError, getCurrentExceptionMsg())
       continue
 
     let bitmapWidth = width(bitmap)
@@ -90,8 +90,8 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
           rowStride,
           WebpQuality
         )
-      except CatchableError as exc:
-        ctx.sendRenderFailure(seqId, page, EncodeError, exc.msg)
+      except CatchableError:
+        ctx.sendRenderFailure(seqId, page, EncodeError, getCurrentExceptionMsg())
         continue
 
     if webpBytes.len == 0:
