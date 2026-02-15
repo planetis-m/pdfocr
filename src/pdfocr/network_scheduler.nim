@@ -177,11 +177,11 @@ proc retryDelayMs(state: var SchedulerState; attempt: int): int =
 proc acquireEasy(state: var SchedulerState): CurlEasy =
   if state.idleEasy.len == 0:
     return initEasy()
-  result = ensureMove(state.idleEasy.pop())
+  result = state.idleEasy.pop()
   result.reset()
 
 proc recycleEasy(state: var SchedulerState; easy: sink CurlEasy) =
-  state.idleEasy.add(ensureMove(easy))
+  state.idleEasy.add(easy)
 
 proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestContext;
                 kind: ErrorKind; message: string; retryable: bool; httpStatus = HttpCode(0)): bool =
@@ -383,7 +383,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
                       parsed.text
                     ))
             finally:
-              state.recycleEasy(ensureMove(transfer.easy))
+              state.recycleEasy(ensureMove transfer.easy)
 
 proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
   if SchedulerStopRequested.load(moRelaxed):
@@ -398,8 +398,7 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
       let req = requestToCtx(task, ctx.apiKey, easy)
       multi.addHandle(easy)
       let key = handleKey(easy)
-      var transfer = ActiveTransfer(req: req, easy: ensureMove(easy))
-      state.activeTransfers[key] = ensureMove(transfer)
+      state.activeTransfers[key] = ActiveTransfer(req: req, easy: ensureMove easy)
       updateInflightCount(state)
     except CatchableError as exc:
       if not maybeRetry(
@@ -440,7 +439,7 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
         multi.removeHandle(transfer.easy)
       except CatchableError:
         discard
-      state.recycleEasy(ensureMove(transfer.easy))
+      state.recycleEasy(ensureMove transfer.easy)
   updateInflightCount(state)
   state.retryQueue.setLen(0)
   state.renderedReady.clear()
@@ -476,34 +475,6 @@ proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
     state.renderPendingCount == 0
 
 proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
-  when defined(testing):
-    let testMode = getEnv("PDFOCR_TEST_MODE")
-    if testMode.len > 0:
-      case testMode
-      of "all_ok":
-        for seqId in 0 ..< ctx.selectedCount:
-          let page =
-            if seqId < ctx.selectedPages.len: ctx.selectedPages[seqId]
-            else: seqId + 1
-          ctx.writerInCh.send(newSuccessResult(seqId, page, 1, "ok"))
-        ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
-      of "mixed":
-        for seqId in 0 ..< ctx.selectedCount:
-          let page =
-            if seqId < ctx.selectedPages.len: ctx.selectedPages[seqId]
-            else: seqId + 1
-          if seqId mod 2 == 0:
-            ctx.writerInCh.send(newSuccessResult(seqId, page, 1, "ok"))
-          else:
-            ctx.writerInCh.send(newErrorResult(seqId, page, 1, HttpError, "synthetic mixed failure"))
-        ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
-      of "fatal":
-        ctx.sendFatal(NetworkError, "synthetic fatal scheduler failure")
-        ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
-      else:
-        discard
-      return
-
   var multi: CurlMulti
   try:
     multi = initMulti()
