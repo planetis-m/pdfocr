@@ -68,11 +68,23 @@ proc `=dup`*(src: CurlEasy): CurlEasy {.error.}
 proc `=dup`*(src: CurlMulti): CurlMulti {.error.}
 proc `=dup`*(src: CurlSlist): CurlSlist {.error.}
 
+proc rebindInternalPointers(easy: var CurlEasy) =
+  # libcurl stores raw pointers for these options; when `CurlEasy` moves, those
+  # pointers must be rebound to this object's storage.
+  if pointer(easy.raw) == nil:
+    return
+  discard curl_easy_setopt(easy.raw, CURLOPT_ERRORBUFFER, addr easy.errorBuf[0])
+  discard curl_easy_setopt(easy.raw, CURLOPT_NOSIGNAL, clong(1))
+  if easy.postData.len > 0:
+    discard curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDS, easy.postData.cstring)
+    discard curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDSIZE, clong(easy.postData.len))
+
 proc `=sink`*(dest: var CurlEasy; src: CurlEasy) =
   `=destroy`(dest)
   dest.raw = src.raw
   dest.postData = src.postData
   dest.errorBuf = src.errorBuf
+  rebindInternalPointers(dest)
 
 proc `=sink`*(dest: var CurlMulti; src: CurlMulti) =
   `=destroy`(dest)
