@@ -28,7 +28,19 @@ proc main() =
     var msg: CURLMsg
     discard tryInfoRead(multi, msg, msgsInQueue)
     discard getPrivate(easy)
+    removeHandle(multi, easy)
+
+    # Reconfigure the same easy handle after reset to ensure safe reuse.
     reset(easy)
+    setUrl(easy, "https://example.com/reuse")
+    setPostFields(easy, "{\"reuse\":true}")
+    setWriteCallback(easy, writeSink, nil)
+    setTimeoutMs(easy, 1000)
+    setConnectTimeoutMs(easy, 1000)
+    setSslVerify(easy, true, true)
+    setAcceptEncoding(easy, "")
+    setHeaders(easy, headers)
+    addHandle(multi, easy)
     removeHandle(multi, easy)
   finally:
     cleanupCurlGlobal()
