@@ -314,8 +314,8 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
         var removeOk = true
         try:
           multi.removeHandle(msg)
-        except CatchableError as exc:
-          ctx.sendFatal(NetworkError, exc.msg)
+        except CatchableError:
+          ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
           removeOk = false
           result = false
 
