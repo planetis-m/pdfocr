@@ -182,6 +182,11 @@ proc setAcceptEncoding*(easy: var CurlEasy; encoding: string) =
 
 proc reset*(easy: var CurlEasy) =
   curl_easy_reset(easy.raw)
+  easy.postData.setLen(0)
+  checkCurl(curl_easy_setopt(easy.raw, CurloptErrorbuffer, addr easy.errorBuf[0]),
+    "CurloptErrorbuffer failed")
+  checkCurl(curl_easy_setopt(easy.raw, CurloptNosignal, clong(1)),
+    "CurloptNosignal failed")
 
 proc setPrivate*(easy: var CurlEasy; data: pointer) =
   checkCurl(curl_easy_setopt(easy.raw, CurloptPrivate, data), "CurloptPrivate failed")
