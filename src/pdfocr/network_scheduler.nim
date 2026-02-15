@@ -40,11 +40,8 @@ type
     attempt: int
     webpBytes: seq[byte]
     response: RequestResponseBuffer
-    headers: CurlSlist
-
-  ActiveTransfer = object
-    req: RequestContext
     easy: CurlEasy
+    headers: CurlSlist
 
   SchedulerState = object
     nextSeqToRequestRender: int
@@ -55,7 +52,7 @@ type
     finalGuard: FinalizationGuard
     renderedReady: Table[int, RenderedTask]
     retryQueue: seq[RetryItem]
-    activeTransfers: Table[uint, ActiveTransfer]
+    activeTransfers: Table[uint, RequestContext]
     idleEasy: seq[CurlEasy]
     writerPending: Deque[PageResult]
     renderOutBatch: Deque[RendererOutput]
@@ -320,8 +317,8 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
           result = false
 
         if removeOk:
-          var transfer: ActiveTransfer
-          if not state.activeTransfers.pop(key, transfer):
+          var req: RequestContext
+          if not state.activeTransfers.pop(key, req):
             logWarn("scheduler completion missing active transfer during pop")
             result = false
             removeOk = false
@@ -332,25 +329,25 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
               if curlCode != CURLE_OK:
                 let errorKind = classifyCurlErrorKind(curlCode)
                 let errMsg = "curl transfer failed code=" & $int(curlCode)
-                result = maybeRetry(state, ctx, transfer.req, errorKind, errMsg, retryable = true)
+                result = maybeRetry(state, ctx, req, errorKind, errMsg, retryable = true)
               else:
-                let httpCode = transfer.easy.responseCode()
+                let httpCode = req.easy.responseCode()
                 if httpCode == Http429:
                   result = maybeRetry(
                     state,
                     ctx,
-                    transfer.req,
+                    req,
                     RateLimit,
                     "HTTP 429 rate limited",
                     retryable = true,
                     httpStatus = httpCode
                   )
                 elif httpStatusRetryable(httpCode) and httpCode != Http429:
-                  let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(transfer.req.response.body)
+                  let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body)
                   result = maybeRetry(
                     state,
                     ctx,
-                    transfer.req,
+                    req,
                     HttpError,
                     msg500,
                     retryable = true,
@@ -358,32 +355,32 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
                   )
                 elif httpCode < Http200 or httpCode >= Http300:
                   result = enqueueWriterResult(state, ctx, newHttpErrorResult(
-                    transfer.req.seqId,
-                    transfer.req.page,
-                    transfer.req.attempt,
+                    req.seqId,
+                    req.page,
+                    req.attempt,
                     HttpError,
-                    "HTTP " & $httpCode & ": " & responseExcerpt(transfer.req.response.body),
+                    "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body),
                     httpCode
                   ))
                 else:
-                  let parsed = parseChatCompletionResponse(transfer.req.response.body)
+                  let parsed = parseChatCompletionResponse(req.response.body)
                   if not parsed.ok:
                     result = enqueueWriterResult(state, ctx, newErrorResult(
-                      transfer.req.seqId,
-                      transfer.req.page,
-                      transfer.req.attempt,
+                      req.seqId,
+                      req.page,
+                      req.attempt,
                       ParseError,
                       parsed.error_message
                     ))
                   else:
                     result = enqueueWriterResult(state, ctx, newSuccessResult(
-                      transfer.req.seqId,
-                      transfer.req.page,
-                      transfer.req.attempt,
+                      req.seqId,
+                      req.page,
+                      req.attempt,
                       parsed.text
                     ))
             finally:
-              state.recycleEasy(ensureMove transfer.easy)
+              state.recycleEasy(req.easy)
 
 proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
   if SchedulerStopRequested.load(moRelaxed):
@@ -396,9 +393,10 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
     try:
       var easy = state.acquireEasy()
       let req = requestToCtx(task, ctx.apiKey, easy)
+      req.easy = easy
       multi.addHandle(easy)
       let key = handleKey(easy)
-      state.activeTransfers[key] = ActiveTransfer(req: req, easy: ensureMove easy)
+      state.activeTransfers[key] = req
       updateInflightCount(state)
     except CatchableError as exc:
       if not maybeRetry(
@@ -433,13 +431,13 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
   for key in state.activeTransfers.keys:
     activeKeys.add(key)
   for key in activeKeys:
-    var transfer: ActiveTransfer
-    if state.activeTransfers.pop(key, transfer):
+    var req: RequestContext
+    if state.activeTransfers.pop(key, req):
       try:
-        multi.removeHandle(transfer.easy)
+        multi.removeHandle(req.easy)
       except CatchableError:
         discard
-      state.recycleEasy(ensureMove transfer.easy)
+      state.recycleEasy(req.easy)
   updateInflightCount(state)
   state.retryQueue.setLen(0)
   state.renderedReady.clear()
@@ -491,7 +489,7 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
     finalGuard: initFinalizationGuard(ctx.selectedCount),
     renderedReady: initTable[int, RenderedTask](),
     retryQueue: @[],
-    activeTransfers: initTable[uint, ActiveTransfer](),
+    activeTransfers: initTable[uint, RequestContext](),
     idleEasy: @[],
     writerPending: initDeque[PageResult](),
     renderOutBatch: initDeque[RendererOutput](),
