@@ -4,6 +4,9 @@ import ./[constants, errors, types, curl]
 
 {.define: jsonxLenient.}
 
+const
+  RequestMaxTokens = 4096
+
 type
   OkResultLine = object
     page: int
@@ -40,6 +43,7 @@ type
   
   Request = object
     model: string
+    max_tokens: int
     messages: seq[Message]
 
   ChatCompletionMessage = object
@@ -87,6 +91,7 @@ proc encodeResultLine*(p: PageResult): string =
 proc buildChatCompletionRequest*(instruction: string; imageDataUrl: string): string =
   toJson(Request(
     model: Model,
+    max_tokens: RequestMaxTokens,
     messages: @[
       Message(
         role: "user",
