@@ -13,7 +13,7 @@ proc slidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
   result = seqId < nextToWrite + Window
 
 proc classifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
-  result = if curlCode == CurleOperationTimedout: Timeout else: NetworkError
+  result = if curlCode == CURLE_OPERATION_TIMEDOUT: Timeout else: NetworkError
 
 proc httpStatusRetryable*(httpStatus: HttpCode): bool {.inline.} =
   result = httpStatus == Http429 or (httpStatus >= Http500 and httpStatus < Http600)
@@ -306,7 +306,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
   var msg: CURLMsg
   var msgsInQueue = 0
   while result and multi.tryInfoRead(msg, msgsInQueue):
-    if msg.msg == CurlmsgDone:
+    if msg.msg == CURLMSG_DONE:
       let key = handleKey(msg)
       if not state.activeTransfers.hasKey(key):
         logWarn("scheduler completion had unknown easy handle")
@@ -329,7 +329,7 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
           if removeOk:
             try:
               let curlCode = msg.data.result
-              if curlCode != CurleOk:
+              if curlCode != CURLE_OK:
                 let errorKind = classifyCurlErrorKind(curlCode)
                 let errMsg = "curl transfer failed code=" & $int(curlCode)
                 result = maybeRetry(state, ctx, transfer.req, errorKind, errMsg, retryable = true)
