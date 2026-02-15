@@ -96,6 +96,8 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
   let selectedPages = normalizePageSelection(parsed.pagesSpec, totalPages)
   if selectedPages.len == 0:
     raise newException(ValueError, "no valid pages selected")
+  if selectedPages[^1] > totalPages:
+    raise newException(ValueError, "selected page exceeds PDF page count")
 
   result = RuntimeConfig(
     inputPath: parsed.inputPath,
