@@ -2,6 +2,8 @@ import jsonx
 import jsonx/[streams, parser]
 import ./[constants, errors, types]
 
+{.define: jsonxLenient.}
+
 type
   OkResultLine = object
     page: int
@@ -97,53 +99,6 @@ proc buildChatCompletionRequest*(instruction: string; imageDataUrl: string): str
     ]
   )
   toJson(request)
-
-proc readContentParts(p: var JsonParser; result: var string) =
-  ## Reads an array of content parts and extracts the first non-empty text
-  eat(p, tkBracketLe)
-  while p.tok != tkBracketRi:
-    eat(p, tkCurlyLe)
-    while p.tok != tkCurlyRi:
-      if p.tok != tkString:
-        raiseParseErr(p, "string literal as key")
-      if p.a == "text":
-        discard getTok(p)
-        eat(p, tkColon)
-        if result.len == 0:
-          readJson(result, p)
-        else:
-          skipJson(p)
-      else:
-        discard getTok(p)
-        eat(p, tkColon)
-        skipJson(p)
-      expectObjectSeparator(p)
-    eat(p, tkCurlyRi)
-
-    expectArraySeparator(p)
-  eat(p, tkBracketRi)
-
-proc readJson*(dst: var ChatCompletionMessage; p: var JsonParser) =
-  eat(p, tkCurlyLe)
-  while p.tok != tkCurlyRi:
-    if p.tok != tkString:
-      raiseParseErr(p, "string literal as key")
-    if p.a == "content":
-      discard getTok(p)
-      eat(p, tkColon)
-      if p.tok == tkString:
-        readJson(dst.content, p)
-      elif p.tok == tkBracketLe:
-        dst.content = readContentParts(p)
-      else:
-        raiseParseErr(p, "string or array")
-    else:
-      discard getTok(p)
-      eat(p, tkColon)
-      skipJson(p)
-    
-    expectObjectSeparator(p)
-  eat(p, tkCurlyRi)
 
 proc parseChatCompletionResponse*(payload: string): ChatCompletionParseContract =
   try:
