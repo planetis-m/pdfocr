@@ -147,6 +147,23 @@ proc scheduleRetry(state: var SchedulerState; task: RenderedTask; delayMs: int) 
     task: task
   ))
 
+proc msUntilNextRetry(state: SchedulerState): int =
+  if state.retryQueue.len == 0:
+    return MULTI_WAIT_MAX_MS
+
+  let now = getMonoTime()
+  var minMs = MULTI_WAIT_MAX_MS
+  for item in state.retryQueue:
+    let remaining = item.readyAt - now
+    if remaining <= DurationZero:
+      return 0
+
+    var remainingMs = int(remaining.inMilliseconds)
+    if remainingMs <= 0:
+      remainingMs = 1
+    minMs = min(minMs, remainingMs)
+  result = minMs
+
 proc retryDelayMs(state: var SchedulerState; attempt: int): int =
   let capped = backoffBaseMs(attempt)
   let jitterMax = max(1, capped div RetryJitterDivisor)
@@ -532,8 +549,10 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
         if not cancelAndFinalizeMissing(state, ctx, multi):
           break
         continue
-    elif state.writerPending.len > 0:
-      sleep(1)
+    else:
+      let waitMs = min(MULTI_WAIT_MAX_MS, msUntilNextRetry(state))
+      if waitMs > 0:
+        sleep(waitMs)
 
     if schedulerDone(state, ctx.selectedCount):
       sendRendererStop(state, ctx)

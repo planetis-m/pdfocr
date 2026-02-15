@@ -1,6 +1,6 @@
 import jsonx
-import jsonx/[streams, parser]
-import ./[constants, errors, types]
+import jsonx/[streams, parsejson]
+import ./[constants, errors, types, curl]
 
 {.define: jsonxLenient.}
 
@@ -57,30 +57,30 @@ type
     error_kind*: ErrorKind
     error_message*: string
 
-proc encodeResultLine*(pageResult: PageResult): string =
-  let bounded = boundedErrorMessage(pageResult.errorMessage)
-  if pageResult.status == psOk:
+proc encodeResultLine*(p: PageResult): string =
+  let bounded = boundedErrorMessage(p.errorMessage)
+  if p.status == psOk:
     result = toJson(OkResultLine(
-      page: pageResult.page,
+      page: p.page,
       status: "ok",
-      attempts: pageResult.attempts,
-      text: pageResult.text
+      attempts: p.attempts,
+      text: p.text
     ))
-  elif pageResult.hasHttpStatus:
+  elif p.httpStatus != HttpNone:
     result = toJson(ErrorResultLineWithHttp(
-      page: pageResult.page,
+      page: p.page,
       status: "error",
-      attempts: pageResult.attempts,
-      error_kind: $pageResult.errorKind,
+      attempts: p.attempts,
+      error_kind: $p.errorKind,
       error_message: bounded,
-      http_status: pageResult.httpStatus
+      http_status: int(p.httpStatus)
     ))
   else:
     result = toJson(ErrorResultLineNoHttp(
-      page: pageResult.page,
+      page: p.page,
       status: "error",
-      attempts: pageResult.attempts,
-      error_kind: $pageResult.errorKind,
+      attempts: p.attempts,
+      error_kind: $p.errorKind,
       error_message: bounded
     ))
 

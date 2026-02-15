@@ -1,6 +1,6 @@
 import std/[atomics, deques]
 import threading/channels
-import ./[constants, errors]
+import ./[constants, errors, curl]
 
 type
   SeqId* = int

@@ -18,7 +18,7 @@ type
     raw: ptr curl_slist
 
 const
-  HttpNone = HttpCode(0)
+  HttpNone* = HttpCode(0)
   Http100* = HttpCode(100)
   Http101* = HttpCode(101)
   Http102* = HttpCode(102)
