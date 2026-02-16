@@ -1,10 +1,9 @@
-import std/[atomics, base64, deques, monotimes, os, random, tables, times]
+import std/[atomics, deques, monotimes, os, random, tables, times]
 import threading/channels
 import ./bindings/curl
-import ./[constants, curl, errors, json_codec, logging, types]
+import ./[constants, curl, errors, http_batch_client, json_codec, logging, types]
 
 const
-  OCRInstruction = "Extract all readable text exactly."
   MaxWriterPending = Window + MaxInflight
   RetryJitterDivisor = 2
   ResponseExcerptLimit = 240
@@ -29,20 +28,6 @@ type
     readyAt: MonoTime
     task: RenderedTask
 
-  RequestResponseBuffer = object
-    body: string
-
-  # Keep this `ref object` acyclic for ARC/atomicArc correctness.
-  # Callback userdata points to `response` (plain object), not this ref itself.
-  RequestContext = ref object
-    seqId: SeqId
-    page: int
-    attempt: int
-    webpBytes: seq[byte]
-    response: RequestResponseBuffer
-    easy: CurlEasy
-    headers: CurlSlist
-
   SchedulerState = object
     nextSeqToRequestRender: int
     renderPendingCount: int
@@ -52,22 +37,10 @@ type
     finalGuard: FinalizationGuard
     renderedReady: Table[int, RenderedTask]
     retryQueue: seq[RetryItem]
-    activeTransfers: Table[uint, RequestContext]
-    idleEasy: seq[CurlEasy]
+    batchClient: HttpBatchClient
     writerPending: Deque[PageResult]
     renderOutBatch: Deque[RendererOutput]
     rng: Rand
-
-proc writeResponseCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer): csize_t {.cdecl.} =
-  let total = int(size * nitems)
-  if total <= 0:
-    return 0
-  let state = cast[ptr RequestResponseBuffer](userdata)
-  if state != nil:
-    let start = state.body.len
-    state.body.setLen(start + total)
-    copyMem(addr state.body[start], buffer, total)
-  result = csize_t(total)
 
 proc responseExcerpt(body: string): string {.inline.} =
   if body.len <= ResponseExcerptLimit:
@@ -84,7 +57,7 @@ proc sendFatal(ctx: SchedulerContext; kind: ErrorKind; message: string) =
   ))
 
 proc updateInflightCount(state: SchedulerState) =
-  InflightCount.store(state.activeTransfers.len, moRelaxed)
+  InflightCount.store(state.batchClient.inflightCount(), moRelaxed)
 
 proc windowLimitExclusive(): int =
   NextToWrite.load(moRelaxed) + Window
@@ -171,27 +144,19 @@ proc retryDelayMs(state: var SchedulerState; attempt: int): int =
   let jitter = state.rng.rand(jitterMax)
   result = capped + jitter
 
-proc acquireEasy(state: var SchedulerState): CurlEasy =
-  if state.idleEasy.len == 0:
-    return initEasy()
-  result = state.idleEasy.pop()
-  result.reset()
-
-proc recycleEasy(state: var SchedulerState; easy: sink CurlEasy) =
-  state.idleEasy.add(easy)
-
-proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestContext;
-                kind: ErrorKind; message: string; retryable: bool; httpStatus = HttpCode(0)): bool =
+proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; seqId: SeqId; page: int;
+                attempt: int; webpBytes: seq[byte]; kind: ErrorKind;
+                message: string; retryable: bool; httpStatus = HttpCode(0)): bool =
   let maxAttempts = 1 + MaxRetries
-  let isWindowEligible = req.seqId < windowLimitExclusive()
-  if retryable and req.attempt < maxAttempts and isWindowEligible and
+  let isWindowEligible = seqId < windowLimitExclusive()
+  if retryable and attempt < maxAttempts and isWindowEligible and
       not SchedulerStopRequested.load(moRelaxed):
-    let nextAttempt = req.attempt + 1
+    let nextAttempt = attempt + 1
     let delayMs = retryDelayMs(state, nextAttempt)
     scheduleRetry(state, RenderedTask(
-      seqId: req.seqId,
-      page: req.page,
-      webpBytes: req.webpBytes,
+      seqId: seqId,
+      page: page,
+      webpBytes: webpBytes,
       attempt: nextAttempt
     ), delayMs)
     discard RetryCount.fetchAdd(1, moRelaxed)
@@ -199,33 +164,10 @@ proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestCo
 
   let finalResult =
     if httpStatus != HttpNone:
-      newHttpErrorResult(req.seqId, req.page, req.attempt, kind, message, httpStatus)
+      newHttpErrorResult(seqId, page, attempt, kind, message, httpStatus)
     else:
-      newErrorResult(req.seqId, req.page, req.attempt, kind, message)
+      newErrorResult(seqId, page, attempt, kind, message)
   enqueueWriterResult(state, ctx, finalResult)
-
-proc requestToCtx(task: RenderedTask; apiKey: string; easy: var CurlEasy): RequestContext =
-  result = RequestContext(
-    seqId: task.seqId,
-    page: task.page,
-    attempt: task.attempt,
-    webpBytes: task.webpBytes,
-    response: RequestResponseBuffer(body: "")
-  )
-
-  let imageDataUrl = "data:image/webp;base64," & base64.encode(task.webpBytes)
-  let body = buildChatCompletionRequest(OCRInstruction, imageDataUrl)
-
-  result.headers.addHeader("Authorization: Bearer " & apiKey)
-  result.headers.addHeader("Content-Type: application/json")
-  easy.setUrl(ApiUrl)
-  easy.setWriteCallback(writeResponseCb, cast[pointer](addr result.response))
-  easy.setPostFields(body)
-  easy.setHeaders(result.headers)
-  easy.setTimeoutMs(TotalTimeoutMs)
-  easy.setConnectTimeoutMs(ConnectTimeoutMs)
-  easy.setSslVerify(true, true)
-  easy.setAcceptEncoding("gzip, deflate")
 
 proc takeNextDispatchTask(state: var SchedulerState; seqId: var SeqId; task: var RenderedTask): bool =
   let limit = windowLimitExclusive()
@@ -298,117 +240,118 @@ proc drainRendererOutputs(state: var SchedulerState; ctx: SchedulerContext): boo
         return false
   true
 
-proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
+proc processCompletions(state: var SchedulerState; ctx: SchedulerContext): bool =
   result = true
-  var msg: CURLMsg
-  var msgsInQueue = 0
-  while result and multi.tryInfoRead(msg, msgsInQueue):
-    if msg.msg == CURLMSG_DONE:
-      let key = handleKey(msg)
-      if not state.activeTransfers.hasKey(key):
-        logWarn("scheduler completion had unknown easy handle")
-      else:
-        var removeOk = true
-        try:
-          multi.removeHandle(msg)
-        except CatchableError:
-          ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
-          removeOk = false
-          result = false
+  var completion: BatchCompletion
+  while result:
+    let status =
+      try:
+        state.batchClient.tryReadCompletion(completion)
+      except CatchableError:
+        ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
+        return false
 
-        if removeOk:
-          var req: RequestContext
-          if not state.activeTransfers.pop(key, req):
-            logWarn("scheduler completion missing active transfer during pop")
-            result = false
-            removeOk = false
-          updateInflightCount(state)
-          if removeOk:
-            try:
-              let curlCode = msg.data.result
-              if curlCode != CURLE_OK:
-                let errorKind = classifyCurlErrorKind(curlCode)
-                let errMsg = "curl transfer failed code=" & $int(curlCode)
-                result = maybeRetry(state, ctx, req, errorKind, errMsg, retryable = true)
-              else:
-                let httpCode = req.easy.responseCode()
-                if httpCode == Http429:
-                  result = maybeRetry(
-                    state,
-                    ctx,
-                    req,
-                    RateLimit,
-                    "HTTP 429 rate limited",
-                    retryable = true,
-                    httpStatus = httpCode
-                  )
-                elif httpStatusRetryable(httpCode) and httpCode != Http429:
-                  let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body)
-                  result = maybeRetry(
-                    state,
-                    ctx,
-                    req,
-                    HttpError,
-                    msg500,
-                    retryable = true,
-                    httpStatus = httpCode
-                  )
-                elif httpCode < Http200 or httpCode >= Http300:
-                  result = enqueueWriterResult(state, ctx, newHttpErrorResult(
-                    req.seqId,
-                    req.page,
-                    req.attempt,
-                    HttpError,
-                    "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body),
-                    httpCode
-                  ))
-                else:
-                  let parsed = parseChatCompletionResponse(req.response.body)
-                  if not parsed.ok:
-                    result = enqueueWriterResult(state, ctx, newErrorResult(
-                      req.seqId,
-                      req.page,
-                      req.attempt,
-                      ParseError,
-                      parsed.error_message
-                    ))
-                  else:
-                    result = enqueueWriterResult(state, ctx, newSuccessResult(
-                      req.seqId,
-                      req.page,
-                      req.attempt,
-                      parsed.text
-                    ))
-            finally:
-              state.recycleEasy(req.easy)
+    case status
+    of bcsNone:
+      break
+    of bcsUnknownHandle:
+      logWarn("scheduler completion had unknown easy handle")
+    of bcsDone:
+      let req = completion.request
+      updateInflightCount(state)
+      try:
+        let curlCode = completion.curlCode
+        if curlCode != CURLE_OK:
+          let errorKind = classifyCurlErrorKind(curlCode)
+          let errMsg = "curl transfer failed code=" & $int(curlCode)
+          result = maybeRetry(
+            state,
+            ctx,
+            req.seqId,
+            req.page,
+            req.attempt,
+            req.webpBytes,
+            errorKind,
+            errMsg,
+            retryable = true
+          )
+        else:
+          let httpCode = req.easy.responseCode()
+          if httpCode == Http429:
+            result = maybeRetry(
+              state,
+              ctx,
+              req.seqId,
+              req.page,
+              req.attempt,
+              req.webpBytes,
+              RateLimit,
+              "HTTP 429 rate limited",
+              retryable = true,
+              httpStatus = httpCode
+            )
+          elif httpStatusRetryable(httpCode) and httpCode != Http429:
+            let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body)
+            result = maybeRetry(
+              state,
+              ctx,
+              req.seqId,
+              req.page,
+              req.attempt,
+              req.webpBytes,
+              HttpError,
+              msg500,
+              retryable = true,
+              httpStatus = httpCode
+            )
+          elif httpCode < Http200 or httpCode >= Http300:
+            result = enqueueWriterResult(state, ctx, newHttpErrorResult(
+              req.seqId,
+              req.page,
+              req.attempt,
+              HttpError,
+              "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body),
+              httpCode
+            ))
+          else:
+            let parsed = parseChatCompletionResponse(req.response.body)
+            if not parsed.ok:
+              result = enqueueWriterResult(state, ctx, newErrorResult(
+                req.seqId,
+                req.page,
+                req.attempt,
+                ParseError,
+                parsed.error_message
+              ))
+            else:
+              result = enqueueWriterResult(state, ctx, newSuccessResult(
+                req.seqId,
+                req.page,
+                req.attempt,
+                parsed.text
+              ))
+      finally:
+        state.batchClient.recycleEasy(req.easy)
 
-proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
+proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext): bool =
   if SchedulerStopRequested.load(moRelaxed):
     return true
-  while state.writerPending.len == 0 and state.activeTransfers.len < MaxInflight:
+  while state.writerPending.len == 0 and state.batchClient.inflightCount() < MaxInflight:
     var seqId: SeqId
     var task: RenderedTask
     if not takeNextDispatchTask(state, seqId, task):
       break
     try:
-      var easy = state.acquireEasy()
-      let req = requestToCtx(task, ctx.apiKey, easy)
-      req.easy = easy
-      multi.addHandle(easy)
-      let key = handleKey(easy)
-      state.activeTransfers[key] = req
+      state.batchClient.submitRenderedTask(task, ctx.apiKey)
       updateInflightCount(state)
     except CatchableError:
       if not maybeRetry(
         state,
         ctx,
-        RequestContext(
-          seqId: task.seqId,
-          page: task.page,
-          attempt: task.attempt,
-          webpBytes: task.webpBytes,
-          response: RequestResponseBuffer(body: "")
-        ),
+        task.seqId,
+        task.page,
+        task.attempt,
+        task.webpBytes,
         NetworkError,
         getCurrentExceptionMsg(),
         retryable = true
@@ -422,22 +365,12 @@ proc sendRendererStop(state: var SchedulerState; ctx: SchedulerContext) =
   ctx.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
   state.rendererStopSent = true
 
-proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
+proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext): bool =
   if state.cancelFinalized:
     return true
   state.cancelFinalized = true
 
-  var activeKeys = newSeqOfCap[uint](state.activeTransfers.len)
-  for key in state.activeTransfers.keys:
-    activeKeys.add(key)
-  for key in activeKeys:
-    var req: RequestContext
-    if state.activeTransfers.pop(key, req):
-      try:
-        multi.removeHandle(req.easy)
-      except CatchableError:
-        discard
-      state.recycleEasy(req.easy)
+  state.batchClient.cancelAllActive()
   updateInflightCount(state)
   state.retryQueue.setLen(0)
   state.renderedReady.clear()
@@ -462,73 +395,69 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
 proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
   if SchedulerStopRequested.load(moRelaxed):
     return state.finalCount == selectedCount and
-      state.activeTransfers.len == 0 and
+      state.batchClient.inflightCount() == 0 and
       state.retryQueue.len == 0 and
       state.writerPending.len == 0
   state.finalCount == selectedCount and
-    state.activeTransfers.len == 0 and
+    state.batchClient.inflightCount() == 0 and
     state.retryQueue.len == 0 and
     state.writerPending.len == 0 and
     state.renderedReady.len == 0 and
     state.renderPendingCount == 0
 
 proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
-  var multi: CurlMulti
+  var state: SchedulerState
   try:
-    multi = initMulti()
+    state = SchedulerState(
+      nextSeqToRequestRender: 0,
+      renderPendingCount: 0,
+      finalCount: 0,
+      rendererStopSent: false,
+      cancelFinalized: false,
+      finalGuard: initFinalizationGuard(ctx.selectedCount),
+      renderedReady: initTable[int, RenderedTask](),
+      retryQueue: @[],
+      batchClient: initHttpBatchClient(),
+      writerPending: initDeque[PageResult](),
+      renderOutBatch: initDeque[RendererOutput](),
+      rng: initRand(int(getMonoTime().ticks))
+    )
   except CatchableError:
     ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
     return
-
-  var state = SchedulerState(
-    nextSeqToRequestRender: 0,
-    renderPendingCount: 0,
-    finalCount: 0,
-    rendererStopSent: false,
-    cancelFinalized: false,
-    finalGuard: initFinalizationGuard(ctx.selectedCount),
-    renderedReady: initTable[int, RenderedTask](),
-    retryQueue: @[],
-    activeTransfers: initTable[uint, RequestContext](),
-    idleEasy: @[],
-    writerPending: initDeque[PageResult](),
-    renderOutBatch: initDeque[RendererOutput](),
-    rng: initRand(int(getMonoTime().ticks))
-  )
   updateInflightCount(state)
 
   while true:
     if SchedulerStopRequested.load(moRelaxed):
-      if not cancelAndFinalizeMissing(state, ctx, multi):
+      if not cancelAndFinalizeMissing(state, ctx):
         break
 
     flushWriterPending(state, ctx)
 
     if not drainRendererOutputs(state, ctx):
       SchedulerStopRequested.store(true, moRelaxed)
-      if not cancelAndFinalizeMissing(state, ctx, multi):
+      if not cancelAndFinalizeMissing(state, ctx):
         break
       continue
 
     promoteReadyRetries(state)
     refillRenderRequests(state, ctx)
 
-    if not dispatchRequests(state, ctx, multi):
+    if not dispatchRequests(state, ctx):
       SchedulerStopRequested.store(true, moRelaxed)
-      if not cancelAndFinalizeMissing(state, ctx, multi):
+      if not cancelAndFinalizeMissing(state, ctx):
         break
       continue
 
-    if state.activeTransfers.len > 0:
+    if state.batchClient.inflightCount() > 0:
       try:
-        discard multi.perform()
-        discard multi.poll(MultiWaitMaxMs)
+        state.batchClient.performAndPoll(MultiWaitMaxMs)
       except CatchableError:
         ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
         continue
-      if not processCompletions(state, ctx, multi):
+      if not processCompletions(state, ctx):
         SchedulerStopRequested.store(true, moRelaxed)
-        if not cancelAndFinalizeMissing(state, ctx, multi):
+        if not cancelAndFinalizeMissing(state, ctx):
           break
         continue
     else:
