@@ -1,9 +1,6 @@
 import std/[atomics, tables]
 import threading/channels
-import ./errors
-import ./json_codec
-import ./logging
-import ./types
+import ./[errors, json_codec, logging, types]
 
 proc runWriter*(ctx: WriterContext) {.thread.} =
   try:

@@ -34,7 +34,7 @@ type
 
   # Keep this `ref object` acyclic for ARC/atomicArc correctness.
   # Callback userdata points to `response` (plain object), not this ref itself.
-  RequestContext = ref object
+  RequestContext {.acyclic.} = ref object
     seqId: SeqId
     page: int
     attempt: int

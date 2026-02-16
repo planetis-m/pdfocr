@@ -1,56 +1,87 @@
 # pdfocr
 
-`pdfocr` is a Nim CLI that extracts text from selected PDF pages by:
-1. Rendering each selected page to WebP.
-2. Sending the image to DeepInfra's OpenAI-compatible chat completion endpoint using the `allenai/olmOCR-2-7B-1025` model.
-3. Emitting exactly one JSON Lines result per selected page to stdout, strictly ordered by page number.
+Turn big PDFs into clean, page-ordered OCR JSONL you can pipe straight into LLM workflows.
 
-This README describes the behavior implemented based on `SPEC.md`.
+`pdfocr` is built for real automation, not demos: it streams results in strict page order, handles retries, and stays stable when downstream consumers are slow.
 
-## Behavior
-- Strictly ordered stdout output (JSON Lines only).
-- No filesystem outputs (stdout is the sole result stream, stderr for logs).
-- Bounded memory usage with explicit backpressure handling.
-- Retries with exponential backoff and jitter for transient failures.
-- Fixed concurrency limits (hardcoded constants; not user-configurable).
+## Why it is useful
 
-## CLI
+- It works well in pipelines: stdout is results only, stderr is logs only.
+- It emits one JSON object per selected page, in deterministic order.
+- It avoids temp-file sprawl.
+- It is resilient to transient API issues (timeouts, rate limits, 5xx).
+- It keeps memory bounded under backpressure.
+
+If you have ever had OCR output arrive out-of-order, block unpredictably, or pollute stdout with logs, this is the fix.
+
+## Quick start
+
 ```bash
-pdf-olmocr INPUT.pdf --pages "1,4-6,12" > results.jsonl
+nim c -d:release -o:app src/app.nim
+export DEEPINFRA_API_KEY="your_key_here"
+LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
+./app INPUT.pdf --pages:"1,4-6,12" > results.jsonl
 ```
 
-Arguments:
-- `INPUT.pdf` (positional, required): path to a local PDF file.
-- `--pages "<spec>"` (required): comma-separated list of 1-based selectors.
-  - `N` single page
-  - `A-B` inclusive range
+Page spec is 1-based:
+- `N` for a single page
+- `A-B` for an inclusive range
+- comma-separated combinations like `"1,4-6,12"`
 
-Environment:
-- `DEEPINFRA_API_KEY` (required): API key for DeepInfra.
+Input is normalized to sorted unique pages automatically.
 
-## Output (stdout)
-JSON Lines, one object per selected page, ordered by ascending page number. Each object includes:
-- `page` (int)
-- `status` (`ok` or `error`)
-- `attempts` (int)
-- `text` (string, only on `ok`)
-- `error_kind`, `error_message`, `http_status` (only on `error`)
+## What you get
 
-## Logs (stderr)
-All progress and diagnostics will go to stderr. Stdout will remain JSONL-only.
+One JSON line per page:
 
-## Requirements
-- Nim with ARC/ORC/atomicArc support.
-- PDF rendering + WebP encoding dependencies (exact library choices TBD).
-- HTTP client support for TLS.
-- DeepInfra API key.
+```json
+{"page":12,"status":"ok","attempts":1,"text":"..."}
+```
 
-## Build Profiles
-- Default builds use `--mm:atomicArc` and mimalloc (`-d:useMimalloc`).
-- Sanitizer builds (`-d:threadSanitizer` or `-d:addressSanitizer`) switch to system malloc (`-d:useMalloc`) and do not use mimalloc.
+On failure:
 
-## Specification
-`SPEC.md` is the contract for the system design, ordering guarantees, error handling, and concurrency model.
+```json
+{"page":12,"status":"error","attempts":3,"error_kind":"Timeout","error_message":"...","http_status":504}
+```
+
+Status fields:
+- `status`: `ok` or `error`
+- `attempts`: total attempts used for that page
+- `error_kind`: one of `PdfError|EncodeError|NetworkError|Timeout|RateLimit|HttpError|ParseError`
+
+## Grounded result
+
+Live run on `tests/slides.pdf` (72 pages) completed on February 16, 2026 with:
+- `72/72` pages `ok`
+- strict output order preserved
+- exit code `0`
+- wall time `0:21.13` in this environment
+
+Your runtime will vary with hardware, PDF complexity, and network conditions.
+
+## Minimal runtime requirements
+
+- Nim `>= 2.2.6`
+- `DEEPINFRA_API_KEY`
+- `libcurl`, `libwebp`, `libpdfium` (repo expects `third_party/pdfium/lib`)
+
+## Exit codes
+
+- `0`: all selected pages succeeded
+- `2`: at least one page failed
+- `3`: fatal startup/runtime failure
+
+## Trust and contracts
+
+- `SPEC.md` defines the behavioral contract.
+- `tests/phase08/` contains acceptance coverage for ordering, retries, backpressure, and exit semantics.
+
+Run acceptance suite:
+
+```bash
+nim e tests/phase08/ci.nims test
+```
 
 ## License
+
 MIT. See `LICENSE.md`.
