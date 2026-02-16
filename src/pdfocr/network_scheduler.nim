@@ -498,44 +498,48 @@ proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
   updateInflightCount(state)
 
   while true:
+    var continueLoop = true
+
     if SchedulerStopRequested.load(moRelaxed):
       if not cancelAndFinalizeMissing(state, ctx, multi):
         break
 
     flushWriterPending(state, ctx)
 
-    if not drainRendererOutputs(state, ctx):
+    if continueLoop and not drainRendererOutputs(state, ctx):
       SchedulerStopRequested.store(true, moRelaxed)
       if not cancelAndFinalizeMissing(state, ctx, multi):
         break
-      continue
+      continueLoop = false
 
-    promoteReadyRetries(state)
-    refillRenderRequests(state, ctx)
+    if continueLoop:
+      promoteReadyRetries(state)
+      refillRenderRequests(state, ctx)
 
-    if not dispatchRequests(state, ctx, multi):
-      SchedulerStopRequested.store(true, moRelaxed)
-      if not cancelAndFinalizeMissing(state, ctx, multi):
-        break
-      continue
-
-    if state.activeTransfers.len > 0:
-      try:
-        discard multi.perform()
-        discard multi.poll(MultiWaitMaxMs)
-      except CatchableError:
-        ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
-        continue
-      if not processCompletions(state, ctx, multi):
+      if not dispatchRequests(state, ctx, multi):
         SchedulerStopRequested.store(true, moRelaxed)
         if not cancelAndFinalizeMissing(state, ctx, multi):
           break
-        continue
-    else:
-      let waitMs = min(MultiWaitMaxMs, msUntilNextRetry(state))
-      if waitMs > 0:
-        sleep(waitMs)
+        continueLoop = false
 
-    if schedulerDone(state, ctx.selectedCount):
+    if continueLoop:
+      if state.activeTransfers.len > 0:
+        try:
+          discard multi.perform()
+          discard multi.poll(MultiWaitMaxMs)
+        except CatchableError:
+          ctx.sendFatal(NetworkError, getCurrentExceptionMsg())
+          continueLoop = false
+        if continueLoop and not processCompletions(state, ctx, multi):
+          SchedulerStopRequested.store(true, moRelaxed)
+          if not cancelAndFinalizeMissing(state, ctx, multi):
+            break
+          continueLoop = false
+      else:
+        let waitMs = min(MultiWaitMaxMs, msUntilNextRetry(state))
+        if waitMs > 0:
+          sleep(waitMs)
+
+    if continueLoop and schedulerDone(state, ctx.selectedCount):
       sendRendererStop(state, ctx)
       break

@@ -22,38 +22,35 @@ proc runWriter*(ctx: WriterContext) {.thread.} =
 
       if incoming.seqId < 0 or incoming.seqId >= totalSelected:
         logWarn("writer ignoring out-of-range seq_id")
-        continue
-      if incoming.seqId < expectedSeq:
+      elif incoming.seqId < expectedSeq:
         logWarn("writer ignoring duplicate already-written seq_id")
-        continue
-      if bufferBySeq.hasKey(incoming.seqId):
+      elif bufferBySeq.hasKey(incoming.seqId):
         logWarn("writer ignoring duplicate buffered seq_id")
-        continue
+      else:
+        let mappedPage = ctx.selectedPages[incoming.seqId]
+        if incoming.page != mappedPage:
+          logWarn("writer corrected mismatched page for seq_id")
+          incoming.page = mappedPage
 
-      let mappedPage = ctx.selectedPages[incoming.seqId]
-      if incoming.page != mappedPage:
-        logWarn("writer corrected mismatched page for seq_id")
-        incoming.page = mappedPage
+        bufferBySeq[incoming.seqId] = incoming
 
-      bufferBySeq[incoming.seqId] = incoming
+        while bufferBySeq.hasKey(expectedSeq):
+          let pageResult = bufferBySeq[expectedSeq]
+          bufferBySeq.del(expectedSeq)
 
-      while bufferBySeq.hasKey(expectedSeq):
-        let pageResult = bufferBySeq[expectedSeq]
-        bufferBySeq.del(expectedSeq)
+          let line = encodeResultLine(pageResult)
+          stdout.write(line)
+          stdout.write('\n')
 
-        let line = encodeResultLine(pageResult)
-        stdout.write(line)
-        stdout.write('\n')
+          if pageResult.status == psOk:
+            inc okCount
+          else:
+            inc errCount
 
-        if pageResult.status == psOk:
-          inc okCount
-        else:
-          inc errCount
-
-        inc expectedSeq
-        NextToWrite.store(expectedSeq, moRelaxed)
-        OkCount.store(okCount, moRelaxed)
-        ErrCount.store(errCount, moRelaxed)
+          inc expectedSeq
+          NextToWrite.store(expectedSeq, moRelaxed)
+          OkCount.store(okCount, moRelaxed)
+          ErrCount.store(errCount, moRelaxed)
 
     flushFile(stdout)
   except CatchableError:

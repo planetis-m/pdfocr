@@ -48,66 +48,64 @@ proc runRenderer*(ctx: RendererContext) {.thread.} =
     let seqId = req.seqId
     if seqId < 0 or seqId >= ctx.selectedPages.len:
       ctx.sendRenderFailure(seqId, 0, PdfError, &"invalid seq_id for renderer: {seqId}")
-      continue
+    else:
+      let page = ctx.selectedPages[seqId]
 
-    let page = ctx.selectedPages[seqId]
-
-    var bitmap: PdfBitmap
-    try:
-      var pdfPage = loadPage(doc, page - 1)
-      bitmap = renderPageAtScale(
-        pdfPage,
-        RenderScale,
-        rotate = RenderRotate,
-        flags = RenderFlags
-      )
-    except CatchableError:
-      ctx.sendRenderFailure(seqId, page, PdfError, getCurrentExceptionMsg())
-      continue
-
-    let bitmapWidth = width(bitmap)
-    let bitmapHeight = height(bitmap)
-    let pixels = buffer(bitmap)
-    let rowStride = stride(bitmap)
-    if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
-      ctx.sendRenderFailure(
-        seqId,
-        page,
-        PdfError,
-        "invalid bitmap state from renderer"
-      )
-      continue
-
-    let webpBytes =
+      var bitmap: PdfBitmap
+      var renderOk = false
       try:
-        when defined(testing):
-          if getEnv("PDFOCR_TEST_FORCE_ENCODE_ERROR") == "1":
-            raise newException(ValueError, "forced encode failure for tests")
-        compressBgr(
-          Positive(bitmapWidth),
-          Positive(bitmapHeight),
-          pixels,
-          rowStride,
-          WebpQuality
+        var pdfPage = loadPage(doc, page - 1)
+        bitmap = renderPageAtScale(
+          pdfPage,
+          RenderScale,
+          rotate = RenderRotate,
+          flags = RenderFlags
         )
+        renderOk = true
       except CatchableError:
-        ctx.sendRenderFailure(seqId, page, EncodeError, getCurrentExceptionMsg())
-        continue
+        ctx.sendRenderFailure(seqId, page, PdfError, getCurrentExceptionMsg())
 
-    if webpBytes.len == 0:
-      ctx.sendRenderFailure(seqId, page, EncodeError, "encoded WebP output was empty")
-      continue
+      if renderOk:
+        let bitmapWidth = width(bitmap)
+        let bitmapHeight = height(bitmap)
+        let pixels = buffer(bitmap)
+        let rowStride = stride(bitmap)
+        if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
+          ctx.sendRenderFailure(
+            seqId,
+            page,
+            PdfError,
+            "invalid bitmap state from renderer"
+          )
+        else:
+          var webpBytes: seq[byte]
+          var encodeOk = false
+          try:
+            webpBytes = compressBgr(
+              Positive(bitmapWidth),
+              Positive(bitmapHeight),
+              pixels,
+              rowStride,
+              WebpQuality
+            )
+            encodeOk = true
+          except CatchableError:
+            ctx.sendRenderFailure(seqId, page, EncodeError, getCurrentExceptionMsg())
 
-    let output = RendererOutput(
-      kind: rokRenderedTask,
-      task: RenderedTask(
-        seqId: seqId,
-        page: page,
-        webpBytes: webpBytes,
-        attempt: 1
-      )
-    )
-    while not ctx.renderOutCh.trySend(output):
-      if SchedulerStopRequested.load(moRelaxed):
-        return
-      sleep(1)
+          if encodeOk:
+            if webpBytes.len == 0:
+              ctx.sendRenderFailure(seqId, page, EncodeError, "encoded WebP output was empty")
+            else:
+              let output = RendererOutput(
+                kind: rokRenderedTask,
+                task: RenderedTask(
+                  seqId: seqId,
+                  page: page,
+                  webpBytes: webpBytes,
+                  attempt: 1
+                )
+              )
+              while not ctx.renderOutCh.trySend(output):
+                if SchedulerStopRequested.load(moRelaxed):
+                  return
+                sleep(1)
