@@ -460,17 +460,16 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
   true
 
 proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
-  if SchedulerStopRequested.load(moRelaxed):
-    return state.finalCount == selectedCount and
-      state.activeTransfers.len == 0 and
-      state.retryQueue.len == 0 and
-      state.writerPending.len == 0
-  state.finalCount == selectedCount and
+  let baseDone = state.finalCount == selectedCount and
     state.activeTransfers.len == 0 and
     state.retryQueue.len == 0 and
-    state.writerPending.len == 0 and
-    state.renderedReady.len == 0 and
-    state.renderPendingCount == 0
+    state.writerPending.len == 0
+  if SchedulerStopRequested.load(moRelaxed):
+    baseDone
+  else:
+    baseDone and
+      state.renderedReady.len == 0 and
+      state.renderPendingCount == 0
 
 proc runNetworkScheduler*(ctx: SchedulerContext) {.thread.} =
   var multi: CurlMulti

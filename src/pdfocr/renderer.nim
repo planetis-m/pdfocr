@@ -1,10 +1,6 @@
 import std/[atomics, os, strformat]
 import threading/channels
-import ./constants
-import ./errors
-import ./pdfium
-import ./types
-import ./webp
+import ./[constants, errors, pdfium, types, webp]
 
 proc sendFatal(ctx: RendererContext; kind: ErrorKind; message: string) =
   ctx.fatalCh.send(FatalEvent(
