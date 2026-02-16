@@ -34,20 +34,22 @@ type
 
 proc writeResponseCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer): csize_t {.cdecl.} =
   let total = int(size * nitems)
-  if total <= 0:
-    return 0
-  let state = cast[ptr RequestResponseBuffer](userdata)
-  if state != nil:
-    let start = state.body.len
-    state.body.setLen(start + total)
-    copyMem(addr state.body[start], buffer, total)
-  result = csize_t(total)
+  if total > 0:
+    let state = cast[ptr RequestResponseBuffer](userdata)
+    if state != nil:
+      let start = state.body.len
+      state.body.setLen(start + total)
+      copyMem(addr state.body[start], buffer, total)
+    result = csize_t(total)
+  else:
+    result = 0
 
 proc acquireEasy(client: var HttpBatchClient): CurlEasy =
   if client.idleEasy.len == 0:
-    return initEasy()
-  result = client.idleEasy.pop()
-  result.reset()
+    result = initEasy()
+  else:
+    result = client.idleEasy.pop()
+    result.reset()
 
 proc recycleEasy*(client: var HttpBatchClient; easy: sink CurlEasy) =
   if easy != nil:
@@ -112,26 +114,23 @@ proc performAndPoll*(client: var HttpBatchClient; timeoutMs: int) =
 proc tryReadCompletion*(client: var HttpBatchClient; completion: var BatchCompletion): BatchCompletionStatus =
   var msg: CURLMsg
   var msgsInQueue = 0
-  while client.multi.tryInfoRead(msg, msgsInQueue):
-    if msg.msg != CURLMSG_DONE:
-      continue
-
-    let key = handleKey(msg)
-    if not client.activeTransfers.hasKey(key):
-      return bcsUnknownHandle
-
-    client.multi.removeHandle(msg)
-    var req: BatchRequestContext
-    if not client.activeTransfers.pop(key, req):
-      return bcsUnknownHandle
-
-    completion = BatchCompletion(
-      curlCode: msg.data.result,
-      request: req
-    )
-    return bcsDone
-
   result = bcsNone
+  while result == bcsNone and client.multi.tryInfoRead(msg, msgsInQueue):
+    if msg.msg == CURLMSG_DONE:
+      let key = handleKey(msg)
+      if not client.activeTransfers.hasKey(key):
+        result = bcsUnknownHandle
+      else:
+        client.multi.removeHandle(msg)
+        var req: BatchRequestContext
+        if client.activeTransfers.pop(key, req):
+          completion = BatchCompletion(
+            curlCode: msg.data.result,
+            request: req
+          )
+          result = bcsDone
+        else:
+          result = bcsUnknownHandle
 
 proc cancelAllActive*(client: var HttpBatchClient) =
   var activeKeys = newSeqOfCap[uint](client.activeTransfers.len)
