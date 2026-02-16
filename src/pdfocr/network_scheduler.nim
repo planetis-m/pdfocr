@@ -135,12 +135,13 @@ proc enqueueWriterResult(state: var SchedulerState; ctx: SchedulerContext; pageR
 
   discard flushPendingSends(ctx.writerInCh, state.writerPending, MaxWriterPending)
   if ctx.writerInCh.trySend(pageResult):
-    return true
-  if state.writerPending.len >= MaxWriterPending:
+    result = true
+  elif state.writerPending.len >= MaxWriterPending:
     ctx.sendFatal(NetworkError, "writer pending buffer exceeded bound")
-    return false
-  state.writerPending.addLast(pageResult)
-  true
+    result = false
+  else:
+    state.writerPending.addLast(pageResult)
+    result = true
 
 proc scheduleRetry(state: var SchedulerState; task: RenderedTask; delayMs: int) =
   state.retryQueue.add(RetryItem(
@@ -195,14 +196,14 @@ proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestCo
       attempt: nextAttempt
     ), delayMs)
     discard RetryCount.fetchAdd(1, moRelaxed)
-    return true
-
-  let finalResult =
-    if httpStatus != HttpNone:
-      newHttpErrorResult(req.seqId, req.page, req.attempt, kind, message, httpStatus)
-    else:
-      newErrorResult(req.seqId, req.page, req.attempt, kind, message)
-  enqueueWriterResult(state, ctx, finalResult)
+    result = true
+  else:
+    let finalResult =
+      if httpStatus != HttpNone:
+        newHttpErrorResult(req.seqId, req.page, req.attempt, kind, message, httpStatus)
+      else:
+        newErrorResult(req.seqId, req.page, req.attempt, kind, message)
+    result = enqueueWriterResult(state, ctx, finalResult)
 
 proc requestToCtx(task: RenderedTask; apiKey: string; easy: var CurlEasy): RequestContext =
   result = RequestContext(
@@ -229,18 +230,16 @@ proc requestToCtx(task: RenderedTask; apiKey: string; easy: var CurlEasy): Reque
 
 proc takeNextDispatchTask(state: var SchedulerState; seqId: var SeqId; task: var RenderedTask): bool =
   let limit = windowLimitExclusive()
-  var found = false
   var chosen = high(int)
   for key in state.renderedReady.keys:
     if key < limit and key < chosen:
       chosen = key
-      found = true
-  if not found:
+  if chosen == high(int):
     return false
   seqId = chosen
   task = state.renderedReady[chosen]
   state.renderedReady.del(chosen)
-  true
+  result = true
 
 proc promoteReadyRetries(state: var SchedulerState) =
   if state.retryQueue.len == 0:
@@ -278,8 +277,9 @@ proc flushWriterPending(state: var SchedulerState; ctx: SchedulerContext) =
   discard flushPendingSends(ctx.writerInCh, state.writerPending, MaxWriterPending)
 
 proc drainRendererOutputs(state: var SchedulerState; ctx: SchedulerContext): bool =
+  result = true
   discard tryRecvBatch(ctx.renderOutCh, state.renderOutBatch, HighWater)
-  while state.renderOutBatch.len > 0:
+  while result and state.renderOutBatch.len > 0:
     let output = state.renderOutBatch.popFirst()
     if state.renderPendingCount > 0:
       dec state.renderPendingCount
@@ -295,8 +295,7 @@ proc drainRendererOutputs(state: var SchedulerState; ctx: SchedulerContext): boo
         output.failure.errorKind,
         output.failure.errorMessage
       )):
-        return false
-  true
+        result = false
 
 proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
   result = true
@@ -385,7 +384,8 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
 proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: var CurlMulti): bool =
   if SchedulerStopRequested.load(moRelaxed):
     return true
-  while state.writerPending.len == 0 and state.activeTransfers.len < MaxInflight:
+  result = true
+  while result and state.writerPending.len == 0 and state.activeTransfers.len < MaxInflight:
     var seqId: SeqId
     var task: RenderedTask
     if not takeNextDispatchTask(state, seqId, task):
@@ -413,8 +413,7 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
         getCurrentExceptionMsg(),
         retryable = true
       ):
-        return false
-  true
+        result = false
 
 proc sendRendererStop(state: var SchedulerState; ctx: SchedulerContext) =
   if state.rendererStopSent:
@@ -426,6 +425,7 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
   if state.cancelFinalized:
     return true
   state.cancelFinalized = true
+  result = true
 
   var activeKeys = newSeqOfCap[uint](state.activeTransfers.len)
   for key in state.activeTransfers.keys:
@@ -454,10 +454,11 @@ proc cancelAndFinalizeMissing(state: var SchedulerState; ctx: SchedulerContext; 
       NetworkError,
       "cancelled before completion"
     )):
-      return false
+      result = false
+      break
 
-  sendRendererStop(state, ctx)
-  true
+  if result:
+    sendRendererStop(state, ctx)
 
 proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
   let baseDone = state.finalCount == selectedCount and
@@ -465,9 +466,9 @@ proc schedulerDone(state: SchedulerState; selectedCount: int): bool =
     state.retryQueue.len == 0 and
     state.writerPending.len == 0
   if SchedulerStopRequested.load(moRelaxed):
-    baseDone
+    result = baseDone
   else:
-    baseDone and
+    result = baseDone and
       state.renderedReady.len == 0 and
       state.renderPendingCount == 0
 
