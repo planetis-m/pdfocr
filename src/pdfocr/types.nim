@@ -106,8 +106,6 @@ var
   ErrCount*: Atomic[int]
   RetryCount*: Atomic[int]
   InflightCount*: Atomic[int]
-  TotalRequestCount*: Atomic[int]
-  TotalRequestLatencyMs*: Atomic[int]
   SchedulerStopRequested*: Atomic[bool]
 
 proc resetSharedAtomics*() =
@@ -116,8 +114,6 @@ proc resetSharedAtomics*() =
   ErrCount.store(0, moRelaxed)
   RetryCount.store(0, moRelaxed)
   InflightCount.store(0, moRelaxed)
-  TotalRequestCount.store(0, moRelaxed)
-  TotalRequestLatencyMs.store(0, moRelaxed)
   SchedulerStopRequested.store(false, moRelaxed)
 
 proc initRuntimeChannels*(): RuntimeChannels =

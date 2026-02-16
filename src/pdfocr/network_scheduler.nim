@@ -38,7 +38,6 @@ type
     seqId: SeqId
     page: int
     attempt: int
-    startedAt: MonoTime
     webpBytes: seq[byte]
     response: RequestResponseBuffer
     easy: CurlEasy
@@ -182,34 +181,12 @@ proc acquireEasy(state: var SchedulerState): CurlEasy =
 proc recycleEasy(state: var SchedulerState; easy: sink CurlEasy) =
   state.idleEasy.add(easy)
 
-proc requestRetryEligible(req: RequestContext; retryable: bool): bool =
-  let maxAttempts = 1 + MaxRetries
-  result = retryable and
-    req.attempt < maxAttempts and
-    req.seqId < windowLimitExclusive() and
-    not SchedulerStopRequested.load(moRelaxed)
-
-proc recordRequestLatency(req: RequestContext; latencyMs: int; outcome: string;
-                          willRetry: bool; httpStatus = HttpNone) =
-  discard TotalRequestCount.fetchAdd(1, moRelaxed)
-  discard TotalRequestLatencyMs.fetchAdd(latencyMs, moRelaxed)
-
-  let httpStatusPart =
-    if httpStatus != HttpNone: " http_status=" & $httpStatus
-    else: ""
-  logInfo(
-    "request: seq_id=" & $req.seqId &
-      " page=" & $req.page &
-      " attempt=" & $req.attempt &
-      " latency_ms=" & $latencyMs &
-      " outcome=" & outcome &
-      " will_retry=" & $willRetry &
-      httpStatusPart
-  )
-
 proc maybeRetry(state: var SchedulerState; ctx: SchedulerContext; req: RequestContext;
                 kind: ErrorKind; message: string; retryable: bool; httpStatus = HttpCode(0)): bool =
-  if requestRetryEligible(req, retryable):
+  let maxAttempts = 1 + MaxRetries
+  let isWindowEligible = req.seqId < windowLimitExclusive()
+  if retryable and req.attempt < maxAttempts and isWindowEligible and
+      not SchedulerStopRequested.load(moRelaxed):
     let nextAttempt = req.attempt + 1
     let delayMs = retryDelayMs(state, nextAttempt)
     scheduleRetry(state, RenderedTask(
@@ -233,7 +210,6 @@ proc requestToCtx(task: RenderedTask; apiKey: string; easy: var CurlEasy): Reque
     seqId: task.seqId,
     page: task.page,
     attempt: task.attempt,
-    startedAt: getMonoTime(),
     webpBytes: task.webpBytes,
     response: RequestResponseBuffer(body: "")
   )
@@ -348,19 +324,14 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
           updateInflightCount(state)
           if removeOk:
             try:
-              let latencyMs = max(0, int((getMonoTime() - req.startedAt).inMilliseconds))
               let curlCode = msg.data.result
               if curlCode != CURLE_OK:
                 let errorKind = classifyCurlErrorKind(curlCode)
                 let errMsg = "curl transfer failed code=" & $int(curlCode)
-                let willRetry = requestRetryEligible(req, retryable = true)
-                recordRequestLatency(req, latencyMs, "transport_error", willRetry)
                 result = maybeRetry(state, ctx, req, errorKind, errMsg, retryable = true)
               else:
                 let httpCode = req.easy.responseCode()
                 if httpCode == Http429:
-                  let willRetry = requestRetryEligible(req, retryable = true)
-                  recordRequestLatency(req, latencyMs, "http_429", willRetry, httpStatus = httpCode)
                   result = maybeRetry(
                     state,
                     ctx,
@@ -372,8 +343,6 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
                   )
                 elif httpStatusRetryable(httpCode) and httpCode != Http429:
                   let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(req.response.body)
-                  let willRetry = requestRetryEligible(req, retryable = true)
-                  recordRequestLatency(req, latencyMs, "http_5xx", willRetry, httpStatus = httpCode)
                   result = maybeRetry(
                     state,
                     ctx,
@@ -384,7 +353,6 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
                     httpStatus = httpCode
                   )
                 elif httpCode < Http200 or httpCode >= Http300:
-                  recordRequestLatency(req, latencyMs, "http_non_retryable", false, httpStatus = httpCode)
                   result = enqueueWriterResult(state, ctx, newHttpErrorResult(
                     req.seqId,
                     req.page,
@@ -396,7 +364,6 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
                 else:
                   let parsed = parseChatCompletionResponse(req.response.body)
                   if not parsed.ok:
-                    recordRequestLatency(req, latencyMs, "parse_error", false)
                     result = enqueueWriterResult(state, ctx, newErrorResult(
                       req.seqId,
                       req.page,
@@ -405,7 +372,6 @@ proc processCompletions(state: var SchedulerState; ctx: SchedulerContext; multi:
                       parsed.error_message
                     ))
                   else:
-                    recordRequestLatency(req, latencyMs, "ok", false)
                     result = enqueueWriterResult(state, ctx, newSuccessResult(
                       req.seqId,
                       req.page,
@@ -440,7 +406,6 @@ proc dispatchRequests(state: var SchedulerState; ctx: SchedulerContext; multi: v
           seqId: task.seqId,
           page: task.page,
           attempt: task.attempt,
-          startedAt: getMonoTime(),
           webpBytes: task.webpBytes,
           response: RequestResponseBuffer(body: "")
         ),
