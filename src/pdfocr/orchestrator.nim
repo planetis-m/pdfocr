@@ -1,7 +1,12 @@
-import std/[atomics, os]
+import std/[atomics, os, strutils]
 import threading/channels
-import ./[constants, curl, errors, logging, network_scheduler,
+import ./[constants, curl, errors, global3batch_engine, logging, network_scheduler,
          page_selection, pdfium, renderer, types, writer]
+
+type
+  EngineKind = enum
+    ekComplex,
+    ekGlobal3Batch
 
 var
   OrchSigintRequested: Atomic[bool]
@@ -31,6 +36,52 @@ proc schedulerThreadMain(ctx: SchedulerContext) {.thread.} =
   finally:
     SchedulerDone.store(true, moRelaxed)
 
+proc parseEngineValue(value: string): EngineKind =
+  case value.toLowerAscii()
+  of "complex":
+    ekComplex
+  of "global3batch":
+    ekGlobal3Batch
+  else:
+    raise newException(ValueError, "invalid --engine value: " & value)
+
+proc extractEngineArgs(cliArgs: seq[string]): tuple[engine: EngineKind, filtered: seq[string]] =
+  result.engine = ekComplex
+  result.filtered = @[]
+
+  var seenEngine = false
+  var i = 0
+  while i < cliArgs.len:
+    let arg = cliArgs[i]
+    var handled = false
+    var value = ""
+
+    if arg.startsWith("--engine="):
+      handled = true
+      value = arg.substr("--engine=".len)
+    elif arg.startsWith("--engine:"):
+      handled = true
+      value = arg.substr("--engine:".len)
+    elif arg == "--engine":
+      handled = true
+      if i + 1 >= cliArgs.len:
+        raise newException(ValueError, "missing value for --engine")
+      inc i
+      value = cliArgs[i]
+
+    if handled:
+      if value.len == 0:
+        raise newException(ValueError, "missing value for --engine")
+      let parsed = parseEngineValue(value)
+      if seenEngine and parsed != result.engine:
+        raise newException(ValueError, "conflicting --engine options")
+      result.engine = parsed
+      seenEngine = true
+    else:
+      result.filtered.add(arg)
+
+    inc i
+
 proc initGlobalLibraries*() =
   initPdfium()
   initCurlGlobal()
@@ -57,33 +108,21 @@ proc fallbackResult(runtimeConfig: RuntimeConfig; seqId: int; reason: string): P
     httpStatus: HttpNone
   )
 
-proc runOrchestrator*(cliArgs: seq[string]): int =
-  var runtimeConfig: RuntimeConfig
-  try:
-    runtimeConfig = buildRuntimeConfig(cliArgs)
-  except CatchableError:
-    logError(getCurrentExceptionMsg())
-    return ExitFatalRuntime
-
+proc runComplexEngine(runtimeConfig: RuntimeConfig): int =
   OrchSigintRequested.store(false, moRelaxed)
   resetSharedAtomics()
   setControlCHook(ctrlCHook)
 
   var
-    globalsInitialized = false
     fatalDetected = false
     sigintDetected = false
     rendererStopSent = false
-    firstFatal: FatalEvent
 
     writerThread: Thread[WriterContext]
     rendererThread: Thread[RendererContext]
     schedulerThread: Thread[SchedulerContext]
 
   try:
-    initGlobalLibraries()
-    globalsInitialized = true
-
     RuntimeChannels = initRuntimeChannels()
     logInfo("startup: selected_count=" & $runtimeConfig.selectedCount &
       " first_page=" & $runtimeConfig.selectedPages[0] &
@@ -124,7 +163,6 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
       while RuntimeChannels.fatalCh.tryRecv(ev):
         if not fatalDetected:
           fatalDetected = true
-          firstFatal = ev
           logError("fatal event: source=" & $ev.source &
             " kind=" & $ev.errorKind &
             " message=" & ev.message)
@@ -153,7 +191,6 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     while RuntimeChannels.fatalCh.tryRecv(ev):
       if not fatalDetected:
         fatalDetected = true
-        firstFatal = ev
         logError("fatal event: source=" & $ev.source &
           " kind=" & $ev.errorKind &
           " message=" & ev.message)
@@ -180,5 +217,40 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     result = ExitFatalRuntime
   finally:
     unsetControlCHook()
+
+proc runOrchestrator*(cliArgs: seq[string]): int =
+  var
+    engine = ekComplex
+    effectiveArgs = cliArgs
+
+  try:
+    let parsed = extractEngineArgs(cliArgs)
+    engine = parsed.engine
+    effectiveArgs = parsed.filtered
+  except CatchableError:
+    logError(getCurrentExceptionMsg())
+    return ExitFatalRuntime
+
+  var runtimeConfig: RuntimeConfig
+  try:
+    runtimeConfig = buildRuntimeConfig(effectiveArgs)
+  except CatchableError:
+    logError(getCurrentExceptionMsg())
+    return ExitFatalRuntime
+
+  var globalsInitialized = false
+  try:
+    initGlobalLibraries()
+    globalsInitialized = true
+
+    case engine
+    of ekComplex:
+      result = runComplexEngine(runtimeConfig)
+    of ekGlobal3Batch:
+      result = runGlobal3BatchEngine(runtimeConfig)
+  except CatchableError:
+    logError(getCurrentExceptionMsg())
+    result = ExitFatalRuntime
+  finally:
     if globalsInitialized:
       cleanupGlobalLibraries()

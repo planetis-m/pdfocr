@@ -159,6 +159,12 @@ proc setPostFields*(easy: var CurlEasy; data: string) =
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDS, easy.postData.cstring), "CURLOPT_POSTFIELDS failed")
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDSIZE, clong(easy.postData.len)), "CURLOPT_POSTFIELDSIZE failed")
 
+proc setPostFieldsRaw*(easy: var CurlEasy; data: pointer; size: int) =
+  easy.postData.setLen(0)
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POST, clong(1)), "CURLOPT_POST failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDS, data), "CURLOPT_POSTFIELDS failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDSIZE, clong(size)), "CURLOPT_POSTFIELDSIZE failed")
+
 proc setHeaders*(easy: var CurlEasy; headers: CurlSlist) =
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_HTTPHEADER, headers.raw), "CURLOPT_HTTPHEADER failed")
 
@@ -195,6 +201,9 @@ proc getPrivate*(easy: CurlEasy): pointer =
 
 proc perform*(easy: var CurlEasy) =
   checkCurl(curl_easy_perform(easy.raw), "curl_easy_perform failed")
+
+proc performCode*(easy: CurlEasy): CURLcode =
+  curl_easy_perform(easy.raw)
 
 proc responseCode*(easy: CurlEasy): HttpCode =
   var code: clong
