@@ -1,4 +1,4 @@
-import std/[atomics, os]
+import std/[atomics, monotimes, os, times]
 import threading/channels
 import ./[constants, curl, errors, logging, network_scheduler,
          page_selection, pdfium, renderer, types, writer]
@@ -79,6 +79,7 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     writerThread: Thread[WriterContext]
     rendererThread: Thread[RendererContext]
     schedulerThread: Thread[SchedulerContext]
+  let runStartedAt = getMonoTime()
 
   try:
     initGlobalLibraries()
@@ -162,10 +163,31 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
       okCount = OkCount.load(moRelaxed)
       errCount = ErrCount.load(moRelaxed)
       written = NextToWrite.load(moRelaxed)
+      runtimeMs = max(1, int((getMonoTime() - runStartedAt).inMilliseconds))
+      requestCount = TotalRequestCount.load(moRelaxed)
+      totalRequestLatencyMs = TotalRequestLatencyMs.load(moRelaxed)
     logInfo("completion: written=" & $written &
       " ok=" & $okCount &
       " err=" & $errCount &
       " retries=" & $RetryCount.load(moRelaxed))
+    if requestCount > 0:
+      let
+        avgRequestMs = float(totalRequestLatencyMs) / float(requestCount)
+        serialTheoreticalMs = float(totalRequestLatencyMs)
+        idealParallelMs = serialTheoreticalMs / float(MaxInflight)
+        speedupVsSerial = serialTheoreticalMs / float(runtimeMs)
+        efficiencyVsMaxInflight = speedupVsSerial / float(MaxInflight)
+      logInfo("performance: runtime_ms=" & $runtimeMs &
+        " request_count=" & $requestCount &
+        " avg_request_ms=" & $avgRequestMs &
+        " serial_theoretical_ms=" & $serialTheoreticalMs &
+        " max_inflight=" & $MaxInflight &
+        " ideal_parallel_ms=" & $idealParallelMs &
+        " effective_concurrency=" & $speedupVsSerial &
+        " efficiency_vs_max_inflight=" & $efficiencyVsMaxInflight)
+    else:
+      logInfo("performance: runtime_ms=" & $runtimeMs &
+        " request_count=0 avg_request_ms=0 serial_theoretical_ms=0 ideal_parallel_ms=0")
 
     if fatalDetected:
       result = ExitFatalRuntime
