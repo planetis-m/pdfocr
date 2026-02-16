@@ -1,5 +1,5 @@
 import std/[json, strutils]
-import pdfocr/[constants, errors, json_codec, types]
+import pdfocr/[constants, curl, errors, json_codec, types]
 
 proc main() =
   let okLine = encodeResultLine(PageResult(
@@ -10,8 +10,7 @@ proc main() =
     text: "hello",
     errorKind: PARSE_ERROR,
     errorMessage: "",
-    httpStatus: 0,
-    hasHttpStatus: false
+    httpStatus: HttpNone
   ))
   let okJson = parseJson(okLine)
   doAssert okJson["page"].getInt() == 7
@@ -30,14 +29,13 @@ proc main() =
     text: "",
     errorKind: HTTP_ERROR,
     errorMessage: longError,
-    httpStatus: 503,
-    hasHttpStatus: true
+    httpStatus: Http503
   ))
   let errJson = parseJson(errLine)
   doAssert errJson["page"].getInt() == 9
   doAssert errJson["status"].getStr() == "error"
   doAssert errJson["attempts"].getInt() == 2
-  doAssert errJson["error_kind"].getStr() == "HTTP_ERROR"
+  doAssert errJson["error_kind"].getStr() == $HTTP_ERROR
   doAssert errJson["http_status"].getInt() == 503
   let bounded = errJson["error_message"].getStr()
   doAssert bounded.len <= MAX_ERROR_MESSAGE_LEN
@@ -57,8 +55,7 @@ proc main() =
       text: "",
       errorKind: PARSE_ERROR,
       errorMessage: "",
-      httpStatus: 0,
-      hasHttpStatus: false
+      httpStatus: HttpNone
     ))
     doAssert parseJson(line)["attempts"].getInt() == attempts
 

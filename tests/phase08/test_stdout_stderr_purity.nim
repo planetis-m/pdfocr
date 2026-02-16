@@ -10,13 +10,12 @@ type
 proc runCommand(cmd: string): int =
   execShellCmd(cmd)
 
-proc runApp(appPath: string; apiKey: string; mode: string): RunResult =
+proc runApp(appPath: string; apiKey: string): RunResult =
   let outPath = getTempDir().joinPath("pdfocr_phase08_purity.out")
   let errPath = getTempDir().joinPath("pdfocr_phase08_purity.err")
   let cmd =
     "LD_LIBRARY_PATH=" & quoteShell("third_party/pdfium/lib") &
     " DEEPINFRA_API_KEY=" & quoteShell(apiKey) &
-    " PDFOCR_TEST_MODE=" & quoteShell(mode) &
     " " & quoteShell(appPath) &
     " " & quoteShell("tests/slides.pdf") &
     " --pages:" & quoteShell("1-5") &
@@ -34,7 +33,7 @@ proc main() =
   ) == 0
 
   let secret = "SECRET_PHASE08_KEY"
-  let run = runApp(appPath, secret, "mixed")
+  let run = runApp(appPath, secret)
   doAssert run.exitCode == 2
 
   let lines = run.stdoutText.strip().splitLines()

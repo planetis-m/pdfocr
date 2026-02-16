@@ -1,6 +1,6 @@
 import threading/channels
 import pdfocr/errors
-import pdfocr/[types, writer]
+import pdfocr/[curl, types, writer]
 
 proc main() =
   resetSharedAtomics()
@@ -19,15 +19,15 @@ proc main() =
 
   writerInCh.send(PageResult(
     seqId: 2, page: 6, status: psOk, attempts: 1, text: "c",
-    errorKind: PARSE_ERROR, errorMessage: "", httpStatus: 0, hasHttpStatus: false
+    errorKind: PARSE_ERROR, errorMessage: "", httpStatus: HttpNone
   ))
   writerInCh.send(PageResult(
     seqId: 0, page: 2, status: psOk, attempts: 1, text: "a",
-    errorKind: PARSE_ERROR, errorMessage: "", httpStatus: 0, hasHttpStatus: false
+    errorKind: PARSE_ERROR, errorMessage: "", httpStatus: HttpNone
   ))
   writerInCh.send(PageResult(
     seqId: 1, page: 4, status: psOk, attempts: 1, text: "b",
-    errorKind: PARSE_ERROR, errorMessage: "", httpStatus: 0, hasHttpStatus: false
+    errorKind: PARSE_ERROR, errorMessage: "", httpStatus: HttpNone
   ))
 
   joinThread(th)

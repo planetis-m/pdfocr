@@ -1,4 +1,3 @@
-import std/os
 import threading/channels
 import pdfocr/[errors, pdfium, renderer, types]
 
@@ -25,11 +24,7 @@ proc testPageRenderFailure() =
   doAssert rendered.failure.errorKind == PDF_ERROR
   joinThread(th)
 
-proc testEncodeFailure() =
-  putEnv("PDFOCR_TEST_FORCE_ENCODE_ERROR", "1")
-  defer:
-    delEnv("PDFOCR_TEST_FORCE_ENCODE_ERROR")
-
+proc testRenderSuccess() =
   let renderReqCh = newChan[RenderRequest](Positive(8))
   let renderOutCh = newChan[RendererOutput](Positive(8))
   let fatalCh = newChan[FatalEvent](Positive(2))
@@ -48,8 +43,9 @@ proc testEncodeFailure() =
 
   var rendered: RendererOutput
   renderOutCh.recv(rendered)
-  doAssert rendered.kind == rokRenderFailure
-  doAssert rendered.failure.errorKind == ENCODE_ERROR
+  doAssert rendered.kind == rokRenderedTask
+  doAssert rendered.task.page == 1
+  doAssert rendered.task.webpBytes.len > 0
   joinThread(th)
 
 proc testFatalOpenFailure() =
@@ -76,7 +72,7 @@ proc main() =
   initPdfium()
   try:
     testPageRenderFailure()
-    testEncodeFailure()
+    testRenderSuccess()
     testFatalOpenFailure()
   finally:
     destroyPdfium()

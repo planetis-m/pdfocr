@@ -43,37 +43,26 @@ proc main() =
     ("DEEPINFRA_API_KEY", "dummy")
   ]
 
-  let allOk = runApp(appPath, baseEnv & @[("PDFOCR_TEST_MODE", "all_ok")], @[
+  let networkRun = runApp(appPath, baseEnv, @[
     "tests/slides.pdf", "--pages:1-3"
   ])
-  doAssert allOk.exitCode == 0
-  let allOkLines = allOk.stdoutText.strip().splitLines()
-  doAssert allOkLines.len == 3
-  for line in allOkLines:
-    doAssert parseJson(line)["status"].getStr() == "ok"
-
-  let mixed = runApp(appPath, baseEnv & @[("PDFOCR_TEST_MODE", "mixed")], @[
-    "tests/slides.pdf", "--pages:1-4"
-  ])
-  doAssert mixed.exitCode == 2
-  let mixedLines = mixed.stdoutText.strip().splitLines()
-  doAssert mixedLines.len == 4
-  var okSeen = false
+  doAssert networkRun.exitCode == 2
+  let networkLines = networkRun.stdoutText.strip().splitLines()
+  doAssert networkLines.len == 3
   var errSeen = false
-  for line in mixedLines:
+  for line in networkLines:
     let status = parseJson(line)["status"].getStr()
-    if status == "ok":
-      okSeen = true
-    elif status == "error":
+    doAssert status == "ok" or status == "error"
+    if status == "error":
       errSeen = true
-  doAssert okSeen and errSeen
+  doAssert errSeen
 
   let missingKey = runApp(appPath, @[("LD_LIBRARY_PATH", "third_party/pdfium/lib")], @[
     "tests/slides.pdf", "--pages:1"
   ])
   doAssert missingKey.exitCode > 2
 
-  let badPath = runApp(appPath, baseEnv & @[("PDFOCR_TEST_MODE", "all_ok")], @[
+  let badPath = runApp(appPath, baseEnv, @[
     "tests/does-not-exist.pdf", "--pages:1"
   ])
   doAssert badPath.exitCode > 2

@@ -1,6 +1,6 @@
 import threading/channels
 import pdfocr/errors
-import pdfocr/[types, writer]
+import pdfocr/[curl, types, writer]
 
 const N = 120_000
 
@@ -31,8 +31,7 @@ proc main() =
       text: "",
       errorKind: PARSE_ERROR,
       errorMessage: "",
-      httpStatus: 0,
-      hasHttpStatus: false
+      httpStatus: HttpNone
     ))
 
   joinThread(th)
