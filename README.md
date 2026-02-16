@@ -2,7 +2,7 @@
 
 Turn big PDFs into clean, page-ordered OCR JSONL you can pipe straight into LLM workflows.
 
-`pdfocr` is built for real automation, not demos: it streams results in strict page order, handles retries, and stays stable when downstream consumers are slow.
+`pdfocr` is built for production automation: strict output order, retry resilience, bounded memory, and clean pipeline behavior.
 
 ## Why it is useful
 
@@ -13,6 +13,21 @@ Turn big PDFs into clean, page-ordered OCR JSONL you can pipe straight into LLM 
 - It keeps memory bounded under backpressure.
 
 If you have ever had OCR output arrive out-of-order, block unpredictably, or pollute stdout with logs, this is the fix.
+
+## Measured performance
+
+Live benchmark on February 16, 2026 against `tests/slides.pdf` (72 pages):
+
+- Result quality: `72/72` pages succeeded
+- Output contract: strict page order preserved, exit code `0`
+- Measured runtime: `32.52s`
+- Measured average request latency: `10.34s` per request
+- Total summed request latency (serial baseline): `744.63s` (`12m24.63s`)
+- Theoretical runtime at `MaxInflight=32` with perfect utilization: `23.27s`
+- Effective concurrency achieved: `22.90x` vs serial baseline
+- Utilization of concurrency ceiling: `71.56%`
+
+This is the key point: page-level requests are long, but concurrency collapses wall-clock time from minutes to seconds while keeping output deterministic.
 
 ## Quick start
 
@@ -49,15 +64,7 @@ Status fields:
 - `attempts`: total attempts used for that page
 - `error_kind`: one of `PdfError|EncodeError|NetworkError|Timeout|RateLimit|HttpError|ParseError`
 
-## Grounded result
-
-Live run on `tests/slides.pdf` (72 pages) completed on February 16, 2026 with:
-- `72/72` pages `ok`
-- strict output order preserved
-- exit code `0`
-- wall time `0:21.13` in this environment
-
-Your runtime will vary with hardware, PDF complexity, and network conditions.
+Your runtime will vary with hardware, PDF complexity, upstream latency, and network conditions.
 
 ## Minimal runtime requirements
 
