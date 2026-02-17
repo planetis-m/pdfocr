@@ -216,119 +216,115 @@ proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
   var msg: CURLMsg
   var msgsInQueue = 0
   while multi.tryInfoRead(msg, msgsInQueue):
-    if msg.msg != CURLMSG_DONE:
-      continue
+    if msg.msg == CURLMSG_DONE:
+      let key = handleKey(msg)
+      if active.hasKey(key):
+        var req: RequestContext
+        if active.pop(key, req):
+          InflightCount.store(active.len, moRelaxed)
 
-    let key = handleKey(msg)
-    if not active.hasKey(key):
-      continue
-
-    var req: RequestContext
-    if not active.pop(key, req):
-      continue
-    InflightCount.store(active.len, moRelaxed)
-
-    var removed = false
-    try:
-      multi.removeHandle(msg)
-      removed = true
-    except CatchableError:
-      finalizeOrRetry(
-        ctx,
-        retryQueue,
-        rng,
-        req.task,
-        req.attempt,
-        retryable = true,
-        kind = NetworkError,
-        message = boundedErrorMessage(getCurrentExceptionMsg())
-      )
-      continue
-
-    try:
-      let curlCode = msg.data.result
-      if curlCode != CURLE_OK:
-        finalizeOrRetry(
-          ctx,
-          retryQueue,
-          rng,
-          req.task,
-          req.attempt,
-          retryable = true,
-          kind = classifyCurlErrorKind(curlCode),
-          message = "curl transfer failed code=" & $int(curlCode)
-        )
-      else:
-        let responseBody = req.response.body
-        var httpCode = HttpNone
-        try:
-          httpCode = req.easy.responseCode()
-        except CatchableError:
-          finalizeOrRetry(
-            ctx,
-            retryQueue,
-            rng,
-            req.task,
-            req.attempt,
-            retryable = true,
-            kind = NetworkError,
-            message = boundedErrorMessage(getCurrentExceptionMsg())
-          )
-          continue
-
-        if httpCode == Http429:
-          finalizeOrRetry(
-            ctx,
-            retryQueue,
-            rng,
-            req.task,
-            req.attempt,
-            retryable = true,
-            kind = RateLimit,
-            message = "HTTP 429 rate limited",
-            httpStatus = httpCode
-          )
-        elif httpStatusRetryable(httpCode):
-          finalizeOrRetry(
-            ctx,
-            retryQueue,
-            rng,
-            req.task,
-            req.attempt,
-            retryable = true,
-            kind = HttpError,
-            message = "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
-            httpStatus = httpCode
-          )
-        elif httpCode < Http200 or httpCode >= Http300:
-          ctx.enqueueFinalResult(newHttpErrorResult(
-            req.task.seqId,
-            req.task.page,
-            req.attempt,
-            HttpError,
-            "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
-            httpCode
-          ))
-        else:
-          let parsed = parseChatCompletionResponse(responseBody)
-          if not parsed.ok:
-            ctx.enqueueFinalResult(newErrorResult(
-              req.task.seqId,
-              req.task.page,
+          var removed = false
+          try:
+            multi.removeHandle(msg)
+            removed = true
+          except CatchableError:
+            finalizeOrRetry(
+              ctx,
+              retryQueue,
+              rng,
+              req.task,
               req.attempt,
-              ParseError,
-              parsed.error_message
-            ))
-          else:
-            ctx.enqueueFinalResult(newSuccessResult(
-              req.task.seqId,
-              req.task.page,
-              req.attempt,
-              parsed.text
-            ))
-    finally:
-      if removed:
-        recycleEasy(idleEasy, req.easy)
+              retryable = true,
+              kind = NetworkError,
+              message = boundedErrorMessage(getCurrentExceptionMsg())
+            )
+
+          if removed:
+            try:
+              let curlCode = msg.data.result
+              if curlCode != CURLE_OK:
+                finalizeOrRetry(
+                  ctx,
+                  retryQueue,
+                  rng,
+                  req.task,
+                  req.attempt,
+                  retryable = true,
+                  kind = classifyCurlErrorKind(curlCode),
+                  message = "curl transfer failed code=" & $int(curlCode)
+                )
+              else:
+                let responseBody = req.response.body
+                var httpCode = HttpNone
+                var haveHttpCode = true
+                try:
+                  httpCode = req.easy.responseCode()
+                except CatchableError:
+                  finalizeOrRetry(
+                    ctx,
+                    retryQueue,
+                    rng,
+                    req.task,
+                    req.attempt,
+                    retryable = true,
+                    kind = NetworkError,
+                    message = boundedErrorMessage(getCurrentExceptionMsg())
+                  )
+                  haveHttpCode = false
+
+                if haveHttpCode:
+                  if httpCode == Http429:
+                    finalizeOrRetry(
+                      ctx,
+                      retryQueue,
+                      rng,
+                      req.task,
+                      req.attempt,
+                      retryable = true,
+                      kind = RateLimit,
+                      message = "HTTP 429 rate limited",
+                      httpStatus = httpCode
+                    )
+                  elif httpStatusRetryable(httpCode):
+                    finalizeOrRetry(
+                      ctx,
+                      retryQueue,
+                      rng,
+                      req.task,
+                      req.attempt,
+                      retryable = true,
+                      kind = HttpError,
+                      message = "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
+                      httpStatus = httpCode
+                    )
+                  elif httpCode < Http200 or httpCode >= Http300:
+                    ctx.enqueueFinalResult(newHttpErrorResult(
+                      req.task.seqId,
+                      req.task.page,
+                      req.attempt,
+                      HttpError,
+                      "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
+                      httpCode
+                    ))
+                  else:
+                    let parsed = parseChatCompletionResponse(responseBody)
+                    if not parsed.ok:
+                      ctx.enqueueFinalResult(newErrorResult(
+                        req.task.seqId,
+                        req.task.page,
+                        req.attempt,
+                        ParseError,
+                        parsed.error_message
+                      ))
+                    else:
+                      ctx.enqueueFinalResult(newSuccessResult(
+                        req.task.seqId,
+                        req.task.page,
+                        req.attempt,
+                        parsed.text
+                      ))
+            finally:
+              recycleEasy(idleEasy, req.easy)
 
 proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string; multi: var CurlMulti;
                          active: var Table[uint, RequestContext];

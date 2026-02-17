@@ -244,49 +244,48 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
             else:
               submissionBlocked = true
               break
-            continue
-
-          if nextToRender >= runtimeConfig.selectedCount:
-            break
-          if (nextToRender - nextToWrite) >= k:
-            break
-          if outstanding >= k:
-            break
-
-          let seqId = nextToRender
-          let page = runtimeConfig.selectedPages[seqId]
-          let rendered = renderPageToWebp(doc, page)
-
-          if rendered.ok:
-            doAssert canStore(seqId), "rendered seq_id outside pending window"
-            let task = OcrTask(
-              kind: otkPage,
-              seqId: seqId,
-              page: page,
-              webpBytes: rendered.webpBytes
-            )
-            if taskCh.trySend(task):
-              inc outstanding
-              doAssert outstanding <= k, "outstanding overflow"
-            else:
-              stagedTask = some(task)
-              submissionBlocked = true
-            inc nextToRender
           else:
-            discard storePending(
-              renderFailureResult(
-                seqId,
-                page,
-                rendered.errorKind,
-                rendered.errorMessage
-              ),
-              fromNetwork = false
-            )
-            inc nextToRender
+            if nextToRender >= runtimeConfig.selectedCount:
+              break
+            if (nextToRender - nextToWrite) >= k:
+              break
+            if outstanding >= k:
+              break
 
-          flushReady()
-          if submissionBlocked:
-            break
+            let seqId = nextToRender
+            let page = runtimeConfig.selectedPages[seqId]
+            let rendered = renderPageToWebp(doc, page)
+
+            if rendered.ok:
+              doAssert canStore(seqId), "rendered seq_id outside pending window"
+              let task = OcrTask(
+                kind: otkPage,
+                seqId: seqId,
+                page: page,
+                webpBytes: rendered.webpBytes
+              )
+              if taskCh.trySend(task):
+                inc outstanding
+                doAssert outstanding <= k, "outstanding overflow"
+              else:
+                stagedTask = some(task)
+                submissionBlocked = true
+              inc nextToRender
+            else:
+              discard storePending(
+                renderFailureResult(
+                  seqId,
+                  page,
+                  rendered.errorKind,
+                  rendered.errorMessage
+                ),
+                fromNetwork = false
+              )
+              inc nextToRender
+
+            flushReady()
+            if submissionBlocked:
+              break
 
         if nextToWrite >= runtimeConfig.selectedCount:
           break
