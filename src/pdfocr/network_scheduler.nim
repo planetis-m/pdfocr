@@ -27,13 +27,14 @@ type
 proc writeResponseCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer): csize_t {.cdecl.} =
   let total = int(size * nitems)
   if total <= 0:
-    return 0
-  let state = cast[ptr RequestResponseBuffer](userdata)
-  if state != nil:
-    let start = state.body.len
-    state.body.setLen(start + total)
-    copyMem(addr state.body[start], buffer, total)
-  result = csize_t(total)
+    result = 0
+  else:
+    let state = cast[ptr RequestResponseBuffer](userdata)
+    if state != nil:
+      let start = state.body.len
+      state.body.setLen(start + total)
+      copyMem(addr state.body[start], buffer, total)
+    result = csize_t(total)
 
 proc responseExcerpt(body: string): string {.inline.} =
   if body.len <= ResponseExcerptLimit:
@@ -107,9 +108,10 @@ proc scheduleRetry(retryQueue: var seq[RetryItem]; task: OcrTask; attempt: int; 
 
 proc acquireEasy(idleEasy: var seq[CurlEasy]): CurlEasy =
   if idleEasy.len == 0:
-    return initEasy()
-  result = idleEasy.pop()
-  result.reset()
+    result = initEasy()
+  else:
+    result = idleEasy.pop()
+    result.reset()
 
 proc recycleEasy(idleEasy: var seq[CurlEasy]; easy: sink CurlEasy) =
   idleEasy.add(easy)
@@ -119,39 +121,41 @@ proc shouldRetry(attempt: int): bool {.inline.} =
 
 proc msUntilNextRetry(retryQueue: seq[RetryItem]): int =
   if retryQueue.len == 0:
-    return MultiWaitMaxMs
-  let now = getMonoTime()
-  var minMs = MultiWaitMaxMs
-  for item in retryQueue:
-    let remaining = item.readyAt - now
-    if remaining <= DurationZero:
-      return 0
-    var remainingMs = int(remaining.inMilliseconds)
-    if remainingMs <= 0:
-      remainingMs = 1
-    minMs = min(minMs, remainingMs)
-  result = minMs
+    result = MultiWaitMaxMs
+  else:
+    let now = getMonoTime()
+    var minMs = MultiWaitMaxMs
+    for item in retryQueue:
+      let remaining = item.readyAt - now
+      if remaining <= DurationZero:
+        minMs = 0
+        break
+      var remainingMs = int(remaining.inMilliseconds)
+      if remainingMs <= 0:
+        remainingMs = 1
+      minMs = min(minMs, remainingMs)
+    result = minMs
 
 proc popReadyRetry(retryQueue: var seq[RetryItem]; task: var OcrTask; attempt: var int): bool =
   if retryQueue.len == 0:
-    return false
+    result = false
+  else:
+    let now = getMonoTime()
+    var chosen = -1
+    for i, item in retryQueue:
+      if item.readyAt <= now:
+        chosen = i
+        break
 
-  let now = getMonoTime()
-  var chosen = -1
-  for i, item in retryQueue:
-    if item.readyAt <= now:
-      chosen = i
-      break
-
-  if chosen < 0:
-    return false
-
-  let selected = retryQueue[chosen]
-  task = selected.task
-  attempt = selected.attempt
-  retryQueue[chosen] = retryQueue[^1]
-  retryQueue.setLen(retryQueue.len - 1)
-  result = true
+    if chosen < 0:
+      result = false
+    else:
+      let selected = retryQueue[chosen]
+      task = selected.task
+      attempt = selected.attempt
+      retryQueue[chosen] = retryQueue[^1]
+      retryQueue.setLen(retryQueue.len - 1)
+      result = true
 
 proc enqueueFinalResult(ctx: NetworkWorkerContext; result: sink PageResult) =
   ctx.resultCh.send(result)
@@ -357,92 +361,92 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
   var emptyActive = initTable[uint, RequestContext]()
   var emptyRetryQueue: seq[RetryItem] = @[]
   var emptyIdleEasy: seq[CurlEasy] = @[]
+  var multiReady = false
   try:
     multi = initMulti()
+    multiReady = true
   except CatchableError:
     enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, emptyActive, emptyRetryQueue, emptyIdleEasy)
-    return
+  if multiReady:
+    var
+      active = initTable[uint, RequestContext]()
+      retryQueue: seq[RetryItem] = @[]
+      idleEasy: seq[CurlEasy] = @[]
+      rng = initRand(int(getMonoTime().ticks))
+      stopRequested = false
+      running = true
 
-  var
-    active = initTable[uint, RequestContext]()
-    retryQueue: seq[RetryItem] = @[]
-    idleEasy: seq[CurlEasy] = @[]
-    rng = initRand(int(getMonoTime().ticks))
-    stopRequested = false
+    InflightCount.store(0, moRelaxed)
 
-  InflightCount.store(0, moRelaxed)
+    while running:
+      while active.len < MaxInflight:
+        var
+          task: OcrTask
+          attempt = 1
+          haveTask = false
 
-  while true:
-    while active.len < MaxInflight:
-      var
-        task: OcrTask
-        attempt = 1
-        haveTask = false
+        if popReadyRetry(retryQueue, task, attempt):
+          haveTask = true
+        elif not stopRequested:
+          var incoming: OcrTask
+          if ctx.taskCh.tryRecv(incoming):
+            if incoming.kind == otkStop:
+              stopRequested = true
+            else:
+              task = incoming
+              haveTask = true
 
-      if popReadyRetry(retryQueue, task, attempt):
-        haveTask = true
-      elif not stopRequested:
-        var incoming: OcrTask
-        if ctx.taskCh.tryRecv(incoming):
-          if incoming.kind == otkStop:
+        if not haveTask:
+          break
+
+        let dispatched = dispatchRequest(multi, active, idleEasy, task, attempt, ctx.apiKey)
+        if not dispatched.ok:
+          finalizeOrRetry(
+            ctx,
+            retryQueue,
+            rng,
+            task,
+            attempt,
+            retryable = true,
+            kind = NetworkError,
+            message = dispatched.message
+          )
+
+      if stopRequested and active.len == 0 and retryQueue.len == 0:
+        running = false
+      elif active.len == 0:
+        if retryQueue.len > 0:
+          let waitMs = msUntilNextRetry(retryQueue)
+          if waitMs > 0:
+            sleep(waitMs)
+        elif not stopRequested:
+          var task: OcrTask
+          ctx.taskCh.recv(task)
+          if task.kind == otkStop:
             stopRequested = true
           else:
-            task = incoming
-            haveTask = true
+            let dispatched = dispatchRequest(multi, active, idleEasy, task, 1, ctx.apiKey)
+            if not dispatched.ok:
+              finalizeOrRetry(
+                ctx,
+                retryQueue,
+                rng,
+                task,
+                1,
+                retryable = true,
+                kind = NetworkError,
+                message = dispatched.message
+              )
+      else:
+        try:
+          discard multi.perform()
+          discard multi.poll(min(MultiWaitMaxMs, msUntilNextRetry(retryQueue)))
+          processCompletions(ctx, multi, active, retryQueue, idleEasy, rng)
+        except CatchableError:
+          enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, active, retryQueue, idleEasy)
+          running = false
 
-      if not haveTask:
-        break
-
-      let dispatched = dispatchRequest(multi, active, idleEasy, task, attempt, ctx.apiKey)
-      if not dispatched.ok:
-        finalizeOrRetry(
-          ctx,
-          retryQueue,
-          rng,
-          task,
-          attempt,
-          retryable = true,
-          kind = NetworkError,
-          message = dispatched.message
-        )
-
-    if stopRequested and active.len == 0 and retryQueue.len == 0:
-      break
-
-    if active.len == 0:
-      if retryQueue.len > 0:
-        let waitMs = msUntilNextRetry(retryQueue)
-        if waitMs > 0:
-          sleep(waitMs)
-      elif not stopRequested:
-        var task: OcrTask
-        ctx.taskCh.recv(task)
-        if task.kind == otkStop:
-          stopRequested = true
-        else:
-          let dispatched = dispatchRequest(multi, active, idleEasy, task, 1, ctx.apiKey)
-          if not dispatched.ok:
-            finalizeOrRetry(
-              ctx,
-              retryQueue,
-              rng,
-              task,
-              1,
-              retryable = true,
-              kind = NetworkError,
-              message = dispatched.message
-            )
-      continue
-
-    try:
-      discard multi.perform()
-      discard multi.poll(min(MultiWaitMaxMs, msUntilNextRetry(retryQueue)))
-      processCompletions(ctx, multi, active, retryQueue, idleEasy, rng)
-    except CatchableError:
-      enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, active, retryQueue, idleEasy)
-      return
-
-  InflightCount.store(0, moRelaxed)
+    InflightCount.store(0, moRelaxed)
 
 proc runNetworkScheduler*(ctx: NetworkWorkerContext) {.thread.} =
   runNetworkWorker(ctx)

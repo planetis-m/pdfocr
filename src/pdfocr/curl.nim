@@ -142,9 +142,10 @@ proc tryInfoRead*(multi: var CurlMulti; msg: var CURLMsg; msgsInQueue: var int):
   let msgPtr = curl_multi_info_read(multi.raw, addr queue)
   msgsInQueue = int(queue)
   if msgPtr.isNil:
-    return false
-  msg = msgPtr[]
-  true
+    result = false
+  else:
+    msg = msgPtr[]
+    result = true
 
 proc setUrl*(easy: var CurlEasy; url: string) =
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_URL, url.cstring), "CURLOPT_URL failed")
