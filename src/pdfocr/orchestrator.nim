@@ -10,6 +10,17 @@ type
     errorKind: ErrorKind
     errorMessage: string
 
+  RenderBitmapOutcome = object
+    ok: bool
+    bitmap: PdfBitmap
+    errorMessage: string
+
+  EncodeBitmapOutcome = object
+    ok: bool
+    webpBytes: seq[byte]
+    errorKind: ErrorKind
+    errorMessage: string
+
   PendingEntry = object
     result: PageResult
     fromNetwork: bool
@@ -34,74 +45,91 @@ proc renderFailureResult(seqId: SeqId; page: int; kind: ErrorKind; message: stri
     httpStatus: HttpNone
   )
 
-proc renderPageToWebp(doc: PdfDocument; page: int): RenderPageOutcome =
-  result = RenderPageOutcome(
+proc renderPageError(kind: ErrorKind; message: string): RenderPageOutcome =
+  RenderPageOutcome(
     ok: false,
     webpBytes: @[],
+    errorKind: kind,
+    errorMessage: message
+  )
+
+proc renderPageSuccess(webpBytes: seq[byte]): RenderPageOutcome =
+  RenderPageOutcome(
+    ok: true,
+    webpBytes: webpBytes,
     errorKind: NoError,
     errorMessage: ""
   )
-  var bitmap: PdfBitmap
-  var renderOk = false
+
+proc encodeResultToRenderOutcome(encoded: var EncodeBitmapOutcome): RenderPageOutcome =
+  if encoded.ok:
+    result = renderPageSuccess(move encoded.webpBytes)
+  else:
+    result = renderPageError(encoded.errorKind, encoded.errorMessage)
+
+proc renderBitmap(doc: PdfDocument; page: int): RenderBitmapOutcome =
   try:
     var pdfPage = loadPage(doc, page - 1)
-    bitmap = renderPageAtScale(
-      pdfPage,
-      RenderScale,
-      rotate = RenderRotate,
-      flags = RenderFlags
+    let bitmap = renderPageAtScale(pdfPage, RenderScale, rotate = RenderRotate,
+        flags = RenderFlags)
+    result = RenderBitmapOutcome(
+      ok: true,
+      bitmap: bitmap,
+      errorMessage: ""
     )
-    renderOk = true
   except CatchableError:
-    result = RenderPageOutcome(
+    result = RenderBitmapOutcome(
       ok: false,
-      webpBytes: @[],
-      errorKind: PdfError,
+      bitmap: PdfBitmap(),
       errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
     )
 
-  if renderOk:
-    let bitmapWidth = width(bitmap)
-    let bitmapHeight = height(bitmap)
-    let pixels = buffer(bitmap)
-    let rowStride = stride(bitmap)
-    if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
-      result = RenderPageOutcome(
-        ok: false,
-        webpBytes: @[],
-        errorKind: PdfError,
-        errorMessage: "invalid bitmap state from renderer"
-      )
-    else:
-      try:
-        let webpBytes = compressBgr(
-          bitmapWidth,
-          bitmapHeight,
-          pixels,
-          rowStride,
-          WebpQuality
-        )
-        if webpBytes.len == 0:
-          result = RenderPageOutcome(
-            ok: false,
-            webpBytes: @[],
-            errorKind: EncodeError,
-            errorMessage: "encoded WebP output was empty"
-          )
-        else:
-          result = RenderPageOutcome(
-            ok: true,
-            webpBytes: webpBytes,
-            errorKind: NoError,
-            errorMessage: ""
-          )
-      except CatchableError:
-        result = RenderPageOutcome(
+proc encodeBitmap(bitmap: PdfBitmap): EncodeBitmapOutcome =
+  let bitmapWidth = width(bitmap)
+  let bitmapHeight = height(bitmap)
+  let pixels = buffer(bitmap)
+  let rowStride = stride(bitmap)
+
+  if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
+    result = EncodeBitmapOutcome(
+      ok: false,
+      webpBytes: @[],
+      errorKind: PdfError,
+      errorMessage: "invalid bitmap state from renderer"
+    )
+  else:
+    try:
+      let webpBytes = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride,
+          WebpQuality)
+      if webpBytes.len == 0:
+        result = EncodeBitmapOutcome(
           ok: false,
           webpBytes: @[],
           errorKind: EncodeError,
-          errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
+          errorMessage: "encoded WebP output was empty"
         )
+      else:
+        result = EncodeBitmapOutcome(
+          ok: true,
+          webpBytes: webpBytes,
+          errorKind: NoError,
+          errorMessage: ""
+        )
+    except CatchableError:
+      result = EncodeBitmapOutcome(
+        ok: false,
+        webpBytes: @[],
+        errorKind: EncodeError,
+        errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
+      )
+
+proc renderPageToWebp(doc: PdfDocument; page: int): RenderPageOutcome =
+  let rendered = renderBitmap(doc, page)
+  if rendered.ok:
+    var encoded = encodeBitmap(rendered.bitmap)
+    result = encodeResultToRenderOutcome(encoded)
+  else:
+    result = renderPageError(PdfError, rendered.errorMessage)
 
 proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
   resetSharedAtomics()
