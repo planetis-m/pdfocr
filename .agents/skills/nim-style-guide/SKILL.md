@@ -1,31 +1,31 @@
 ---
 name: nim-style-guide
-description: Write clear, idiomatic Nim using consistent naming, formatting, type design, and control flow with concrete Do/Don't patterns.
+description: Enforce idiomatic, readable Nim with strict control-flow, template/proc boundaries, type modeling, and naming rules.
 ---
 
 # Nim Style Guide
 
 Use this guide when writing or refactoring Nim.
-Focus on readability, consistency, and predictable control flow.
+Default to simple, explicit code over clever shortcuts.
 
-## Primary references
+## Non-negotiable rules
 
-- Nim Standard Library Style Guide (canonical style direction)
-- Nim Manual (language semantics)
-- Nim compiler and stdlib source (idiomatic patterns)
+- `continue` is banned.
+- Nested `type` declarations are banned.
+- Do not use early `return` only to reduce nesting.
+- Do not rewrite normal helper procs into templates unless the helper is a single expression.
+- If a helper uses `if`, `case`, loops, `try`, or `block`, it must be a `proc`.
+- Do not weaken proc contracts (e.g., `Positive` -> `int`) and then add manual checks.
+- Do not add redundant runtime checks that restate existing type/proc contracts unless the spec explicitly requires them.
 
-When in doubt, prefer consistency with existing local code and stdlib conventions.
-
-## 1. Formatting and layout
+## 1. Formatting
 
 ### Rules
 
-- Use 2 spaces for indentation. Never use tabs.
+- Indent with 2 spaces. No tabs.
 - Keep lines reasonably short (target <= 80 chars when practical).
-- Use blank lines to separate logical blocks, not every statement.
-- Avoid visual-alignment formatting that is fragile during edits.
-- Use spaces around operators and after commas.
-- Prefer `a..b` over `a .. b` for range operators.
+- Do not manually align columns with extra spaces.
+- Use `a..b` (not `a .. b`) unless spacing is needed for clarity with unary operators.
 
 ### Do
 
@@ -33,32 +33,27 @@ When in doubt, prefer consistency with existing local code and stdlib convention
 type
   Handle = object
     fd: int
-    open: bool
+    valid: bool
 ```
 
 ### Don't
 
 ```nim
 type
-  Handle     = object
-    fd        : int
-    open      : bool
+  Handle    = object
+    fd       : int
+    valid    : bool
 ```
 
 ## 2. Naming
 
 ### Rules
 
-- Types: `PascalCase`
-- Procs/templates/vars/fields: `camelCase`
-- Constants: `camelCase` or `PascalCase` (be consistent within a module)
-- Enum members:
-  - non-`pure` enums: prefixed (`pcFile`, `pcDir`)
-  - `pure` enums: `PascalCase`
-- Use real-word casing: `parseUrl`, `httpStatus`, not `parseURL`
-- Prefer subject-verb names: `fileExists`, not `existsFile`
-- Error/defect types should end with `Error` or `Defect`
-- For related variants, use suffixes like `Obj`, `Ref`, `Ptr` where useful
+- Types: `PascalCase`.
+- Procs/templates/vars/fields: `camelCase`.
+- Enum values: prefixed for non-pure enums (`pcFile`), PascalCase for pure enums.
+- Use normal word casing: `parseUrl`, `httpStatus`.
+- Prefer subject-verb names: `fileExists`, not `existsFile`.
 
 ### Do
 
@@ -74,81 +69,54 @@ proc fileExists(path: string): bool = discard
 ### Don't
 
 ```nim
-type
-  path_component = enum
-    File
-    Dir
-
 proc existsFile(path: string): bool = discard
+proc parseURL(text: string): string = discard
 ```
+
+## 3. Procs, templates, macros
+
+### Rules
+
+- Default to `proc`.
+- `template` is allowed only for tiny expression substitutions.
+- A template body should be exactly one expression.
+- Never use expression templates with `block:` wrappers to hide statements.
+- Use `macro` only when syntax transformation is required.
 
 ### Do
 
 ```nim
-type
-  ValueError = object of CatchableError
-  Node = object
-  NodeRef = ref Node
+template slotIndex(i, k: int): int =
+  i mod k
 ```
-
-## 3. Module structure
-
-### Rules
-
-- Group top-level declarations in this order:
-  1. imports
-  2. constants/types
-  3. public API
-  4. private helpers
-- Keep helpers near their usage.
-- Remove dead imports and dead declarations immediately.
-- Use `std/...` import form for standard library modules.
-
-### Do
 
 ```nim
-import std/[os, strutils]
-
-type
-  Config = object
-    rootDir: string
-
-proc parseConfig(path: string): Config = discard
-proc normalizePath(path: string): string = discard
+proc nextReady(nextToWrite: int; pending: seq[Option[int]]; k: int): bool =
+  let idx = nextToWrite mod k
+  if pending[idx].isSome():
+    result = pending[idx].get() == nextToWrite
+  else:
+    result = false
 ```
 
-## 4. Multi-line formatting
-
-### Rules
-
-- Long proc declarations should break across lines consistently.
-- Multi-line calls should continue indented.
-- Prefer readability over vertical alignment tricks.
-
-### Do
+### Don't
 
 ```nim
-proc parseRecord(
-  input: string,
-  allowEmpty: bool
-): int =
-  discard
-
-discard parseRecord(
-  someInput,
-  allowEmpty = true
-)
+template nextReady(): bool =
+  (block:
+    let idx = slotIndex(nextToWrite, k)
+    pending[idx].isSome() and pending[idx].get() == nextToWrite
+  )
 ```
 
-## 5. Control flow
+## 4. Control flow
 
 ### Rules
 
-- Prefer structured `if/elif/else` and explicit loop exit conditions.
-- Use early `return` when it improves semantics (guard/found/fatal precondition).
-- Do not use early `return` only to flatten nesting.
-- Avoid `continue`-driven logic; express branches directly.
-- Keep a clear single "normal success path" in each proc.
+- Prefer structured control flow (`if/elif/else`, explicit loop conditions).
+- `continue` is banned; structure branches instead.
+- Use early `return` for real guard exits (found/fatal/precondition), not as default style.
+- Keep one clear normal success path.
 
 ### Do
 
@@ -160,24 +128,30 @@ proc findUser(users: seq[string]; target: string): int =
   result = -1
 ```
 
+```nim
+proc process(values: seq[int]): int =
+  for value in values:
+    if value >= 0:
+      result.inc(value)
+```
+
 ### Don't
 
 ```nim
-proc work(x: int): int =
-  if x < 0: return -1
-  if x == 0: return 0
-  if x == 1: return 1
-  if x == 2: return 2
-  result = x
+proc process(values: seq[int]): int =
+  for value in values:
+    if value < 0:
+      continue
+    result.inc(value)
 ```
 
-## 6. `result` and returns
+## 5. Returns and `result`
 
 ### Rules
 
-- Prefer `result = ...` for normal flow.
-- Use `return` when control-flow meaning is important.
-- Keep return behavior consistent within a proc.
+- Use `result = ...` for normal flow.
+- Use `return` only when the control-flow meaning is important.
+- Keep return style consistent inside each proc.
 
 ### Do
 
@@ -189,14 +163,14 @@ proc parsePort(text: string): int =
   result = parsed
 ```
 
-## 7. Type design
+## 6. Type design
 
 ### Rules
 
-- Name meaningful data shapes with `object`.
-- Use tuples for short, local, obvious pair/group values.
-- If tuple fields become numerous or semantic, promote to named object.
-- Avoid nested `type` declarations inside procs.
+- Use named `object` types for semantic data.
+- Use tuples for short local values only.
+- If a tuple grows beyond a small pair/triple, create a named object.
+- Never declare `type` blocks inside procs.
 
 ### Do
 
@@ -211,41 +185,32 @@ type
 ### Don't
 
 ```nim
-proc render(): tuple[ok: bool, payload: seq[byte], errorMessage: string] = discard
+proc render(): tuple[ok: bool, payload: seq[byte], errorMessage: string] =
+  discard
 ```
 
-## 8. Proc/template/macro boundaries
+## 7. Local declarations and mutability
 
 ### Rules
 
-- Default to `proc`.
-- Use `template` for small expression-like helpers without hidden side effects.
-- Use `macro` only when syntax transformation is truly required.
-- Avoid "clever" metaprogramming for ordinary logic.
+- Use `let` by default.
+- Use `var` only for mutated values.
+- Keep declarations close to first use.
 
 ### Do
 
 ```nim
-template slotIndex(i, k: int): int =
-  i mod k
+let page = pages[idx]
+var attempts = 0
 ```
 
-### Don't
-
-```nim
-macro computeSlot(i, k: untyped): untyped =
-  # unnecessary macro for simple arithmetic
-  discard
-```
-
-## 9. Error handling style
+## 8. Errors
 
 ### Rules
 
-- Raise specific exception types/messages at boundaries.
-- Keep error text actionable and concise.
-- Do not swallow exceptions silently unless intentional and documented.
-- Prefer one place that maps internal errors to user-facing errors.
+- Raise clear, bounded, actionable errors.
+- Do not silently swallow exceptions.
+- Convert low-level errors at module boundaries.
 
 ### Do
 
@@ -256,72 +221,18 @@ except CatchableError:
   raise newException(IOError, "doWork failed: " & getCurrentExceptionMsg())
 ```
 
-## 10. Mutability and declarations
+## 9. Module hygiene
 
 ### Rules
 
-- Use `let` by default.
-- Use `var` only when mutation is required.
-- Keep variable scope tight (declare near first use).
+- Remove dead imports and dead declarations immediately.
+- Keep exports intentional; do not export internals by default.
+- Prefer `std/...` imports for standard library modules.
 
-### Do
+### Review checklist
 
-```nim
-let page = pages[idx]
-var retries = 0
-```
-
-## 11. API naming conventions
-
-### Rules
-
-- Getter-like APIs should usually be named `foo`, not `getFoo`, when O(1) and side-effect free.
-- Use `getFoo` / `setFoo` when side effects or non-trivial cost exist.
-- Use conventional verb pairs: `sort/sorted`, `reverse/reversed`, `del/delete`.
-
-### Do
-
-```nim
-proc len(data: Buffer): int = discard
-proc sorted(values: seq[int]): seq[int] = discard
-```
-
-## 12. Comments and docs
-
-### Rules
-
-- Comment *why*, not *what*.
-- Prefer short, precise comments over narrative blocks.
-- Remove stale comments when behavior changes.
-
-### Do
-
-```nim
-# Keep the original order; callers rely on stable sort behavior.
-let sortedItems = items.sorted()
-```
-
-## 13. FFI and low-level boundaries
-
-### Rules
-
-- Keep FFI surface narrow and wrapped by safer Nim APIs.
-- Make ownership explicit for foreign handles.
-- Keep unsafe blocks minimal and localized.
-
-### Do
-
-```nim
-type
-  CurlEasy = ref object
-    raw: pointer
-```
-
-## Quick Do/Don't summary
-
-1. Do choose clear structure over clever shortcuts.
-2. Do use named objects when data has semantic fields.
-3. Do keep naming consistent with Nim conventions.
-4. Don't rely on `continue` to drive control flow.
-5. Don't overuse early returns just to reduce indentation.
-6. Don't use macros/templates when a simple proc is enough.
+- Is every template a true single-expression helper?
+- Are there any `continue` statements?
+- Are there nested `type` declarations?
+- Are return paths structured and readable?
+- Did this change introduce dead code or dead exports?

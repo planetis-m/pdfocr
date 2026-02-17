@@ -75,8 +75,8 @@ proc renderPageToWebp(doc: PdfDocument; page: int): RenderPageOutcome =
     else:
       try:
         let webpBytes = compressBgr(
-          Positive(bitmapWidth),
-          Positive(bitmapHeight),
+          bitmapWidth,
+          bitmapHeight,
           pixels,
           rowStride,
           WebpQuality
@@ -137,8 +137,8 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
       globalsInitialized = true
 
       let doc = loadDocument(runtimeConfig.inputPath)
-      taskCh = newChan[OcrTask](Positive(MaxInflight))
-      resultCh = newChan[PageResult](Positive(MaxInflight))
+      taskCh = newChan[OcrTask](MaxInflight)
+      resultCh = newChan[PageResult](MaxInflight)
 
       createThread(networkThread, runNetworkWorker, NetworkWorkerContext(
         taskCh: taskCh,
@@ -180,11 +180,13 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
           pending[idx] = some(PendingEntry(result: resultForSeq, fromNetwork: fromNetwork))
           result = true
 
-      template nextReady(): bool =
-        (block:
-          let idx = slotIndex(nextToWrite)
-          pending[idx].isSome() and pending[idx].get().result.seqId == nextToWrite
-        )
+      proc nextReady(): bool =
+        let idx = slotIndex(nextToWrite)
+        if pending[idx].isSome():
+          let entry = pending[idx].get()
+          result = entry.result.seqId == nextToWrite
+        else:
+          result = false
 
       proc writeResult(resultForSeq: PageResult; fromNetwork: bool) =
         stdout.write(encodeResultLine(resultForSeq))
