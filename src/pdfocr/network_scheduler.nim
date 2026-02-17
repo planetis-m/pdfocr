@@ -1,4 +1,4 @@
-import std/[atomics, base64, monotimes, os, random]
+import std/[atomics, base64, monotimes, os, random, tables, times]
 import threading/channels
 import ./bindings/curl
 import ./[constants, curl, errors, json_codec, types]
@@ -9,8 +9,20 @@ const
   ResponseExcerptLimit = 240
 
 type
+  RetryItem = object
+    readyAt: MonoTime
+    task: OcrTask
+    attempt: int
+
   RequestResponseBuffer = object
     body: string
+
+  RequestContext {.acyclic.} = ref object
+    task: OcrTask
+    attempt: int
+    response: RequestResponseBuffer
+    easy: CurlEasy
+    headers: CurlSlist
 
 proc writeResponseCb(buffer: ptr char; size: csize_t; nitems: csize_t; userdata: pointer): csize_t {.cdecl.} =
   let total = int(size * nitems)
@@ -86,110 +98,321 @@ proc newSuccessResult(seqId: SeqId; page: int; attempts: int; text: string): Pag
     httpStatus: HttpNone
   )
 
-proc shouldRetry(attempts: int): bool {.inline.} =
-  attempts < (1 + MaxRetries)
+proc scheduleRetry(retryQueue: var seq[RetryItem]; task: OcrTask; attempt: int; delayMs: int) =
+  retryQueue.add(RetryItem(
+    readyAt: getMonoTime() + initDuration(milliseconds = delayMs),
+    task: task,
+    attempt: attempt
+  ))
 
-proc requestOnce(task: OcrTask; apiKey: string; responseBody: var string;
-                 curlCode: var CURLcode; httpCode: var HttpCode) =
-  var easy = initEasy()
-  var headers: CurlSlist
-  var response = RequestResponseBuffer(body: "")
+proc shouldRetry(attempt: int): bool {.inline.} =
+  attempt < (1 + MaxRetries)
 
-  let imageDataUrl = "data:image/webp;base64," & base64.encode(task.webpBytes)
-  let body = buildChatCompletionRequest(OCRInstruction, imageDataUrl)
+proc msUntilNextRetry(retryQueue: seq[RetryItem]): int =
+  if retryQueue.len == 0:
+    return MultiWaitMaxMs
+  let now = getMonoTime()
+  var minMs = MultiWaitMaxMs
+  for item in retryQueue:
+    let remaining = item.readyAt - now
+    if remaining <= DurationZero:
+      return 0
+    var remainingMs = int(remaining.inMilliseconds)
+    if remainingMs <= 0:
+      remainingMs = 1
+    minMs = min(minMs, remainingMs)
+  result = minMs
 
-  headers.addHeader("Authorization: Bearer " & apiKey)
-  headers.addHeader("Content-Type: application/json")
-  easy.setUrl(ApiUrl)
-  easy.setWriteCallback(writeResponseCb, cast[pointer](addr response))
-  easy.setPostFields(body)
-  easy.setHeaders(headers)
-  easy.setTimeoutMs(TotalTimeoutMs)
-  easy.setConnectTimeoutMs(ConnectTimeoutMs)
-  easy.setSslVerify(true, true)
-  easy.setAcceptEncoding("gzip, deflate")
+proc popReadyRetry(retryQueue: var seq[RetryItem]; task: var OcrTask; attempt: var int): bool =
+  if retryQueue.len == 0:
+    return false
 
-  try:
-    InflightCount.store(1, moRelaxed)
-    curlCode = easy.performCode()
-  finally:
-    InflightCount.store(0, moRelaxed)
+  let now = getMonoTime()
+  var chosen = -1
+  for i, item in retryQueue:
+    if item.readyAt <= now:
+      chosen = i
+      break
 
-  responseBody = response.body
-  if curlCode == CURLE_OK:
-    httpCode = easy.responseCode()
+  if chosen < 0:
+    return false
+
+  let selected = retryQueue[chosen]
+  task = selected.task
+  attempt = selected.attempt
+  retryQueue[chosen] = retryQueue[^1]
+  retryQueue.setLen(retryQueue.len - 1)
+  result = true
+
+proc enqueueFinalResult(ctx: NetworkWorkerContext; result: sink PageResult) =
+  ctx.resultCh.send(result)
+
+proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; rng: var Rand;
+                     task: OcrTask; attempt: int; retryable: bool;
+                     kind: ErrorKind; message: string; httpStatus = HttpNone) =
+  if retryable and shouldRetry(attempt):
+    let nextAttempt = attempt + 1
+    discard RetryCount.fetchAdd(1, moRelaxed)
+    scheduleRetry(retryQueue, task, nextAttempt, retryDelayMs(rng, nextAttempt))
   else:
-    httpCode = HttpNone
+    if httpStatus == HttpNone:
+      ctx.enqueueFinalResult(newErrorResult(task.seqId, task.page, attempt, kind, message))
+    else:
+      ctx.enqueueFinalResult(newHttpErrorResult(task.seqId, task.page, attempt, kind, message, httpStatus))
 
-proc runTaskWithRetries(task: OcrTask; apiKey: string; rng: var Rand): PageResult =
-  var attempts = 0
-  while true:
-    inc attempts
+proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContext];
+                     task: OcrTask; attempt: int; apiKey: string): tuple[ok: bool, message: string] =
+  try:
+    var easy = initEasy()
+    let req = RequestContext(
+      task: task,
+      attempt: attempt,
+      response: RequestResponseBuffer(body: ""),
+      easy: easy
+    )
+
+    let imageDataUrl = "data:image/webp;base64," & base64.encode(task.webpBytes)
+    let body = buildChatCompletionRequest(OCRInstruction, imageDataUrl)
+
+    req.headers.addHeader("Authorization: Bearer " & apiKey)
+    req.headers.addHeader("Content-Type: application/json")
+    req.easy.setUrl(ApiUrl)
+    req.easy.setWriteCallback(writeResponseCb, cast[pointer](addr req.response))
+    req.easy.setPostFields(body)
+    req.easy.setHeaders(req.headers)
+    req.easy.setTimeoutMs(TotalTimeoutMs)
+    req.easy.setConnectTimeoutMs(ConnectTimeoutMs)
+    req.easy.setSslVerify(true, true)
+    req.easy.setAcceptEncoding("gzip, deflate")
+    multi.addHandle(req.easy)
+    active[handleKey(req.easy)] = req
+    InflightCount.store(active.len, moRelaxed)
+    result = (ok: true, message: "")
+  except CatchableError:
+    result = (ok: false, message: boundedErrorMessage(getCurrentExceptionMsg()))
+
+proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
+                        active: var Table[uint, RequestContext];
+                        retryQueue: var seq[RetryItem]; rng: var Rand) =
+  var msg: CURLMsg
+  var msgsInQueue = 0
+  while multi.tryInfoRead(msg, msgsInQueue):
+    if msg.msg != CURLMSG_DONE:
+      continue
+
+    let key = handleKey(msg)
+    if not active.hasKey(key):
+      continue
+
+    var req: RequestContext
+    if not active.pop(key, req):
+      continue
+    InflightCount.store(active.len, moRelaxed)
+
     try:
-      var
-        responseBody = ""
-        curlCode = CURLE_OK
-        httpCode = HttpNone
-      requestOnce(task, apiKey, responseBody, curlCode, httpCode)
+      multi.removeHandle(msg)
+    except CatchableError:
+      finalizeOrRetry(
+        ctx,
+        retryQueue,
+        rng,
+        req.task,
+        req.attempt,
+        retryable = true,
+        kind = NetworkError,
+        message = boundedErrorMessage(getCurrentExceptionMsg())
+      )
+      continue
 
-      if curlCode != CURLE_OK:
-        let kind = classifyCurlErrorKind(curlCode)
-        let errMsg = "curl transfer failed code=" & $int(curlCode)
-        if shouldRetry(attempts):
-          discard RetryCount.fetchAdd(1, moRelaxed)
-          sleep(retryDelayMs(rng, attempts + 1))
-          continue
-        return newErrorResult(task.seqId, task.page, attempts, kind, errMsg)
+    let curlCode = msg.data.result
+    if curlCode != CURLE_OK:
+      finalizeOrRetry(
+        ctx,
+        retryQueue,
+        rng,
+        req.task,
+        req.attempt,
+        retryable = true,
+        kind = classifyCurlErrorKind(curlCode),
+        message = "curl transfer failed code=" & $int(curlCode)
+      )
+      continue
 
-      if httpCode == Http429:
-        if shouldRetry(attempts):
-          discard RetryCount.fetchAdd(1, moRelaxed)
-          sleep(retryDelayMs(rng, attempts + 1))
-          continue
-        return newHttpErrorResult(task.seqId, task.page, attempts, RateLimit, "HTTP 429 rate limited", httpCode)
+    let responseBody = req.response.body
+    var httpCode = HttpNone
+    try:
+      httpCode = req.easy.responseCode()
+    except CatchableError:
+      finalizeOrRetry(
+        ctx,
+        retryQueue,
+        rng,
+        req.task,
+        req.attempt,
+        retryable = true,
+        kind = NetworkError,
+        message = boundedErrorMessage(getCurrentExceptionMsg())
+      )
+      continue
 
-      if httpStatusRetryable(httpCode) and httpCode != Http429:
-        let msg500 = "HTTP " & $httpCode & ": " & responseExcerpt(responseBody)
-        if shouldRetry(attempts):
-          discard RetryCount.fetchAdd(1, moRelaxed)
-          sleep(retryDelayMs(rng, attempts + 1))
-          continue
-        return newHttpErrorResult(task.seqId, task.page, attempts, HttpError, msg500, httpCode)
-
-      if httpCode < Http200 or httpCode >= Http300:
-        return newHttpErrorResult(
-          task.seqId,
-          task.page,
-          attempts,
-          HttpError,
-          "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
-          httpCode
-        )
-
+    if httpCode == Http429:
+      finalizeOrRetry(
+        ctx,
+        retryQueue,
+        rng,
+        req.task,
+        req.attempt,
+        retryable = true,
+        kind = RateLimit,
+        message = "HTTP 429 rate limited",
+        httpStatus = httpCode
+      )
+    elif httpStatusRetryable(httpCode):
+      finalizeOrRetry(
+        ctx,
+        retryQueue,
+        rng,
+        req.task,
+        req.attempt,
+        retryable = true,
+        kind = HttpError,
+        message = "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
+        httpStatus = httpCode
+      )
+    elif httpCode < Http200 or httpCode >= Http300:
+      ctx.enqueueFinalResult(newHttpErrorResult(
+        req.task.seqId,
+        req.task.page,
+        req.attempt,
+        HttpError,
+        "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
+        httpCode
+      ))
+    else:
       let parsed = parseChatCompletionResponse(responseBody)
       if not parsed.ok:
-        return newErrorResult(task.seqId, task.page, attempts, ParseError, parsed.error_message)
+        ctx.enqueueFinalResult(newErrorResult(
+          req.task.seqId,
+          req.task.page,
+          req.attempt,
+          ParseError,
+          parsed.error_message
+        ))
+      else:
+        ctx.enqueueFinalResult(newSuccessResult(
+          req.task.seqId,
+          req.task.page,
+          req.attempt,
+          parsed.text
+        ))
 
-      return newSuccessResult(task.seqId, task.page, attempts, parsed.text)
-    except CatchableError:
-      InflightCount.store(0, moRelaxed)
-      let errMsg = boundedErrorMessage(getCurrentExceptionMsg())
-      if shouldRetry(attempts):
-        discard RetryCount.fetchAdd(1, moRelaxed)
-        sleep(retryDelayMs(rng, attempts + 1))
-        continue
-      return newErrorResult(task.seqId, task.page, attempts, NetworkError, errMsg)
-
-proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
-  var rng = initRand(int(getMonoTime().ticks))
+proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string; active: var Table[uint, RequestContext];
+                         retryQueue: var seq[RetryItem]) =
+  let bounded = boundedErrorMessage(message)
+  for req in active.values:
+    ctx.enqueueFinalResult(newErrorResult(req.task.seqId, req.task.page, req.attempt, NetworkError, bounded))
+  active.clear()
   InflightCount.store(0, moRelaxed)
+
+  for item in retryQueue:
+    ctx.enqueueFinalResult(newErrorResult(item.task.seqId, item.task.page, item.attempt, NetworkError, bounded))
+  retryQueue.setLen(0)
+
   while true:
     var task: OcrTask
     ctx.taskCh.recv(task)
     if task.kind == otkStop:
       break
-    let result = runTaskWithRetries(task, ctx.apiKey, rng)
-    ctx.resultCh.send(result)
+    ctx.enqueueFinalResult(newErrorResult(task.seqId, task.page, 1, NetworkError, bounded))
+
+proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
+  var multi: CurlMulti
+  var emptyActive = initTable[uint, RequestContext]()
+  var emptyRetryQueue: seq[RetryItem] = @[]
+  try:
+    multi = initMulti()
+  except CatchableError:
+    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), emptyActive, emptyRetryQueue)
+    return
+
+  var
+    active = initTable[uint, RequestContext]()
+    retryQueue: seq[RetryItem] = @[]
+    rng = initRand(int(getMonoTime().ticks))
+    stopRequested = false
+
+  InflightCount.store(0, moRelaxed)
+
+  while true:
+    while active.len < MaxInflight:
+      var
+        task: OcrTask
+        attempt = 1
+        haveTask = false
+
+      if popReadyRetry(retryQueue, task, attempt):
+        haveTask = true
+      elif not stopRequested:
+        var incoming: OcrTask
+        if ctx.taskCh.tryRecv(incoming):
+          if incoming.kind == otkStop:
+            stopRequested = true
+          else:
+            task = incoming
+            haveTask = true
+
+      if not haveTask:
+        break
+
+      let dispatched = dispatchRequest(multi, active, task, attempt, ctx.apiKey)
+      if not dispatched.ok:
+        finalizeOrRetry(
+          ctx,
+          retryQueue,
+          rng,
+          task,
+          attempt,
+          retryable = true,
+          kind = NetworkError,
+          message = dispatched.message
+        )
+
+    if stopRequested and active.len == 0 and retryQueue.len == 0:
+      break
+
+    if active.len == 0:
+      if retryQueue.len > 0:
+        let waitMs = msUntilNextRetry(retryQueue)
+        if waitMs > 0:
+          sleep(waitMs)
+      elif not stopRequested:
+        var task: OcrTask
+        ctx.taskCh.recv(task)
+        if task.kind == otkStop:
+          stopRequested = true
+        else:
+          let dispatched = dispatchRequest(multi, active, task, 1, ctx.apiKey)
+          if not dispatched.ok:
+            finalizeOrRetry(
+              ctx,
+              retryQueue,
+              rng,
+              task,
+              1,
+              retryable = true,
+              kind = NetworkError,
+              message = dispatched.message
+            )
+      continue
+
+    try:
+      discard multi.perform()
+      discard multi.poll(min(MultiWaitMaxMs, msUntilNextRetry(retryQueue)))
+      processCompletions(ctx, multi, active, retryQueue, rng)
+    except CatchableError:
+      enterDrainErrorMode(ctx, getCurrentExceptionMsg(), active, retryQueue)
+      return
+
   InflightCount.store(0, moRelaxed)
 
 proc runNetworkScheduler*(ctx: NetworkWorkerContext) {.thread.} =

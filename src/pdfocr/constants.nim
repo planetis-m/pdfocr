@@ -5,9 +5,9 @@ const
   Model* = "allenai/olmOCR-2-7B-1025"
 
   MaxInflight* = 32
-  Window* = 64
-  HighWater* = 64
-  LowWater* = 16
+  Window* = MaxInflight
+  HighWater* = MaxInflight
+  LowWater* = MaxInflight div 2
   # Window + bounded channel capacities are the core memory bound.
 
   ConnectTimeoutMs* = 10_000
@@ -32,4 +32,3 @@ const
 static:
   doAssert HighWater <= Window
   doAssert LowWater < HighWater
-

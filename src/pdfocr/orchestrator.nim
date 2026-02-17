@@ -1,4 +1,4 @@
-import std/atomics
+import std/[atomics, tables]
 import threading/channels
 import ./[constants, curl, errors, json_codec, logging, network_scheduler,
          page_selection, pdfium, types, webp]
@@ -105,6 +105,9 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     written = 0
     okCount = 0
     errCount = 0
+    nextToRender = 0
+    nextToWrite = 0
+    outstanding = 0
 
     taskCh: Chan[OcrTask]
     resultCh: Chan[PageResult]
@@ -115,8 +118,8 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     globalsInitialized = true
 
     let doc = loadDocument(runtimeConfig.inputPath)
-    taskCh = newChan[OcrTask](Positive(1))
-    resultCh = newChan[PageResult](Positive(1))
+    taskCh = newChan[OcrTask](Positive(MaxInflight))
+    resultCh = newChan[PageResult](Positive(MaxInflight))
 
     createThread(networkThread, runNetworkWorker, NetworkWorkerContext(
       taskCh: taskCh,
@@ -129,42 +132,96 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
       " first_page=" & $runtimeConfig.selectedPages[0] &
       " last_page=" & $runtimeConfig.selectedPages[^1])
 
-    for seqId in 0 ..< runtimeConfig.selectedCount:
-      let page = runtimeConfig.selectedPages[seqId]
-      let rendered = renderPageToWebp(doc, page)
+    var pendingBySeq = initTable[int, PageResult]()
+    var usesNetwork = newSeq[bool](runtimeConfig.selectedCount)
 
-      var pageResult: PageResult
-      if rendered.ok:
-        taskCh.send(OcrTask(
-          kind: otkPage,
-          seqId: seqId,
-          page: page,
-          webpBytes: rendered.webpBytes
-        ))
-        resultCh.recv(pageResult)
-      else:
-        pageResult = renderFailureResult(seqId, page, rendered.errorKind, rendered.errorMessage)
-
-      if pageResult.seqId != seqId:
-        logWarn("network result seq_id mismatch; correcting for ordered output")
-        pageResult.seqId = seqId
-      if pageResult.page != page:
-        logWarn("network result page mismatch; correcting output page")
-        pageResult.page = page
-
-      stdout.write(encodeResultLine(pageResult))
+    proc writeResult(resultForSeq: PageResult) =
+      stdout.write(encodeResultLine(resultForSeq))
       stdout.write('\n')
 
-      if pageResult.status == psOk:
+      if resultForSeq.status == psOk:
         inc okCount
       else:
         inc errCount
         anyError = true
 
+      if usesNetwork[resultForSeq.seqId]:
+        dec outstanding
+
       inc written
+      inc nextToWrite
       NextToWrite.store(written, moRelaxed)
       OkCount.store(okCount, moRelaxed)
       ErrCount.store(errCount, moRelaxed)
+
+    proc flushReady() =
+      while nextToWrite < runtimeConfig.selectedCount and pendingBySeq.hasKey(nextToWrite):
+        var pageResult = pendingBySeq[nextToWrite]
+        pendingBySeq.del(nextToWrite)
+        let mappedPage = runtimeConfig.selectedPages[nextToWrite]
+        if pageResult.seqId != nextToWrite:
+          logWarn("corrected mismatched seq_id before ordered write")
+          pageResult.seqId = nextToWrite
+        if pageResult.page != mappedPage:
+          logWarn("corrected mismatched page before ordered write")
+          pageResult.page = mappedPage
+        writeResult(pageResult)
+
+    while nextToWrite < runtimeConfig.selectedCount:
+      while nextToRender < runtimeConfig.selectedCount and
+            (nextToRender - nextToWrite) < MaxInflight and
+            outstanding < MaxInflight:
+        let seqId = nextToRender
+        let page = runtimeConfig.selectedPages[seqId]
+        let rendered = renderPageToWebp(doc, page)
+
+        if rendered.ok:
+          usesNetwork[seqId] = true
+          taskCh.send(OcrTask(
+            kind: otkPage,
+            seqId: seqId,
+            page: page,
+            webpBytes: rendered.webpBytes
+          ))
+          inc outstanding
+        else:
+          pendingBySeq[seqId] = renderFailureResult(
+            seqId,
+            page,
+            rendered.errorKind,
+            rendered.errorMessage
+          )
+
+        inc nextToRender
+        flushReady()
+
+      if nextToWrite >= runtimeConfig.selectedCount:
+        break
+
+      if pendingBySeq.hasKey(nextToWrite):
+        flushReady()
+        continue
+
+      if outstanding > 0:
+        var networkResult: PageResult
+        resultCh.recv(networkResult)
+        let seqId = networkResult.seqId
+        if seqId < 0 or seqId >= runtimeConfig.selectedCount:
+          logWarn("network returned out-of-range seq_id; synthesizing ordered error")
+          if not pendingBySeq.hasKey(nextToWrite):
+            pendingBySeq[nextToWrite] = renderFailureResult(
+              nextToWrite,
+              runtimeConfig.selectedPages[nextToWrite],
+              NetworkError,
+              "network returned invalid seq_id"
+            )
+        elif pendingBySeq.hasKey(seqId):
+          logWarn("network returned duplicate seq_id result; dropping duplicate")
+        else:
+          pendingBySeq[seqId] = networkResult
+        flushReady()
+      elif nextToRender >= runtimeConfig.selectedCount:
+        raise newException(IOError, "orchestrator stalled with no outstanding work")
 
     flushFile(stdout)
     taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))

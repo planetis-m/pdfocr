@@ -18,10 +18,10 @@ proc main() =
     let base = backoffBaseMs(attempt)
     doAssert base <= RETRY_MAX_DELAY_MS
 
-  doAssert slidingWindowAllows(63, 0)
-  doAssert not slidingWindowAllows(64, 0)
-  doAssert slidingWindowAllows(110, 47)
-  doAssert not slidingWindowAllows(111, 47)
+  doAssert slidingWindowAllows(WINDOW - 1, 0)
+  doAssert not slidingWindowAllows(WINDOW, 0)
+  doAssert slidingWindowAllows(47 + WINDOW - 1, 47)
+  doAssert not slidingWindowAllows(47 + WINDOW, 47)
 
 when isMainModule:
   main()
