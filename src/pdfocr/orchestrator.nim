@@ -139,6 +139,7 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
 
     let k = MaxInflight
     var pending = newSeq[Option[PendingEntry]](k)
+    var stagedTask = none(OcrTask)
 
     proc slotIndex(seqId: int): int =
       seqId mod k
@@ -217,23 +218,47 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
         raise newException(IOError, "network returned duplicate seq_id result: " & $seqId)
 
     while nextToWrite < runtimeConfig.selectedCount:
-      while nextToRender < runtimeConfig.selectedCount and
-            (nextToRender - nextToWrite) < k and
-            outstanding < k:
+      var submissionBlocked = false
+      while true:
+        if stagedTask.isSome():
+          if outstanding >= k:
+            break
+          let task = stagedTask.get()
+          if taskCh.trySend(task):
+            stagedTask = none(OcrTask)
+            inc outstanding
+            doAssert outstanding <= k, "outstanding overflow"
+          else:
+            submissionBlocked = true
+            break
+          continue
+
+        if nextToRender >= runtimeConfig.selectedCount:
+          break
+        if (nextToRender - nextToWrite) >= k:
+          break
+        if outstanding >= k:
+          break
+
         let seqId = nextToRender
         let page = runtimeConfig.selectedPages[seqId]
         let rendered = renderPageToWebp(doc, page)
 
         if rendered.ok:
           doAssert canStore(seqId), "rendered seq_id outside pending window"
-          taskCh.send(OcrTask(
+          let task = OcrTask(
             kind: otkPage,
             seqId: seqId,
             page: page,
             webpBytes: rendered.webpBytes
-          ))
-          inc outstanding
-          doAssert outstanding <= k, "outstanding overflow"
+          )
+          if taskCh.trySend(task):
+            inc outstanding
+            doAssert outstanding <= k, "outstanding overflow"
+          else:
+            stagedTask = some(task)
+            submissionBlocked = true
+          inc nextToRender
         else:
           discard storePending(
             renderFailureResult(
@@ -244,9 +269,11 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
             ),
             fromNetwork = false
           )
+          inc nextToRender
 
-        inc nextToRender
         flushReady()
+        if submissionBlocked:
+          break
 
       if nextToWrite >= runtimeConfig.selectedCount:
         break
@@ -256,6 +283,8 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
           var networkResult: PageResult
           resultCh.recv(networkResult)
           onNetworkResult(networkResult)
+        elif submissionBlocked or stagedTask.isSome():
+          raise newException(IOError, "task submission blocked but no outstanding network work")
         elif nextToRender >= runtimeConfig.selectedCount:
           raise newException(IOError, "orchestrator stalled with no outstanding work")
       else:
