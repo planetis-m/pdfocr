@@ -139,7 +139,7 @@ proc fillRect*(bitmap: PdfBitmap; left, top, width, height: int; color: uint32) 
   FPDFBitmap_FillRect(bitmap.raw, left.cint, top.cint, width.cint, height.cint, color.culong)
 
 proc renderPage*(bitmap: PdfBitmap; page: PdfPage; startX, startY, sizeX, sizeY: int;
-                 rotate: int = 0; flags: int = 0) =
+    rotate: int = 0; flags: int = 0) =
   FPDF_RenderPageBitmap(
     bitmap.raw, page.raw,
     startX.cint, startY.cint,

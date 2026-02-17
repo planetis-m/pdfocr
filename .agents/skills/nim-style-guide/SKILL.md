@@ -28,6 +28,8 @@ Default to simple, explicit code over clever shortcuts.
 - Keep lines reasonably short (target <= 100 chars; prefer about 90-100).
 - Do not manually align columns with extra spaces.
 - Use `a..b` (not `a .. b`) unless spacing is needed for clarity with unary operators.
+- For wrapped declarations/conditions, indent continuation lines one extra level.
+  Use +4 spaces relative to the wrapped line's base indent.
 
 ### Do
 
@@ -38,6 +40,19 @@ type
     valid: bool
 ```
 
+```nim
+proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
+    multi: var CurlMulti; active: var Table[uint, RequestContext];
+    retryQueue: var seq[RetryItem]; idleEasy: var seq[CurlEasy]) =
+  discard
+```
+
+```nim
+if WebPConfigInitInternal(addr config, WEBP_PRESET_DEFAULT, quality,
+      WEBP_ENCODER_ABI_VERSION) == 0:
+  raise newException(ValueError, "WebPConfigInitInternal failed")
+```
+
 ### Don't
 
 ```nim
@@ -45,6 +60,19 @@ type
   Handle    = object
     fd       : int
     valid    : bool
+```
+
+```nim
+proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
+  multi: var CurlMulti; active: var Table[uint, RequestContext];
+  retryQueue: var seq[RetryItem]; idleEasy: var seq[CurlEasy]) =
+  discard
+```
+
+```nim
+if WebPConfigInitInternal(addr config, WEBP_PRESET_DEFAULT, quality,
+    WEBP_ENCODER_ABI_VERSION) == 0:
+  raise newException(ValueError, "WebPConfigInitInternal failed")
 ```
 
 ## 2. Naming

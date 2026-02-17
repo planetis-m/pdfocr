@@ -25,7 +25,7 @@ type
     headers: CurlSlist
 
 proc writeResponseCb(buffer: ptr char; size, nitems: csize_t;
-  userdata: pointer): csize_t {.cdecl.} =
+    userdata: pointer): csize_t {.cdecl.} =
   let total = int(size * nitems)
   if total <= 0:
     result = 0
@@ -61,7 +61,7 @@ proc retryDelayMs(rng: var Rand; attempt: int): int =
   result = capped + jitter
 
 proc newErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind;
-  message: string): PageResult =
+    message: string): PageResult =
   PageResult(
     seqId: seqId,
     page: page,
@@ -74,7 +74,7 @@ proc newErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind;
   )
 
 proc newHttpErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind;
-                        message: string; httpStatus: HttpCode): PageResult =
+    message: string; httpStatus: HttpCode): PageResult =
   PageResult(
     seqId: seqId,
     page: page,
@@ -160,8 +160,8 @@ proc enqueueFinalResult(ctx: NetworkWorkerContext; result: sink PageResult) =
   ctx.resultCh.send(result)
 
 proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; rng: var Rand;
-                     task: OcrTask; attempt: int; retryable: bool;
-                     kind: ErrorKind; message: string; httpStatus = HttpNone) =
+    task: OcrTask; attempt: int; retryable: bool;
+    kind: ErrorKind; message: string; httpStatus = HttpNone) =
   if retryable and shouldRetry(attempt):
     let nextAttempt = attempt + 1
     discard RetryCount.fetchAdd(1, moRelaxed)
@@ -174,8 +174,8 @@ proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; 
         httpStatus))
 
 proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContext];
-  idleEasy: var seq[CurlEasy]; task: OcrTask;
-  attempt: int; apiKey: string): tuple[ok: bool, message: string] =
+    idleEasy: var seq[CurlEasy]; task: OcrTask;
+    attempt: int; apiKey: string): tuple[ok: bool, message: string] =
   var req: RequestContext
   try:
     let easy = acquireEasy(idleEasy)
@@ -208,10 +208,10 @@ proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContex
     result = (ok: false, message: boundedErrorMessage(getCurrentExceptionMsg()))
 
 proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
-                        active: var Table[uint, RequestContext];
-                        retryQueue: var seq[RetryItem];
-                        idleEasy: var seq[CurlEasy];
-                        rng: var Rand) =
+    active: var Table[uint, RequestContext];
+    retryQueue: var seq[RetryItem];
+    idleEasy: var seq[CurlEasy];
+    rng: var Rand) =
   var msg: CURLMsg
   var msgsInQueue = 0
   while multi.tryInfoRead(msg, msgsInQueue):
@@ -273,8 +273,8 @@ proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
               recycleEasy(idleEasy, req.easy)
 
 proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
-  multi: var CurlMulti; active: var Table[uint, RequestContext];
-  retryQueue: var seq[RetryItem]; idleEasy: var seq[CurlEasy]) =
+    multi: var CurlMulti; active: var Table[uint, RequestContext];
+    retryQueue: var seq[RetryItem]; idleEasy: var seq[CurlEasy]) =
   let bounded = boundedErrorMessage(message)
   for req in active.values:
     try:
