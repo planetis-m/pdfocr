@@ -24,7 +24,8 @@ type
     easy_handle*: CURL
     data*: CURLMsgData
 
-  curl_write_callback* = proc(buffer: ptr char, size: csize_t, nitems: csize_t, outstream: pointer): csize_t {.cdecl.}
+  curl_write_callback* = proc(buffer: ptr char; size, nitems: csize_t;
+    outstream: pointer): csize_t {.cdecl.}
 
 const
   CURL_GLOBAL_SSL* = 1
