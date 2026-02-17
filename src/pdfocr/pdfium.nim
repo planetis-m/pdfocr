@@ -18,12 +18,6 @@ type
   PdfTextPage* = object
     raw: FPDF_TEXTPAGE
 
-  PdfCharBox* = object
-    left*: float
-    right*: float
-    bottom*: float
-    top*: float
-
 proc `=destroy`*(doc: PdfDocument) =
   if pointer(doc.raw) != nil:
     FPDF_CloseDocument(doc.raw)
@@ -182,27 +176,3 @@ proc extractText*(page: PdfPage): string =
   var wStr = newWideCString(count)
   discard FPDFText_GetText(textPage.raw, 0, count.cint, cast[ptr uint16](toWideCString(wStr)))
   result = $wStr
-
-proc charCount*(textPage: PdfTextPage): int =
-  int(FPDFText_CountChars(textPage.raw))
-
-proc getTextRange*(textPage: PdfTextPage; startIndex, count: int): string =
-  if count <= 0:
-    return ""
-  # Pdfium expects buffer size including the null terminator.
-  var wStr = newWideCString(count)
-  discard FPDFText_GetText(textPage.raw, startIndex.cint, count.cint, cast[ptr uint16](toWideCString(wStr)))
-  result = $wStr
-
-proc getCharBox*(textPage: PdfTextPage; index: int): PdfCharBox =
-  var left, right, bottom, top: cdouble
-  let ok = FPDFText_GetCharBox(textPage.raw, index.cint, addr left, addr right, addr bottom, addr top)
-  if ok == 0:
-    result = PdfCharBox(left: 0.0, right: 0.0, bottom: 0.0, top: 0.0)
-  else:
-    result = PdfCharBox(
-      left: left.float,
-      right: right.float,
-      bottom: bottom.float,
-      top: top.float
-    )

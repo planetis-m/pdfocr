@@ -20,27 +20,13 @@ type
 
 const
   HttpNone* = HttpCode(0)
-  Http100* = HttpCode(100)
-  Http101* = HttpCode(101)
-  Http102* = HttpCode(102)
-  Http103* = HttpCode(103)
   Http200* = HttpCode(200)
-  Http201* = HttpCode(201)
-  Http202* = HttpCode(202)
-  Http204* = HttpCode(204)
   Http300* = HttpCode(300)
   Http400* = HttpCode(400)
-  Http401* = HttpCode(401)
-  Http403* = HttpCode(403)
   Http404* = HttpCode(404)
-  Http408* = HttpCode(408)
-  Http409* = HttpCode(409)
-  Http422* = HttpCode(422)
   Http429* = HttpCode(429)
   Http500* = HttpCode(500)
-  Http502* = HttpCode(502)
   Http503* = HttpCode(503)
-  Http504* = HttpCode(504)
   Http600* = HttpCode(600)
 
 func `==`*(a, b: HttpCode): bool {.borrow.}
@@ -194,7 +180,7 @@ proc getPrivate*(easy: CurlEasy): pointer =
   checkCurl(curl_easy_getinfo(easy.raw, CURLINFO_PRIVATE, addr data), "CURLINFO_PRIVATE failed")
   data
 
-proc performCode*(easy: var CurlEasy): CURLcode =
+proc performCode(easy: var CurlEasy): CURLcode =
   curl_easy_perform(easy.raw)
 
 proc perform*(easy: var CurlEasy) =
