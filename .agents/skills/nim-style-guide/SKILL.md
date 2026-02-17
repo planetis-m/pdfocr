@@ -1,108 +1,327 @@
 ---
-name: nim-code-quality
-description: Write idiomatic, maintainable, and concurrency-safe Nim with clear control flow, explicit ownership, and strong test discipline.
+name: nim-style-guide
+description: Write clear, idiomatic Nim using consistent naming, formatting, type design, and control flow with concrete Do/Don't patterns.
 ---
 
-# Nim Code Quality Skill
+# Nim Style Guide
 
-Use this guidance when writing or refactoring Nim code.
+Use this guide when writing or refactoring Nim.
+Focus on readability, consistency, and predictable control flow.
 
-## Goals
+## Primary references
 
-1. Keep code easy to reason about.
-2. Preserve correctness under concurrency and failure.
-3. Make ownership and lifecycle explicit.
-4. Prefer maintainable structure over clever shortcuts.
+- Nim Standard Library Style Guide (canonical style direction)
+- Nim Manual (language semantics)
+- Nim compiler and stdlib source (idiomatic patterns)
 
-## Core style rules
+When in doubt, prefer consistency with existing local code and stdlib conventions.
 
-### 1. Control flow: prioritize clarity
+## 1. Formatting and layout
 
-- Prefer structured `if/elif/else` and clear loop boundaries.
-- Use early returns when they are semantically meaningful (guard clauses, fast-path lookup, fatal preconditions).
-- Do not use early returns only to flatten nesting.
-- Avoid `continue`-heavy loops; rewrite with explicit branches.
-- Keep one obvious path for "normal success" through a proc.
+### Rules
 
-### 2. Types: name important shapes
+- Use 2 spaces for indentation. Never use tabs.
+- Keep lines reasonably short (target <= 80 chars when practical).
+- Use blank lines to separate logical blocks, not every statement.
+- Avoid visual-alignment formatting that is fragile during edits.
+- Use spaces around operators and after commas.
+- Prefer `a..b` over `a .. b` for range operators.
 
-- If a tuple has more than 2 meaningful fields, use a named `object`.
-- Favor descriptive object fields over positional tuple semantics.
-- Avoid nested `type` declarations inside procs; define types at module scope.
-- Use enums for explicit states instead of stringly-typed branching.
+### Do
 
-### 3. Proc and template usage
+```nim
+type
+  Handle = object
+    fd: int
+    open: bool
+```
 
-- Use `proc` for real behavior and state transitions.
-- Use `template` for small, local, expression-like helpers where duplication hurts readability.
-- Keep templates simple and side-effect transparent.
-- Avoid macro/template metaprogramming unless it clearly reduces risk or boilerplate.
+### Don't
 
-## Error handling
+```nim
+type
+  Handle     = object
+    fd        : int
+    open      : bool
+```
 
-### 4. Make failures explicit and bounded
+## 2. Naming
 
-- Classify errors into stable categories.
-- Preserve actionable context in error messages.
-- Bound/truncate untrusted or large error payloads.
-- Catch `CatchableError` at boundaries, not deep in every helper unless recovery is local and intentional.
+### Rules
 
-### 5. Results contracts
+- Types: `PascalCase`
+- Procs/templates/vars/fields: `camelCase`
+- Constants: `camelCase` or `PascalCase` (be consistent within a module)
+- Enum members:
+  - non-`pure` enums: prefixed (`pcFile`, `pcDir`)
+  - `pure` enums: `PascalCase`
+- Use real-word casing: `parseUrl`, `httpStatus`, not `parseURL`
+- Prefer subject-verb names: `fileExists`, not `existsFile`
+- Error/defect types should end with `Error` or `Defect`
+- For related variants, use suffixes like `Obj`, `Ref`, `Ptr` where useful
 
-- For pipelines, enforce "exactly one final result per unit of work".
-- Track attempts consistently (`1`-based recommended).
-- Validate invariants with `doAssert` where violation indicates programmer error.
+### Do
 
-## Ownership and memory safety
+```nim
+type
+  PathComponent = enum
+    pcFile
+    pcDir
 
-### 6. Resource wrappers
+proc fileExists(path: string): bool = discard
+```
 
-- Wrap C handles in owning Nim types.
-- Implement `=destroy` for cleanup and disable unsafe copy/dup where needed.
-- Use explicit move/sink semantics for ownership transfer.
-- Keep FFI boundary code narrow and deterministic.
+### Don't
 
-### 7. Allocation discipline
+```nim
+type
+  path_component = enum
+    File
+    Dir
 
-- Avoid unnecessary conversions/allocations in hot paths.
-- Delay expensive expansions (for example, base64) until required at I/O boundaries.
-- Reuse expensive handles/buffers when correctness permits.
+proc existsFile(path: string): bool = discard
+```
 
-## Concurrency and channels
+### Do
 
-### 8. Prefer ownership over shared mutability
+```nim
+type
+  ValueError = object of CatchableError
+  Node = object
+  NodeRef = ref Node
+```
 
-- Assign each mutable subsystem to one owner (thread/proc).
-- Communicate through bounded channels.
-- Keep shared atomics for counters/progress, not core correctness if avoidable.
+## 3. Module structure
 
-### 9. Progress and deadlock safety
+### Rules
 
-- Define explicit invariants (for example, `outstanding <= K`).
-- When producers cannot submit, switch to draining consumer outputs.
-- Treat blocked external sinks as backpressure, not internal deadlock.
-- Keep queue capacities and in-memory buffers bounded by design.
+- Group top-level declarations in this order:
+  1. imports
+  2. constants/types
+  3. public API
+  4. private helpers
+- Keep helpers near their usage.
+- Remove dead imports and dead declarations immediately.
+- Use `std/...` import form for standard library modules.
 
-## Testing and benchmarking
+### Do
 
-### 10. Test behavior contracts, not implementation trivia
+```nim
+import std/[os, strutils]
 
-- Test ordering, retries, exit codes, and error classification.
-- Keep fast deterministic tests for policy logic.
-- Keep integration tests for end-to-end contracts.
+type
+  Config = object
+    rootDir: string
 
-### 11. Benchmarking discipline
+proc parseConfig(path: string): Config = discard
+proc normalizePath(path: string): string = discard
+```
 
-- For live network workloads, interleave variants (`A/B/A/B/...`).
-- Run sequentially (no overlapping load).
-- Report medians/trimmed means and retry pressure, not only mean runtime.
-- Treat outliers as signal to investigate, not automatic regressions.
+## 4. Multi-line formatting
 
-## Code review checklist (quick)
+### Rules
 
-1. Is the control flow straightforward without hidden jumps?
-2. Are key data shapes named and self-describing?
-3. Are resource ownership and cleanup explicit?
-4. Are concurrency invariants documented and asserted?
-5. Is failure handling classified, bounded, and test-covered?
-6. Are benchmarks fair and statistically robust?
+- Long proc declarations should break across lines consistently.
+- Multi-line calls should continue indented.
+- Prefer readability over vertical alignment tricks.
+
+### Do
+
+```nim
+proc parseRecord(
+  input: string,
+  allowEmpty: bool
+): int =
+  discard
+
+discard parseRecord(
+  someInput,
+  allowEmpty = true
+)
+```
+
+## 5. Control flow
+
+### Rules
+
+- Prefer structured `if/elif/else` and explicit loop exit conditions.
+- Use early `return` when it improves semantics (guard/found/fatal precondition).
+- Do not use early `return` only to flatten nesting.
+- Avoid `continue`-driven logic; express branches directly.
+- Keep a clear single "normal success path" in each proc.
+
+### Do
+
+```nim
+proc findUser(users: seq[string]; target: string): int =
+  for i, user in users:
+    if user == target:
+      return i
+  result = -1
+```
+
+### Don't
+
+```nim
+proc work(x: int): int =
+  if x < 0: return -1
+  if x == 0: return 0
+  if x == 1: return 1
+  if x == 2: return 2
+  result = x
+```
+
+## 6. `result` and returns
+
+### Rules
+
+- Prefer `result = ...` for normal flow.
+- Use `return` when control-flow meaning is important.
+- Keep return behavior consistent within a proc.
+
+### Do
+
+```nim
+proc parsePort(text: string): int =
+  let parsed = parseInt(text)
+  if parsed < 1 or parsed > 65535:
+    raise newException(ValueError, "invalid port")
+  result = parsed
+```
+
+## 7. Type design
+
+### Rules
+
+- Name meaningful data shapes with `object`.
+- Use tuples for short, local, obvious pair/group values.
+- If tuple fields become numerous or semantic, promote to named object.
+- Avoid nested `type` declarations inside procs.
+
+### Do
+
+```nim
+type
+  RenderOutcome = object
+    ok: bool
+    payload: seq[byte]
+    errorMessage: string
+```
+
+### Don't
+
+```nim
+proc render(): tuple[ok: bool, payload: seq[byte], errorMessage: string] = discard
+```
+
+## 8. Proc/template/macro boundaries
+
+### Rules
+
+- Default to `proc`.
+- Use `template` for small expression-like helpers without hidden side effects.
+- Use `macro` only when syntax transformation is truly required.
+- Avoid "clever" metaprogramming for ordinary logic.
+
+### Do
+
+```nim
+template slotIndex(i, k: int): int =
+  i mod k
+```
+
+### Don't
+
+```nim
+macro computeSlot(i, k: untyped): untyped =
+  # unnecessary macro for simple arithmetic
+  discard
+```
+
+## 9. Error handling style
+
+### Rules
+
+- Raise specific exception types/messages at boundaries.
+- Keep error text actionable and concise.
+- Do not swallow exceptions silently unless intentional and documented.
+- Prefer one place that maps internal errors to user-facing errors.
+
+### Do
+
+```nim
+try:
+  discard doWork()
+except CatchableError:
+  raise newException(IOError, "doWork failed: " & getCurrentExceptionMsg())
+```
+
+## 10. Mutability and declarations
+
+### Rules
+
+- Use `let` by default.
+- Use `var` only when mutation is required.
+- Keep variable scope tight (declare near first use).
+
+### Do
+
+```nim
+let page = pages[idx]
+var retries = 0
+```
+
+## 11. API naming conventions
+
+### Rules
+
+- Getter-like APIs should usually be named `foo`, not `getFoo`, when O(1) and side-effect free.
+- Use `getFoo` / `setFoo` when side effects or non-trivial cost exist.
+- Use conventional verb pairs: `sort/sorted`, `reverse/reversed`, `del/delete`.
+
+### Do
+
+```nim
+proc len(data: Buffer): int = discard
+proc sorted(values: seq[int]): seq[int] = discard
+```
+
+## 12. Comments and docs
+
+### Rules
+
+- Comment *why*, not *what*.
+- Prefer short, precise comments over narrative blocks.
+- Remove stale comments when behavior changes.
+
+### Do
+
+```nim
+# Keep the original order; callers rely on stable sort behavior.
+let sortedItems = items.sorted()
+```
+
+## 13. FFI and low-level boundaries
+
+### Rules
+
+- Keep FFI surface narrow and wrapped by safer Nim APIs.
+- Make ownership explicit for foreign handles.
+- Keep unsafe blocks minimal and localized.
+
+### Do
+
+```nim
+type
+  CurlEasy = ref object
+    raw: pointer
+```
+
+## Quick Do/Don't summary
+
+1. Do choose clear structure over clever shortcuts.
+2. Do use named objects when data has semantic fields.
+3. Do keep naming consistent with Nim conventions.
+4. Don't rely on `continue` to drive control flow.
+5. Don't overuse early returns just to reduce indentation.
+6. Don't use macros/templates when a simple proc is enough.
