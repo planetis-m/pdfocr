@@ -3,6 +3,17 @@ import threading/channels
 import ./[constants, curl, errors, json_codec, logging, network_scheduler,
          page_selection, pdfium, types, webp]
 
+type
+  RenderPageOutcome = object
+    ok: bool
+    webpBytes: seq[byte]
+    errorKind: ErrorKind
+    errorMessage: string
+
+  PendingEntry = object
+    result: PageResult
+    fromNetwork: bool
+
 proc initGlobalLibraries*() =
   initPdfium()
   initCurlGlobal()
@@ -23,13 +34,8 @@ proc renderFailureResult(seqId: SeqId; page: int; kind: ErrorKind; message: stri
     httpStatus: HttpNone
   )
 
-proc renderPageToWebp(doc: PdfDocument; page: int): tuple[
-    ok: bool,
-    webpBytes: seq[byte],
-    errorKind: ErrorKind,
-    errorMessage: string
-] =
-  result = (
+proc renderPageToWebp(doc: PdfDocument; page: int): RenderPageOutcome =
+  result = RenderPageOutcome(
     ok: false,
     webpBytes: @[],
     errorKind: NoError,
@@ -47,7 +53,7 @@ proc renderPageToWebp(doc: PdfDocument; page: int): tuple[
     )
     renderOk = true
   except CatchableError:
-    result = (
+    result = RenderPageOutcome(
       ok: false,
       webpBytes: @[],
       errorKind: PdfError,
@@ -60,7 +66,7 @@ proc renderPageToWebp(doc: PdfDocument; page: int): tuple[
     let pixels = buffer(bitmap)
     let rowStride = stride(bitmap)
     if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
-      result = (
+      result = RenderPageOutcome(
         ok: false,
         webpBytes: @[],
         errorKind: PdfError,
@@ -76,21 +82,21 @@ proc renderPageToWebp(doc: PdfDocument; page: int): tuple[
           WebpQuality
         )
         if webpBytes.len == 0:
-          result = (
+          result = RenderPageOutcome(
             ok: false,
             webpBytes: @[],
             errorKind: EncodeError,
             errorMessage: "encoded WebP output was empty"
           )
         else:
-          result = (
+          result = RenderPageOutcome(
             ok: true,
             webpBytes: webpBytes,
             errorKind: NoError,
             errorMessage: ""
           )
       except CatchableError:
-        result = (
+        result = RenderPageOutcome(
           ok: false,
           webpBytes: @[],
           errorKind: EncodeError,
@@ -145,19 +151,14 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
         " first_page=" & $runtimeConfig.selectedPages[0] &
         " last_page=" & $runtimeConfig.selectedPages[^1])
 
-      type
-        PendingEntry = object
-          result: PageResult
-          fromNetwork: bool
-
       let k = MaxInflight
       var pending = newSeq[Option[PendingEntry]](k)
       var stagedTask = none(OcrTask)
 
-      proc slotIndex(seqId: int): int =
+      template slotIndex(seqId: int): int =
         seqId mod k
 
-      proc canStore(seqId: int): bool =
+      template canStore(seqId: int): bool =
         seqId >= nextToWrite and seqId < nextToWrite + k
 
       proc storePending(resultForSeq: PageResult; fromNetwork: bool): bool =
@@ -179,9 +180,11 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
           pending[idx] = some(PendingEntry(result: resultForSeq, fromNetwork: fromNetwork))
           result = true
 
-      proc nextReady(): bool =
-        let idx = slotIndex(nextToWrite)
-        pending[idx].isSome() and pending[idx].get().result.seqId == nextToWrite
+      template nextReady(): bool =
+        (block:
+          let idx = slotIndex(nextToWrite)
+          pending[idx].isSome() and pending[idx].get().result.seqId == nextToWrite
+        )
 
       proc writeResult(resultForSeq: PageResult; fromNetwork: bool) =
         stdout.write(encodeResultLine(resultForSeq))
