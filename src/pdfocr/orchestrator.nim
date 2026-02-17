@@ -1,4 +1,4 @@
-import std/[atomics, tables]
+import std/[atomics, options]
 import threading/channels
 import ./[constants, curl, errors, json_codec, logging, network_scheduler,
          page_selection, pdfium, types, webp]
@@ -132,10 +132,44 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
       " first_page=" & $runtimeConfig.selectedPages[0] &
       " last_page=" & $runtimeConfig.selectedPages[^1])
 
-    var pendingBySeq = initTable[int, PageResult]()
-    var usesNetwork = newSeq[bool](runtimeConfig.selectedCount)
+    type
+      PendingEntry = object
+        result: PageResult
+        fromNetwork: bool
 
-    proc writeResult(resultForSeq: PageResult) =
+    let k = MaxInflight
+    var pending = newSeq[Option[PendingEntry]](k)
+
+    proc slotIndex(seqId: int): int =
+      seqId mod k
+
+    proc canStore(seqId: int): bool =
+      seqId >= nextToWrite and seqId < nextToWrite + k
+
+    proc storePending(resultForSeq: PageResult; fromNetwork: bool): bool =
+      doAssert canStore(resultForSeq.seqId),
+        "seq_id outside pending window: seq=" & $resultForSeq.seqId &
+        " next_write=" & $nextToWrite &
+        " k=" & $k
+      let idx = slotIndex(resultForSeq.seqId)
+      if pending[idx].isSome():
+        let existing = pending[idx].get()
+        if existing.result.seqId == resultForSeq.seqId:
+          result = false
+        else:
+          raise newException(IOError,
+            "ring slot collision: slot=" & $idx &
+            " existing_seq=" & $existing.result.seqId &
+            " incoming_seq=" & $resultForSeq.seqId)
+      else:
+        pending[idx] = some(PendingEntry(result: resultForSeq, fromNetwork: fromNetwork))
+        result = true
+
+    proc nextReady(): bool =
+      let idx = slotIndex(nextToWrite)
+      pending[idx].isSome() and pending[idx].get().result.seqId == nextToWrite
+
+    proc writeResult(resultForSeq: PageResult; fromNetwork: bool) =
       stdout.write(encodeResultLine(resultForSeq))
       stdout.write('\n')
 
@@ -145,8 +179,9 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
         inc errCount
         anyError = true
 
-      if usesNetwork[resultForSeq.seqId]:
+      if fromNetwork:
         dec outstanding
+        doAssert outstanding >= 0, "outstanding underflow"
 
       inc written
       inc nextToWrite
@@ -155,9 +190,11 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
       ErrCount.store(errCount, moRelaxed)
 
     proc flushReady() =
-      while nextToWrite < runtimeConfig.selectedCount and pendingBySeq.hasKey(nextToWrite):
-        var pageResult = pendingBySeq[nextToWrite]
-        pendingBySeq.del(nextToWrite)
+      while nextToWrite < runtimeConfig.selectedCount and nextReady():
+        let idx = slotIndex(nextToWrite)
+        let entry = pending[idx].get()
+        pending[idx] = none(PendingEntry)
+        var pageResult = entry.result
         let mappedPage = runtimeConfig.selectedPages[nextToWrite]
         if pageResult.seqId != nextToWrite:
           logWarn("corrected mismatched seq_id before ordered write")
@@ -165,18 +202,30 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
         if pageResult.page != mappedPage:
           logWarn("corrected mismatched page before ordered write")
           pageResult.page = mappedPage
-        writeResult(pageResult)
+        writeResult(pageResult, entry.fromNetwork)
+
+    proc onNetworkResult(networkResult: PageResult) =
+      let seqId = networkResult.seqId
+      if seqId < 0 or seqId >= runtimeConfig.selectedCount:
+        raise newException(IOError, "network returned out-of-range seq_id: " & $seqId)
+      elif not canStore(seqId):
+        raise newException(IOError,
+          "network returned seq_id outside pending window: seq=" & $seqId &
+          " next_write=" & $nextToWrite &
+          " k=" & $k)
+      elif not storePending(networkResult, fromNetwork = true):
+        raise newException(IOError, "network returned duplicate seq_id result: " & $seqId)
 
     while nextToWrite < runtimeConfig.selectedCount:
       while nextToRender < runtimeConfig.selectedCount and
-            (nextToRender - nextToWrite) < MaxInflight and
-            outstanding < MaxInflight:
+            (nextToRender - nextToWrite) < k and
+            outstanding < k:
         let seqId = nextToRender
         let page = runtimeConfig.selectedPages[seqId]
         let rendered = renderPageToWebp(doc, page)
 
         if rendered.ok:
-          usesNetwork[seqId] = true
+          doAssert canStore(seqId), "rendered seq_id outside pending window"
           taskCh.send(OcrTask(
             kind: otkPage,
             seqId: seqId,
@@ -184,12 +233,16 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
             webpBytes: rendered.webpBytes
           ))
           inc outstanding
+          doAssert outstanding <= k, "outstanding overflow"
         else:
-          pendingBySeq[seqId] = renderFailureResult(
-            seqId,
-            page,
-            rendered.errorKind,
-            rendered.errorMessage
+          discard storePending(
+            renderFailureResult(
+              seqId,
+              page,
+              rendered.errorKind,
+              rendered.errorMessage
+            ),
+            fromNetwork = false
           )
 
         inc nextToRender
@@ -198,30 +251,25 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
       if nextToWrite >= runtimeConfig.selectedCount:
         break
 
-      if pendingBySeq.hasKey(nextToWrite):
-        flushReady()
-        continue
-
-      if outstanding > 0:
+      if not nextReady():
+        if outstanding > 0:
+          var networkResult: PageResult
+          resultCh.recv(networkResult)
+          onNetworkResult(networkResult)
+        elif nextToRender >= runtimeConfig.selectedCount:
+          raise newException(IOError, "orchestrator stalled with no outstanding work")
+      else:
         var networkResult: PageResult
-        resultCh.recv(networkResult)
-        let seqId = networkResult.seqId
-        if seqId < 0 or seqId >= runtimeConfig.selectedCount:
-          logWarn("network returned out-of-range seq_id; synthesizing ordered error")
-          if not pendingBySeq.hasKey(nextToWrite):
-            pendingBySeq[nextToWrite] = renderFailureResult(
-              nextToWrite,
-              runtimeConfig.selectedPages[nextToWrite],
-              NetworkError,
-              "network returned invalid seq_id"
-            )
-        elif pendingBySeq.hasKey(seqId):
-          logWarn("network returned duplicate seq_id result; dropping duplicate")
-        else:
-          pendingBySeq[seqId] = networkResult
+        while resultCh.tryRecv(networkResult):
+          onNetworkResult(networkResult)
+
+      flushReady()
+
+      if not nextReady() and outstanding > 0:
+        var networkResult: PageResult
+        while resultCh.tryRecv(networkResult):
+          onNetworkResult(networkResult)
         flushReady()
-      elif nextToRender >= runtimeConfig.selectedCount:
-        raise newException(IOError, "orchestrator stalled with no outstanding work")
 
     flushFile(stdout)
     taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))

@@ -105,6 +105,15 @@ proc scheduleRetry(retryQueue: var seq[RetryItem]; task: OcrTask; attempt: int; 
     attempt: attempt
   ))
 
+proc acquireEasy(idleEasy: var seq[CurlEasy]): CurlEasy =
+  if idleEasy.len == 0:
+    return initEasy()
+  result = idleEasy.pop()
+  result.reset()
+
+proc recycleEasy(idleEasy: var seq[CurlEasy]; easy: sink CurlEasy) =
+  idleEasy.add(easy)
+
 proc shouldRetry(attempt: int): bool {.inline.} =
   attempt < (1 + MaxRetries)
 
@@ -161,10 +170,12 @@ proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; 
       ctx.enqueueFinalResult(newHttpErrorResult(task.seqId, task.page, attempt, kind, message, httpStatus))
 
 proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContext];
+                     idleEasy: var seq[CurlEasy];
                      task: OcrTask; attempt: int; apiKey: string): tuple[ok: bool, message: string] =
+  var req: RequestContext
   try:
-    var easy = initEasy()
-    let req = RequestContext(
+    let easy = acquireEasy(idleEasy)
+    req = RequestContext(
       task: task,
       attempt: attempt,
       response: RequestResponseBuffer(body: ""),
@@ -189,11 +200,15 @@ proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContex
     InflightCount.store(active.len, moRelaxed)
     result = (ok: true, message: "")
   except CatchableError:
+    if req != nil and req.easy != nil:
+      recycleEasy(idleEasy, req.easy)
     result = (ok: false, message: boundedErrorMessage(getCurrentExceptionMsg()))
 
 proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
                         active: var Table[uint, RequestContext];
-                        retryQueue: var seq[RetryItem]; rng: var Rand) =
+                        retryQueue: var seq[RetryItem];
+                        idleEasy: var seq[CurlEasy];
+                        rng: var Rand) =
   var msg: CURLMsg
   var msgsInQueue = 0
   while multi.tryInfoRead(msg, msgsInQueue):
@@ -209,8 +224,10 @@ proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
       continue
     InflightCount.store(active.len, moRelaxed)
 
+    var removed = false
     try:
       multi.removeHandle(msg)
+      removed = true
     except CatchableError:
       finalizeOrRetry(
         ctx,
@@ -224,92 +241,102 @@ proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
       )
       continue
 
-    let curlCode = msg.data.result
-    if curlCode != CURLE_OK:
-      finalizeOrRetry(
-        ctx,
-        retryQueue,
-        rng,
-        req.task,
-        req.attempt,
-        retryable = true,
-        kind = classifyCurlErrorKind(curlCode),
-        message = "curl transfer failed code=" & $int(curlCode)
-      )
-      continue
-
-    let responseBody = req.response.body
-    var httpCode = HttpNone
     try:
-      httpCode = req.easy.responseCode()
-    except CatchableError:
-      finalizeOrRetry(
-        ctx,
-        retryQueue,
-        rng,
-        req.task,
-        req.attempt,
-        retryable = true,
-        kind = NetworkError,
-        message = boundedErrorMessage(getCurrentExceptionMsg())
-      )
-      continue
-
-    if httpCode == Http429:
-      finalizeOrRetry(
-        ctx,
-        retryQueue,
-        rng,
-        req.task,
-        req.attempt,
-        retryable = true,
-        kind = RateLimit,
-        message = "HTTP 429 rate limited",
-        httpStatus = httpCode
-      )
-    elif httpStatusRetryable(httpCode):
-      finalizeOrRetry(
-        ctx,
-        retryQueue,
-        rng,
-        req.task,
-        req.attempt,
-        retryable = true,
-        kind = HttpError,
-        message = "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
-        httpStatus = httpCode
-      )
-    elif httpCode < Http200 or httpCode >= Http300:
-      ctx.enqueueFinalResult(newHttpErrorResult(
-        req.task.seqId,
-        req.task.page,
-        req.attempt,
-        HttpError,
-        "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
-        httpCode
-      ))
-    else:
-      let parsed = parseChatCompletionResponse(responseBody)
-      if not parsed.ok:
-        ctx.enqueueFinalResult(newErrorResult(
-          req.task.seqId,
-          req.task.page,
+      let curlCode = msg.data.result
+      if curlCode != CURLE_OK:
+        finalizeOrRetry(
+          ctx,
+          retryQueue,
+          rng,
+          req.task,
           req.attempt,
-          ParseError,
-          parsed.error_message
-        ))
+          retryable = true,
+          kind = classifyCurlErrorKind(curlCode),
+          message = "curl transfer failed code=" & $int(curlCode)
+        )
       else:
-        ctx.enqueueFinalResult(newSuccessResult(
-          req.task.seqId,
-          req.task.page,
-          req.attempt,
-          parsed.text
-        ))
+        let responseBody = req.response.body
+        var httpCode = HttpNone
+        try:
+          httpCode = req.easy.responseCode()
+        except CatchableError:
+          finalizeOrRetry(
+            ctx,
+            retryQueue,
+            rng,
+            req.task,
+            req.attempt,
+            retryable = true,
+            kind = NetworkError,
+            message = boundedErrorMessage(getCurrentExceptionMsg())
+          )
+          continue
 
-proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string; active: var Table[uint, RequestContext];
-                         retryQueue: var seq[RetryItem]) =
+        if httpCode == Http429:
+          finalizeOrRetry(
+            ctx,
+            retryQueue,
+            rng,
+            req.task,
+            req.attempt,
+            retryable = true,
+            kind = RateLimit,
+            message = "HTTP 429 rate limited",
+            httpStatus = httpCode
+          )
+        elif httpStatusRetryable(httpCode):
+          finalizeOrRetry(
+            ctx,
+            retryQueue,
+            rng,
+            req.task,
+            req.attempt,
+            retryable = true,
+            kind = HttpError,
+            message = "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
+            httpStatus = httpCode
+          )
+        elif httpCode < Http200 or httpCode >= Http300:
+          ctx.enqueueFinalResult(newHttpErrorResult(
+            req.task.seqId,
+            req.task.page,
+            req.attempt,
+            HttpError,
+            "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
+            httpCode
+          ))
+        else:
+          let parsed = parseChatCompletionResponse(responseBody)
+          if not parsed.ok:
+            ctx.enqueueFinalResult(newErrorResult(
+              req.task.seqId,
+              req.task.page,
+              req.attempt,
+              ParseError,
+              parsed.error_message
+            ))
+          else:
+            ctx.enqueueFinalResult(newSuccessResult(
+              req.task.seqId,
+              req.task.page,
+              req.attempt,
+              parsed.text
+            ))
+    finally:
+      if removed:
+        recycleEasy(idleEasy, req.easy)
+
+proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string; multi: var CurlMulti;
+                         active: var Table[uint, RequestContext];
+                         retryQueue: var seq[RetryItem];
+                         idleEasy: var seq[CurlEasy]) =
   let bounded = boundedErrorMessage(message)
   for req in active.values:
+    try:
+      multi.removeHandle(req.easy)
+    except CatchableError:
+      discard
+    recycleEasy(idleEasy, req.easy)
     ctx.enqueueFinalResult(newErrorResult(req.task.seqId, req.task.page, req.attempt, NetworkError, bounded))
   active.clear()
   InflightCount.store(0, moRelaxed)
@@ -329,15 +356,17 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
   var multi: CurlMulti
   var emptyActive = initTable[uint, RequestContext]()
   var emptyRetryQueue: seq[RetryItem] = @[]
+  var emptyIdleEasy: seq[CurlEasy] = @[]
   try:
     multi = initMulti()
   except CatchableError:
-    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), emptyActive, emptyRetryQueue)
+    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, emptyActive, emptyRetryQueue, emptyIdleEasy)
     return
 
   var
     active = initTable[uint, RequestContext]()
     retryQueue: seq[RetryItem] = @[]
+    idleEasy: seq[CurlEasy] = @[]
     rng = initRand(int(getMonoTime().ticks))
     stopRequested = false
 
@@ -364,7 +393,7 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
       if not haveTask:
         break
 
-      let dispatched = dispatchRequest(multi, active, task, attempt, ctx.apiKey)
+      let dispatched = dispatchRequest(multi, active, idleEasy, task, attempt, ctx.apiKey)
       if not dispatched.ok:
         finalizeOrRetry(
           ctx,
@@ -391,7 +420,7 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
         if task.kind == otkStop:
           stopRequested = true
         else:
-          let dispatched = dispatchRequest(multi, active, task, 1, ctx.apiKey)
+          let dispatched = dispatchRequest(multi, active, idleEasy, task, 1, ctx.apiKey)
           if not dispatched.ok:
             finalizeOrRetry(
               ctx,
@@ -408,9 +437,9 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
     try:
       discard multi.perform()
       discard multi.poll(min(MultiWaitMaxMs, msUntilNextRetry(retryQueue)))
-      processCompletions(ctx, multi, active, retryQueue, rng)
+      processCompletions(ctx, multi, active, retryQueue, idleEasy, rng)
     except CatchableError:
-      enterDrainErrorMode(ctx, getCurrentExceptionMsg(), active, retryQueue)
+      enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, active, retryQueue, idleEasy)
       return
 
   InflightCount.store(0, moRelaxed)
