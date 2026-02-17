@@ -40,7 +40,7 @@ proc FPDF_GetPageHeight*(page: FPDF_PAGE): cdouble
 # width, height, alpha (0 or 1)
 proc FPDFBitmap_Create*(width, height, alpha: cint): FPDF_BITMAP
 proc FPDFBitmap_CreateEx*(width, height, format: cint; first_scan: pointer;
-  stride: cint): FPDF_BITMAP
+    stride: cint): FPDF_BITMAP
 proc FPDFBitmap_Destroy*(bitmap: FPDF_BITMAP)
 # color is 32-bit integer (0xAARRGGBB)
 proc FPDFBitmap_FillRect*(bitmap: FPDF_BITMAP, left, top, width, height: cint, color: culong)

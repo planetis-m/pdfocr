@@ -10,11 +10,11 @@ proc webpWrite(data: ptr WebPByte; dataSize: csize_t; picture: ptr WebPPicture):
   result = 1
 
 proc compressBgr*(width, height: Positive; pixels: pointer; stride: int;
-  quality: float32 = 80): seq[byte] =
+    quality: float32 = 80): seq[byte] =
   ## Encodes a BGR buffer using the low-level WebPConfig/WebPPicture API.
   var config: WebPConfig
   if WebPConfigInitInternal(addr config, WEBP_PRESET_DEFAULT, quality,
-    WEBP_ENCODER_ABI_VERSION) == 0:
+      WEBP_ENCODER_ABI_VERSION) == 0:
     raise newException(ValueError, "WebPConfigInitInternal failed")
   if WebPValidateConfig(addr config) == 0:
     raise newException(ValueError, "WebPValidateConfig failed")
