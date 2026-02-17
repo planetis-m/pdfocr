@@ -12,7 +12,7 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - bounded memory under backpressure
 - retry handling for transient network/API failures
 
-## Current design (simplified)
+## Current design
 
 This branch uses a two-thread design with bounded in-flight work:
 
