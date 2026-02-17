@@ -279,25 +279,25 @@ proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
             finally:
               recycleEasy(idleEasy, req.easy)
 
-proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
-    multi: var CurlMulti; active: var Table[uint, RequestContext];
-    retryQueue: var seq[RetryItem]; idleEasy: var seq[CurlEasy]) =
-  let bounded = boundedErrorMessage(message)
-  for req in active.values:
+proc failActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
+    state: var WorkerState; bounded: string) =
+  for req in state.active.values:
     try:
       multi.removeHandle(req.easy)
     except CatchableError:
       discard
-    recycleEasy(idleEasy, req.easy)
+    recycleEasy(state.idleEasy, req.easy)
     ctx.enqueueFinalResult(newErrorResult(req.task.seqId, req.task.page, req.attempt,
       NetworkError, bounded))
-  active.clear()
+  state.active.clear()
 
-  for item in retryQueue:
+proc failRetryQueue(ctx: NetworkWorkerContext; state: var WorkerState; bounded: string) =
+  for item in state.retryQueue:
     ctx.enqueueFinalResult(newErrorResult(item.task.seqId, item.task.page, item.attempt,
       NetworkError, bounded))
-  retryQueue.setLen(0)
+  state.retryQueue.setLen(0)
 
+proc drainIncomingAfterFailure(ctx: NetworkWorkerContext; bounded: string) =
   while true:
     var task: OcrTask
     ctx.taskCh.recv(task)
@@ -305,12 +305,30 @@ proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
       break
     ctx.enqueueFinalResult(newErrorResult(task.seqId, task.page, 1, NetworkError, bounded))
 
+proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
+    multi: var CurlMulti; state: var WorkerState) =
+  let bounded = boundedErrorMessage(message)
+  failActiveRequests(ctx, multi, state, bounded)
+  failRetryQueue(ctx, state, bounded)
+  drainIncomingAfterFailure(ctx, bounded)
+
 proc initWorkerState(seed: int): WorkerState =
-  result.active = initTable[uint, RequestContext]()
-  result.retryQueue = @[]
-  result.idleEasy = @[]
-  result.rng = initRand(seed)
-  result.stopRequested = false
+  WorkerState(
+    active: initTable[uint, RequestContext](),
+    retryQueue: @[],
+    idleEasy: @[],
+    rng: initRand(seed),
+    stopRequested: false
+  )
+
+proc initDrainState(): WorkerState =
+  WorkerState(
+    active: initTable[uint, RequestContext](),
+    retryQueue: @[],
+    idleEasy: @[],
+    rng: initRand(0),
+    stopRequested: true
+  )
 
 proc tryTakeDispatchTask(ctx: NetworkWorkerContext; state: var WorkerState;
     task: var OcrTask; attempt: var int): bool =
@@ -364,8 +382,7 @@ proc processActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
     discard multi.poll(min(MultiWaitMaxMs, msUntilNextRetry(state.retryQueue)))
     processCompletions(ctx, multi, state.active, state.retryQueue, state.idleEasy, state.rng)
   except CatchableError:
-    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, state.active, state.retryQueue,
-      state.idleEasy)
+    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, state)
     result = false
 
 proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
@@ -393,8 +410,5 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
   if initialized:
     runInitializedWorker(ctx, multi)
   else:
-    var emptyActive = initTable[uint, RequestContext]()
-    var emptyRetryQueue: seq[RetryItem] = @[]
-    var emptyIdleEasy: seq[CurlEasy] = @[]
-    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, emptyActive,
-      emptyRetryQueue, emptyIdleEasy)
+    var state = initDrainState()
+    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, state)

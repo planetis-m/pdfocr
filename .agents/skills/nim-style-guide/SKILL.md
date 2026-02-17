@@ -19,6 +19,8 @@ Default to simple, explicit code over clever shortcuts.
 - Do not add redundant runtime checks that restate existing type/proc contracts unless the spec explicitly requires them.
 - Avoid one-argument-per-line function call formatting for normal calls.
 - Use helper-proc extraction when a large block under one condition hurts readability.
+- Prefer object-construction syntax (`TypeName(field: ...)`) over field-by-field `result.field = ...`
+  when creating a value object.
 
 ## 1. Formatting
 
@@ -113,6 +115,7 @@ proc parseURL(text: string): string = discard
 - Never use expression templates with `block:` wrappers to hide statements.
 - Use `macro` only when syntax transformation is required.
 - For multi-line calls, prefer compact wrapped calls over one-argument-per-line blocks.
+- This call-formatting rule is for proc/function calls, not object constructors.
 
 ### Do
 
@@ -131,6 +134,17 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
 ```nim
 template slotIndex(i, k: int): int =
   i mod k
+```
+
+```nim
+proc initWorkerState(seed: int): WorkerState =
+  WorkerState(
+    active: initTable[uint, RequestContext](),
+    retryQueue: @[],
+    idleEasy: @[],
+    rng: initRand(seed),
+    stopRequested: false
+  )
 ```
 
 ### Don't
@@ -154,6 +168,15 @@ finalizeOrRetry(
   kind = NetworkError,
   message = boundedErrorMessage(getCurrentExceptionMsg())
 )
+```
+
+```nim
+proc initWorkerState(seed: int): WorkerState =
+  result.active = initTable[uint, RequestContext]()
+  result.retryQueue = @[]
+  result.idleEasy = @[]
+  result.rng = initRand(seed)
+  result.stopRequested = false
 ```
 
 ## 4. Control flow
