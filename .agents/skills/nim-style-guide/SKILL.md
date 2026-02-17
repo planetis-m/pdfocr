@@ -17,13 +17,15 @@ Default to simple, explicit code over clever shortcuts.
 - If a helper uses `if`, `case`, loops, `try`, or `block`, it must be a `proc`.
 - Do not weaken proc contracts (e.g., `Positive` -> `int`) and then add manual checks.
 - Do not add redundant runtime checks that restate existing type/proc contracts unless the spec explicitly requires them.
+- Avoid one-argument-per-line function call formatting for normal calls.
+- Use helper-proc extraction when a large block under one condition hurts readability.
 
 ## 1. Formatting
 
 ### Rules
 
 - Indent with 2 spaces. No tabs.
-- Keep lines reasonably short (target <= 80 chars when practical).
+- Keep lines reasonably short (target <= 100 chars; prefer about 90-100).
 - Do not manually align columns with extra spaces.
 - Use `a..b` (not `a .. b`) unless spacing is needed for clarity with unary operators.
 
@@ -82,21 +84,25 @@ proc parseURL(text: string): string = discard
 - A template body should be exactly one expression.
 - Never use expression templates with `block:` wrappers to hide statements.
 - Use `macro` only when syntax transformation is required.
+- For multi-line calls, prefer compact wrapped calls over one-argument-per-line blocks.
 
 ### Do
 
 ```nim
-template slotIndex(i, k: int): int =
-  i mod k
+finalizeOrRetry(ctx, retryQueue, rng, req.task, req.attempt,
+  retryable = true, kind = NetworkError,
+  message = boundedErrorMessage(getCurrentExceptionMsg()))
 ```
 
 ```nim
-proc nextReady(nextToWrite: int; pending: seq[Option[int]]; k: int): bool =
-  let idx = nextToWrite mod k
-  if pending[idx].isSome():
-    result = pending[idx].get() == nextToWrite
-  else:
-    result = false
+proc runOrchestrator*(cliArgs: seq[string]): int =
+  let runtimeConfig = buildRuntimeConfig(cliArgs)
+  result = runOrchestratorWithConfig(runtimeConfig)
+```
+
+```nim
+template slotIndex(i, k: int): int =
+  i mod k
 ```
 
 ### Don't
@@ -107,6 +113,19 @@ template nextReady(): bool =
     let idx = slotIndex(nextToWrite, k)
     pending[idx].isSome() and pending[idx].get() == nextToWrite
   )
+```
+
+```nim
+finalizeOrRetry(
+  ctx,
+  retryQueue,
+  rng,
+  req.task,
+  req.attempt,
+  retryable = true,
+  kind = NetworkError,
+  message = boundedErrorMessage(getCurrentExceptionMsg())
+)
 ```
 
 ## 4. Control flow

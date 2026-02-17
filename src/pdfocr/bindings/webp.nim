@@ -22,7 +22,8 @@ const
 
 {.push importc, callconv: cdecl, header: "<webp/encode.h>".}
 
-proc WebPConfigInitInternal*(config: ptr WebPConfig; preset: cint; quality: cfloat; version: cint): cint
+proc WebPConfigInitInternal*(config: ptr WebPConfig; preset: cint;
+  quality: cfloat; version: cint): cint
 proc WebPValidateConfig*(config: ptr WebPConfig): cint
 
 proc WebPPictureInitInternal*(picture: ptr WebPPicture; version: cint): cint

@@ -108,7 +108,8 @@ proc removeHandle*(multi: var CurlMulti; easy: CurlEasy) =
   checkCurlMulti(curl_multi_remove_handle(multi.raw, easy.raw), "curl_multi_remove_handle failed")
 
 proc removeHandle*(multi: var CurlMulti; msg: CURLMsg) =
-  checkCurlMulti(curl_multi_remove_handle(multi.raw, msg.easy_handle), "curl_multi_remove_handle failed")
+  checkCurlMulti(curl_multi_remove_handle(multi.raw, msg.easy_handle),
+    "curl_multi_remove_handle failed")
 
 proc perform*(multi: var CurlMulti): int =
   var running: cint
@@ -143,17 +144,22 @@ proc setWriteCallback*(easy: var CurlEasy; cb: curl_write_callback; userdata: po
 proc setPostFields*(easy: var CurlEasy; data: string) =
   easy.postData = data
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POST, clong(1)), "CURLOPT_POST failed")
-  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDS, easy.postData.cstring), "CURLOPT_POSTFIELDS failed")
-  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDSIZE, clong(easy.postData.len)), "CURLOPT_POSTFIELDSIZE failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDS, easy.postData.cstring),
+    "CURLOPT_POSTFIELDS failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_POSTFIELDSIZE, clong(easy.postData.len)),
+    "CURLOPT_POSTFIELDSIZE failed")
 
 proc setHeaders*(easy: var CurlEasy; headers: CurlSlist) =
-  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_HTTPHEADER, headers.raw), "CURLOPT_HTTPHEADER failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_HTTPHEADER, headers.raw),
+    "CURLOPT_HTTPHEADER failed")
 
 proc setTimeoutMs*(easy: var CurlEasy; timeoutMs: int) =
-  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_TIMEOUT_MS, clong(timeoutMs)), "CURLOPT_TIMEOUT_MS failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_TIMEOUT_MS, clong(timeoutMs)),
+    "CURLOPT_TIMEOUT_MS failed")
 
 proc setConnectTimeoutMs*(easy: var CurlEasy; timeoutMs: int) =
-  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_CONNECTTIMEOUT_MS, clong(timeoutMs)), "CURLOPT_CONNECTTIMEOUT_MS failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_CONNECTTIMEOUT_MS, clong(timeoutMs)),
+    "CURLOPT_CONNECTTIMEOUT_MS failed")
 
 proc setSslVerify*(easy: var CurlEasy; verifyPeer: bool; verifyHost: bool) =
   checkCurl(curl_easy_setopt(easy.raw, CURLOPT_SSL_VERIFYPEER, clong(if verifyPeer: 1 else: 0)),
@@ -162,7 +168,8 @@ proc setSslVerify*(easy: var CurlEasy; verifyPeer: bool; verifyHost: bool) =
     "CURLOPT_SSL_VERIFYHOST failed")
 
 proc setAcceptEncoding*(easy: var CurlEasy; encoding: string) =
-  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_ACCEPT_ENCODING, encoding.cstring), "CURLOPT_ACCEPT_ENCODING failed")
+  checkCurl(curl_easy_setopt(easy.raw, CURLOPT_ACCEPT_ENCODING, encoding.cstring),
+    "CURLOPT_ACCEPT_ENCODING failed")
 
 proc reset*(easy: var CurlEasy) =
   curl_easy_reset(easy.raw)
@@ -177,7 +184,8 @@ proc setPrivate*(easy: var CurlEasy; data: pointer) =
 
 proc getPrivate*(easy: CurlEasy): pointer =
   var data: pointer
-  checkCurl(curl_easy_getinfo(easy.raw, CURLINFO_PRIVATE, addr data), "CURLINFO_PRIVATE failed")
+  checkCurl(curl_easy_getinfo(easy.raw, CURLINFO_PRIVATE, addr data),
+    "CURLINFO_PRIVATE failed")
   data
 
 proc performCode(easy: var CurlEasy): CURLcode =
