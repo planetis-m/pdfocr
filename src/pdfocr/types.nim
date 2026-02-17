@@ -25,6 +25,16 @@ type
     webpBytes*: seq[byte]
     attempt*: int # starts at 1
 
+  OcrTaskKind* = enum
+    otkPage,
+    otkStop
+
+  OcrTask* = object
+    kind*: OcrTaskKind
+    seqId*: SeqId
+    page*: int
+    webpBytes*: seq[byte]
+
   RenderFailure* = object
     seqId*: SeqId
     page*: int
@@ -88,6 +98,11 @@ type
     renderOutCh*: Chan[RendererOutput]
     writerInCh*: Chan[PageResult]
     fatalCh*: Chan[FatalEvent]
+    apiKey*: string
+
+  NetworkWorkerContext* = object
+    taskCh*: Chan[OcrTask]
+    resultCh*: Chan[PageResult]
     apiKey*: string
 
   WriterContext* = object

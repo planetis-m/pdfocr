@@ -1,35 +1,7 @@
-import std/[atomics, os]
+import std/atomics
 import threading/channels
-import ./[constants, curl, errors, logging, network_scheduler,
-         page_selection, pdfium, renderer, types, writer]
-
-var
-  OrchSigintRequested: Atomic[bool]
-  WriterDone: Atomic[bool]
-  RendererDone: Atomic[bool]
-  SchedulerDone: Atomic[bool]
-  RuntimeChannels: RuntimeChannels
-
-proc ctrlCHook() {.noconv.} =
-  OrchSigintRequested.store(true, moRelaxed)
-
-proc writerThreadMain(ctx: WriterContext) {.thread.} =
-  try:
-    runWriter(ctx)
-  finally:
-    WriterDone.store(true, moRelaxed)
-
-proc rendererThreadMain(ctx: RendererContext) {.thread.} =
-  try:
-    runRenderer(ctx)
-  finally:
-    RendererDone.store(true, moRelaxed)
-
-proc schedulerThreadMain(ctx: SchedulerContext) {.thread.} =
-  try:
-    runNetworkScheduler(ctx)
-  finally:
-    SchedulerDone.store(true, moRelaxed)
+import ./[constants, curl, errors, json_codec, logging, network_scheduler,
+         page_selection, pdfium, types, webp]
 
 proc initGlobalLibraries*() =
   initPdfium()
@@ -39,23 +11,81 @@ proc cleanupGlobalLibraries*() =
   cleanupCurlGlobal()
   destroyPdfium()
 
-proc requestCancel(rendererStopSent: var bool) =
-  SchedulerStopRequested.store(true, moRelaxed)
-  if not rendererStopSent:
-    RuntimeChannels.renderReqCh.send(RenderRequest(kind: rrkStop, seqId: -1))
-    rendererStopSent = true
-
-proc fallbackResult(runtimeConfig: RuntimeConfig; seqId: int; reason: string): PageResult =
+proc renderFailureResult(seqId: SeqId; page: int; kind: ErrorKind; message: string): PageResult =
   PageResult(
     seqId: seqId,
-    page: runtimeConfig.selectedPages[seqId],
+    page: page,
     status: psError,
     attempts: 1,
     text: "",
-    errorKind: NetworkError,
-    errorMessage: boundedErrorMessage(reason),
+    errorKind: kind,
+    errorMessage: boundedErrorMessage(message),
     httpStatus: HttpNone
   )
+
+proc renderPageToWebp(doc: PdfDocument; page: int): tuple[
+    ok: bool,
+    webpBytes: seq[byte],
+    errorKind: ErrorKind,
+    errorMessage: string
+] =
+  var bitmap: PdfBitmap
+  try:
+    var pdfPage = loadPage(doc, page - 1)
+    bitmap = renderPageAtScale(
+      pdfPage,
+      RenderScale,
+      rotate = RenderRotate,
+      flags = RenderFlags
+    )
+  except CatchableError:
+    return (
+      ok: false,
+      webpBytes: @[],
+      errorKind: PdfError,
+      errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
+    )
+
+  let bitmapWidth = width(bitmap)
+  let bitmapHeight = height(bitmap)
+  let pixels = buffer(bitmap)
+  let rowStride = stride(bitmap)
+  if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
+    return (
+      ok: false,
+      webpBytes: @[],
+      errorKind: PdfError,
+      errorMessage: "invalid bitmap state from renderer"
+    )
+
+  try:
+    let webpBytes = compressBgr(
+      Positive(bitmapWidth),
+      Positive(bitmapHeight),
+      pixels,
+      rowStride,
+      WebpQuality
+    )
+    if webpBytes.len == 0:
+      return (
+        ok: false,
+        webpBytes: @[],
+        errorKind: EncodeError,
+        errorMessage: "encoded WebP output was empty"
+      )
+    return (
+      ok: true,
+      webpBytes: webpBytes,
+      errorKind: NoError,
+      errorMessage: ""
+    )
+  except CatchableError:
+    return (
+      ok: false,
+      webpBytes: @[],
+      errorKind: EncodeError,
+      errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
+    )
 
 proc runOrchestrator*(cliArgs: seq[string]): int =
   var runtimeConfig: RuntimeConfig
@@ -65,113 +95,89 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     logError(getCurrentExceptionMsg())
     return ExitFatalRuntime
 
-  OrchSigintRequested.store(false, moRelaxed)
   resetSharedAtomics()
-  setControlCHook(ctrlCHook)
 
   var
     globalsInitialized = false
-    fatalDetected = false
-    sigintDetected = false
-    rendererStopSent = false
-    firstFatal: FatalEvent
+    networkStarted = false
+    stopSent = false
+    anyError = false
+    written = 0
+    okCount = 0
+    errCount = 0
 
-    writerThread: Thread[WriterContext]
-    rendererThread: Thread[RendererContext]
-    schedulerThread: Thread[SchedulerContext]
+    taskCh: Chan[OcrTask]
+    resultCh: Chan[PageResult]
+    networkThread: Thread[NetworkWorkerContext]
 
   try:
     initGlobalLibraries()
     globalsInitialized = true
 
-    RuntimeChannels = initRuntimeChannels()
+    let doc = loadDocument(runtimeConfig.inputPath)
+    taskCh = newChan[OcrTask](Positive(1))
+    resultCh = newChan[PageResult](Positive(1))
+
+    createThread(networkThread, runNetworkWorker, NetworkWorkerContext(
+      taskCh: taskCh,
+      resultCh: resultCh,
+      apiKey: runtimeConfig.apiKey
+    ))
+    networkStarted = true
+
     logInfo("startup: selected_count=" & $runtimeConfig.selectedCount &
       " first_page=" & $runtimeConfig.selectedPages[0] &
       " last_page=" & $runtimeConfig.selectedPages[^1])
 
-    createThread(writerThread, writerThreadMain, WriterContext(
-      selectedCount: runtimeConfig.selectedCount,
-      selectedPages: runtimeConfig.selectedPages,
-      writerInCh: RuntimeChannels.writerInCh,
-      fatalCh: RuntimeChannels.fatalCh
-    ))
+    for seqId in 0 ..< runtimeConfig.selectedCount:
+      let page = runtimeConfig.selectedPages[seqId]
+      let rendered = renderPageToWebp(doc, page)
 
-    createThread(rendererThread, rendererThreadMain, RendererContext(
-      pdfPath: runtimeConfig.inputPath,
-      selectedPages: runtimeConfig.selectedPages,
-      renderReqCh: RuntimeChannels.renderReqCh,
-      renderOutCh: RuntimeChannels.renderOutCh,
-      fatalCh: RuntimeChannels.fatalCh
-    ))
+      var pageResult: PageResult
+      if rendered.ok:
+        taskCh.send(OcrTask(
+          kind: otkPage,
+          seqId: seqId,
+          page: page,
+          webpBytes: rendered.webpBytes
+        ))
+        resultCh.recv(pageResult)
+      else:
+        pageResult = renderFailureResult(seqId, page, rendered.errorKind, rendered.errorMessage)
 
-    createThread(schedulerThread, schedulerThreadMain, SchedulerContext(
-      selectedCount: runtimeConfig.selectedCount,
-      selectedPages: runtimeConfig.selectedPages,
-      renderReqCh: RuntimeChannels.renderReqCh,
-      renderOutCh: RuntimeChannels.renderOutCh,
-      writerInCh: RuntimeChannels.writerInCh,
-      fatalCh: RuntimeChannels.fatalCh,
-      apiKey: runtimeConfig.apiKey
-    ))
+      if pageResult.seqId != seqId:
+        logWarn("network result seq_id mismatch; correcting for ordered output")
+        pageResult.seqId = seqId
+      if pageResult.page != page:
+        logWarn("network result page mismatch; correcting output page")
+        pageResult.page = page
 
-    while not SchedulerDone.load(moRelaxed):
-      if OrchSigintRequested.load(moRelaxed) and not sigintDetected:
-        sigintDetected = true
-        logWarn("SIGINT received; stopping scheduling and finalizing unfinished pages")
-        requestCancel(rendererStopSent)
+      stdout.write(encodeResultLine(pageResult))
+      stdout.write('\n')
 
-      var ev: FatalEvent
-      while RuntimeChannels.fatalCh.tryRecv(ev):
-        if not fatalDetected:
-          fatalDetected = true
-          firstFatal = ev
-          logError("fatal event: source=" & $ev.source &
-            " kind=" & $ev.errorKind &
-            " message=" & ev.message)
-        requestCancel(rendererStopSent)
+      if pageResult.status == psOk:
+        inc okCount
+      else:
+        inc errCount
+        anyError = true
 
-      if fatalDetected:
-        requestCancel(rendererStopSent)
-      sleep(1)
+      inc written
+      NextToWrite.store(written, moRelaxed)
+      OkCount.store(okCount, moRelaxed)
+      ErrCount.store(errCount, moRelaxed)
 
-    joinThread(schedulerThread)
-    if fatalDetected:
-      requestCancel(rendererStopSent)
-    joinThread(rendererThread)
+    flushFile(stdout)
+    taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))
+    stopSent = true
+    joinThread(networkThread)
+    networkStarted = false
 
-    if fatalDetected or sigintDetected:
-      let reason =
-        if fatalDetected: "fatal shutdown before completion"
-        else: "interrupted by SIGINT"
-      let nextSeq = NextToWrite.load(moRelaxed)
-      for seqId in nextSeq ..< runtimeConfig.selectedCount:
-        RuntimeChannels.writerInCh.send(fallbackResult(runtimeConfig, seqId, reason))
-
-    joinThread(writerThread)
-
-    var ev: FatalEvent
-    while RuntimeChannels.fatalCh.tryRecv(ev):
-      if not fatalDetected:
-        fatalDetected = true
-        firstFatal = ev
-        logError("fatal event: source=" & $ev.source &
-          " kind=" & $ev.errorKind &
-          " message=" & ev.message)
-
-    let
-      okCount = OkCount.load(moRelaxed)
-      errCount = ErrCount.load(moRelaxed)
-      written = NextToWrite.load(moRelaxed)
     logInfo("completion: written=" & $written &
       " ok=" & $okCount &
       " err=" & $errCount &
       " retries=" & $RetryCount.load(moRelaxed))
 
-    if fatalDetected:
-      result = ExitFatalRuntime
-    elif sigintDetected:
-      result = ExitHasPageErrors
-    elif errCount > 0:
+    if anyError:
       result = ExitHasPageErrors
     else:
       result = ExitAllOk
@@ -179,6 +185,12 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
     logError(getCurrentExceptionMsg())
     result = ExitFatalRuntime
   finally:
-    unsetControlCHook()
+    if networkStarted:
+      if not stopSent:
+        try:
+          taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))
+        except CatchableError:
+          discard
+      joinThread(networkThread)
     if globalsInitialized:
       cleanupGlobalLibraries()

@@ -193,8 +193,11 @@ proc getPrivate*(easy: CurlEasy): pointer =
   checkCurl(curl_easy_getinfo(easy.raw, CURLINFO_PRIVATE, addr data), "CURLINFO_PRIVATE failed")
   data
 
+proc performCode*(easy: var CurlEasy): CURLcode =
+  curl_easy_perform(easy.raw)
+
 proc perform*(easy: var CurlEasy) =
-  checkCurl(curl_easy_perform(easy.raw), "curl_easy_perform failed")
+  checkCurl(easy.performCode(), "curl_easy_perform failed")
 
 proc responseCode*(easy: CurlEasy): HttpCode =
   var code: clong
