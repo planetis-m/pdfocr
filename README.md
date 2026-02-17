@@ -1,33 +1,38 @@
 # pdfocr
 
-Turn big PDFs into clean, page-ordered OCR JSONL you can pipe straight into LLM workflows.
+Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 
-`pdfocr` is built for production automation: strict output order, retry resilience, bounded memory, and clean pipeline behavior.
+`pdfocr` renders selected PDF pages to WebP, sends them to DeepInfra's olmOCR model, and writes exactly one JSON object per page to stdout in deterministic order.
 
-## Why it is useful
+## Core guarantees
 
-- It works well in pipelines: stdout is results only, stderr is logs only.
-- It emits one JSON object per selected page, in deterministic order.
-- It avoids temp-file sprawl.
-- It is resilient to transient API issues (timeouts, rate limits, 5xx).
-- It keeps memory bounded under backpressure.
+- stdout is results only (JSON Lines), stderr is logs only
+- one output object per selected page
+- strict output order by normalized page list
+- bounded memory under backpressure
+- retry handling for transient network/API failures
 
-If you have ever had OCR output arrive out-of-order, block unpredictably, or pollute stdout with logs, this is the fix.
+## Current design (simplified)
 
-## Measured performance
+This branch uses a two-thread design with bounded in-flight work:
 
-Live benchmark on February 16, 2026 against `tests/slides.pdf` (72 pages):
+1. `main` thread:
+- parses CLI and page selection
+- renders PDF pages and encodes WebP
+- submits OCR tasks
+- writes ordered JSONL to stdout
 
-- Result quality: `72/72` pages succeeded
-- Output contract: strict page order preserved, exit code `0`
-- Measured runtime: `32.52s`
-- Measured average request latency: `10.34s` per request
-- Total summed request latency (serial baseline): `744.63s` (`12m24.63s`)
-- Theoretical runtime at `MaxInflight=32` with perfect utilization: `23.27s`
-- Effective concurrency achieved: `22.90x` vs serial baseline
-- Utilization of concurrency ceiling: `71.56%`
+2. `network` thread:
+- runs HTTP requests via libcurl multi
+- keeps up to `K = MaxInflight` requests active
+- applies retries/backoff/jitter
+- returns final per-page results
 
-This is the key point: page-level requests are long, but concurrency collapses wall-clock time from minutes to seconds while keeping output deterministic.
+Bounded channels:
+- `TaskQ` (`main -> network`) capacity `K`
+- `ResultQ` (`network -> main`) capacity `K`
+
+The main thread keeps a fixed-size reorder ring and only allows at most `K` outstanding pages at a time.
 
 ## Quick start
 
@@ -38,39 +43,41 @@ LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
 ./app INPUT.pdf --pages:"1,4-6,12" > results.jsonl
 ```
 
+## CLI
+
+```bash
+./app INPUT.pdf --pages:"1,4-6,12"
+```
+
 Page spec is 1-based:
 - `N` for a single page
 - `A-B` for an inclusive range
 - comma-separated combinations like `"1,4-6,12"`
 
-Input is normalized to sorted unique pages automatically.
+Selection is normalized to sorted unique pages.
 
-## What you get
+## Output format
 
-One JSON line per page:
+Success line:
 
 ```json
 {"page":12,"status":"ok","attempts":1,"text":"..."}
 ```
 
-On failure:
+Error line:
 
 ```json
 {"page":12,"status":"error","attempts":3,"error_kind":"Timeout","error_message":"...","http_status":504}
 ```
 
-Status fields:
-- `status`: `ok` or `error`
-- `attempts`: total attempts used for that page
-- `error_kind`: one of `PdfError|EncodeError|NetworkError|Timeout|RateLimit|HttpError|ParseError`
-
-Your runtime will vary with hardware, PDF complexity, upstream latency, and network conditions.
-
-## Minimal runtime requirements
-
-- Nim `>= 2.2.6`
-- `DEEPINFRA_API_KEY`
-- `libcurl`, `libwebp`, `libpdfium` (repo expects `third_party/pdfium/lib`)
+`error_kind` values:
+- `PdfError`
+- `EncodeError`
+- `NetworkError`
+- `Timeout`
+- `RateLimit`
+- `HttpError`
+- `ParseError`
 
 ## Exit codes
 
@@ -78,12 +85,25 @@ Your runtime will vary with hardware, PDF complexity, upstream latency, and netw
 - `2`: at least one page failed
 - `3`: fatal startup/runtime failure
 
-## Trust and contracts
+## Benchmarking notes
 
-- `SPEC.md` defines the behavioral contract.
-- `tests/phase08/` contains acceptance coverage for ordering, retries, backpressure, and exit semantics.
+Live network benchmarks are noisy. For fair comparison between branches:
 
-Run acceptance suite:
+1. run interleaved pairs (`master`, `candidate`, `master`, `candidate`, ...)
+2. run sequentially (no overlapping network traffic)
+3. compare medians/trimmed means, not only a single average
+4. track retry pressure (`attempts`, 429/5xx) per run
+
+## Requirements
+
+- Nim `>= 2.2.6`
+- `DEEPINFRA_API_KEY`
+- `libcurl`, `libwebp`, `libpdfium`
+- repo expects `third_party/pdfium/lib` at runtime
+
+## Test suite
+
+Run current phase acceptance tests:
 
 ```bash
 nim e tests/phase08/ci.nims test
