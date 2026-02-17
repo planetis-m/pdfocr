@@ -1,4 +1,4 @@
-import std/[algorithm, os, parseopt, parseutils, strutils]
+import std/[algorithm, os, parseopt, parseutils]
 import ./[constants, pdfium, types]
 
 type

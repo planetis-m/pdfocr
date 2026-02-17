@@ -42,9 +42,6 @@ proc responseExcerpt(body: string): string {.inline.} =
   else:
     result = body.substr(0, ResponseExcerptLimit - 1) & "..."
 
-proc slidingWindowAllows*(seqId: int; nextToWrite: int): bool {.inline.} =
-  result = seqId < nextToWrite + Window
-
 proc classifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
   result = if curlCode == CURLE_OPERATION_TIMEDOUT: Timeout else: NetworkError
 
@@ -443,6 +440,3 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
           running = false
 
     InflightCount.store(0, moRelaxed)
-
-proc runNetworkScheduler*(ctx: NetworkWorkerContext) {.thread.} =
-  runNetworkWorker(ctx)
