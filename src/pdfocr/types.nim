@@ -40,19 +40,11 @@ type
     resultCh*: Chan[PageResult]
     apiKey*: string
 
-# Shared atomics: NextToWrite is correctness-critical.
+# Shared atomics for diagnostics.
 var
-  NextToWrite*: Atomic[int]
-  OkCount*: Atomic[int]
-  ErrCount*: Atomic[int]
   RetryCount*: Atomic[int]
-  InflightCount*: Atomic[int]
 
 proc resetSharedAtomics*() =
-  NextToWrite.store(0, moRelaxed)
-  OkCount.store(0, moRelaxed)
-  ErrCount.store(0, moRelaxed)
   RetryCount.store(0, moRelaxed)
-  InflightCount.store(0, moRelaxed)
 
 # Channel payloads intentionally use value types / strings / byte sequences only.

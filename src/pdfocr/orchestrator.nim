@@ -14,11 +14,11 @@ type
     result: PageResult
     fromNetwork: bool
 
-proc initGlobalLibraries*() =
+proc initGlobalLibraries() =
   initPdfium()
   initCurlGlobal()
 
-proc cleanupGlobalLibraries*() =
+proc cleanupGlobalLibraries() =
   cleanupCurlGlobal()
   destroyPdfium()
 
@@ -202,9 +202,6 @@ proc runOrchestrator*(cliArgs: seq[string]): int =
 
         inc written
         inc nextToWrite
-        NextToWrite.store(written, moRelaxed)
-        OkCount.store(okCount, moRelaxed)
-        ErrCount.store(errCount, moRelaxed)
 
       proc flushReady() =
         while nextToWrite < runtimeConfig.selectedCount and nextReady():

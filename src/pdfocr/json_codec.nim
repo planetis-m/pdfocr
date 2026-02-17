@@ -58,7 +58,6 @@ type
   ChatCompletionParseContract* = object
     ok*: bool
     text*: string
-    error_kind*: ErrorKind
     error_message*: string
 
 proc encodeResultLine*(p: PageResult): string =
@@ -109,13 +108,11 @@ proc parseChatCompletionResponse*(payload: string): ChatCompletionParseContract 
     result = ChatCompletionParseContract(
       ok: true,
       text: parsed.choices[0].message.content,
-      error_kind: NoError,
       error_message: ""
     )
   except CatchableError:
     result = ChatCompletionParseContract(
       ok: false,
       text: "",
-      error_kind: ParseError,
       error_message: boundedErrorMessage(getCurrentExceptionMsg())
     )

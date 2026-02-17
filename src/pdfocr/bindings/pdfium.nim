@@ -4,7 +4,6 @@ type
   FPDF_PAGE* = distinct pointer
   FPDF_BITMAP* = distinct pointer
   FPDF_TEXTPAGE* = distinct pointer
-  FPDF_PAGEOBJECT* = distinct pointer
 
   # The config struct for Init
   FPDF_LIBRARY_CONFIG* {.bycopy.} = object
@@ -15,7 +14,6 @@ type
     m_pPlatform*: pointer
 
 const
-  FPDF_PAGEOBJECT_TEXT* = 1
   FPDFBitmap_BGR* = 2
 
 # --- 3. Function Imports (The Bindings) ---
@@ -59,8 +57,5 @@ proc FPDFText_LoadPage*(page: FPDF_PAGE): FPDF_TEXTPAGE
 proc FPDFText_ClosePage*(text_page: FPDF_TEXTPAGE)
 proc FPDFText_CountChars*(text_page: FPDF_TEXTPAGE): cint
 proc FPDFText_GetText*(text_page: FPDF_TEXTPAGE, start_index, count: cint, buffer: pointer): cint
-# Get the bounding box of a specific character index
-proc FPDFText_GetCharBox*(text_page: FPDF_TEXTPAGE, index: cint,
-                          left, right, bottom, top: ptr cdouble): cint
 
 {.pop.}

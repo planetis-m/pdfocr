@@ -198,7 +198,6 @@ proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContex
     req.easy.setAcceptEncoding("gzip, deflate")
     multi.addHandle(req.easy)
     active[handleKey(req.easy)] = req
-    InflightCount.store(active.len, moRelaxed)
     result = (ok: true, message: "")
   except CatchableError:
     if req != nil and req.easy != nil:
@@ -218,8 +217,6 @@ proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
       if active.hasKey(key):
         var req: RequestContext
         if active.pop(key, req):
-          InflightCount.store(active.len, moRelaxed)
-
           var removed = false
           try:
             multi.removeHandle(msg)
@@ -336,7 +333,6 @@ proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string; multi: var 
     recycleEasy(idleEasy, req.easy)
     ctx.enqueueFinalResult(newErrorResult(req.task.seqId, req.task.page, req.attempt, NetworkError, bounded))
   active.clear()
-  InflightCount.store(0, moRelaxed)
 
   for item in retryQueue:
     ctx.enqueueFinalResult(newErrorResult(item.task.seqId, item.task.page, item.attempt, NetworkError, bounded))
@@ -368,8 +364,6 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
       rng = initRand(int(getMonoTime().ticks))
       stopRequested = false
       running = true
-
-    InflightCount.store(0, moRelaxed)
 
     while running:
       while active.len < MaxInflight:
@@ -438,5 +432,3 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
         except CatchableError:
           enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, active, retryQueue, idleEasy)
           running = false
-
-    InflightCount.store(0, moRelaxed)
