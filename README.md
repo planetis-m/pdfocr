@@ -126,7 +126,7 @@ Live network benchmarks are noisy. For fair comparison between branches:
 Run current phase acceptance tests:
 
 ```bash
-nim e tests/phase08/ci.nims test
+nim test tests/phase08/ci.nims
 ```
 
 ## License
