@@ -214,13 +214,13 @@ proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContex
       recycleEasy(idleEasy, req.easy)
     result = (ok: false, message: boundedErrorMessage(getCurrentExceptionMsg()))
 
-proc handleHttpResponse(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem];
-    rng: var Rand; req: RequestContext; responseBody: string; httpCode: HttpCode) =
+proc handleHttpResponse(ctx: NetworkWorkerContext; state: var WorkerState;
+    req: RequestContext; responseBody: string; httpCode: HttpCode) =
   if httpCode == Http429:
-    finalizeOrRetry(ctx, retryQueue, rng, req.task, req.attempt, retryable = true,
+    finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
       kind = RateLimit, message = "HTTP 429 rate limited", httpStatus = httpCode)
   elif httpStatusRetryable(httpCode):
-    finalizeOrRetry(ctx, retryQueue, rng, req.task, req.attempt, retryable = true,
+    finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
       kind = HttpError,
       message = "HTTP " & $httpCode & ": " & responseExcerpt(responseBody),
       httpStatus = httpCode)
@@ -238,61 +238,57 @@ proc handleHttpResponse(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem
       let resultLine = newSuccessResult(req.task.seqId, req.task.page, req.attempt, parsed.text)
       ctx.enqueueFinalResult(resultLine)
 
-proc handleSuccessfulTransfer(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem];
-    rng: var Rand; req: RequestContext) =
+proc handleSuccessfulTransfer(ctx: NetworkWorkerContext; state: var WorkerState;
+    req: RequestContext) =
   let responseBody = req.response.body
   try:
     let httpCode = req.easy.responseCode()
-    handleHttpResponse(ctx, retryQueue, rng, req, responseBody, httpCode)
+    handleHttpResponse(ctx, state, req, responseBody, httpCode)
   except CatchableError:
-    finalizeOrRetry(ctx, retryQueue, rng, req.task, req.attempt, retryable = true,
+    finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
       kind = NetworkError,
       message = boundedErrorMessage(getCurrentExceptionMsg()))
 
-proc handleCurlCompletion(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem];
-    rng: var Rand; req: RequestContext; curlCode: CURLcode) =
+proc handleCurlCompletion(ctx: NetworkWorkerContext; state: var WorkerState;
+    req: RequestContext; curlCode: CURLcode) =
   if curlCode != CURLE_OK:
-    finalizeOrRetry(ctx, retryQueue, rng, req.task, req.attempt, retryable = true,
+    finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
       kind = classifyCurlErrorKind(curlCode),
       message = "curl transfer failed code=" & $int(curlCode))
   else:
-    handleSuccessfulTransfer(ctx, retryQueue, rng, req)
+    handleSuccessfulTransfer(ctx, state, req)
 
 proc tryRemoveCompletionHandle(ctx: NetworkWorkerContext; multi: var CurlMulti;
-    retryQueue: var seq[RetryItem]; rng: var Rand; req: RequestContext; msg: CURLMsg): bool =
+    state: var WorkerState; req: RequestContext; msg: CURLMsg): bool =
   try:
     multi.removeHandle(msg)
     result = true
   except CatchableError:
-    finalizeOrRetry(ctx, retryQueue, rng, req.task, req.attempt, retryable = true,
+    finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
       kind = NetworkError,
       message = boundedErrorMessage(getCurrentExceptionMsg()))
     result = false
 
 proc handleDoneMessage(ctx: NetworkWorkerContext; multi: var CurlMulti;
-    active: var Table[uint, RequestContext]; retryQueue: var seq[RetryItem];
-    idleEasy: var seq[CurlEasy]; rng: var Rand; msg: CURLMsg) =
+    state: var WorkerState; msg: CURLMsg) =
   let key = handleKey(msg)
-  if active.hasKey(key):
+  if state.active.hasKey(key):
     var req: RequestContext
-    if active.pop(key, req):
-      let removed = tryRemoveCompletionHandle(ctx, multi, retryQueue, rng, req, msg)
+    if state.active.pop(key, req):
+      let removed = tryRemoveCompletionHandle(ctx, multi, state, req, msg)
       if removed:
         try:
-          handleCurlCompletion(ctx, retryQueue, rng, req, msg.data.result)
+          handleCurlCompletion(ctx, state, req, msg.data.result)
         finally:
-          recycleEasy(idleEasy, req.easy)
+          recycleEasy(state.idleEasy, req.easy)
 
 proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
-    active: var Table[uint, RequestContext];
-    retryQueue: var seq[RetryItem];
-    idleEasy: var seq[CurlEasy];
-    rng: var Rand) =
+    state: var WorkerState) =
   var msg: CURLMsg
   var msgsInQueue = 0
   while multi.tryInfoRead(msg, msgsInQueue):
     if msg.msg == CURLMSG_DONE:
-      handleDoneMessage(ctx, multi, active, retryQueue, idleEasy, rng, msg)
+      handleDoneMessage(ctx, multi, state, msg)
 
 proc failActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
     state: var WorkerState; bounded: string) =
@@ -395,7 +391,7 @@ proc processActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
   try:
     discard multi.perform()
     discard multi.poll(min(MultiWaitMaxMs, msUntilNextRetry(state.retryQueue)))
-    processCompletions(ctx, multi, state.active, state.retryQueue, state.idleEasy, state.rng)
+    processCompletions(ctx, multi, state)
   except CatchableError:
     enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, state)
     result = false
