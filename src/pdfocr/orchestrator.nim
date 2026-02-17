@@ -61,7 +61,7 @@ proc renderPageSuccess(webpBytes: seq[byte]): RenderPageOutcome =
     errorMessage: ""
   )
 
-proc encodeResultToRenderOutcome(encoded: var EncodeBitmapOutcome): RenderPageOutcome =
+proc encodeResultToRenderOutcome(encoded: sink EncodeBitmapOutcome): RenderPageOutcome =
   if encoded.ok:
     result = renderPageSuccess(move encoded.webpBytes)
   else:
