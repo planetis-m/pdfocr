@@ -4,21 +4,6 @@ import ./[constants, curl, errors, json_codec, logging, network_scheduler,
          page_selection, pdfium, types, webp]
 
 type
-  RenderPageOutcome = object
-    kind: ErrorKind
-    webpBytes: seq[byte]
-    errorMessage: string
-
-  RenderBitmapOutcome = object
-    kind: ErrorKind
-    bitmap: PdfBitmap
-    errorMessage: string
-
-  EncodeBitmapOutcome = object
-    kind: ErrorKind
-    webpBytes: seq[byte]
-    errorMessage: string
-
   PendingEntry = object
     result: PageResult
     fromNetwork: bool
@@ -43,84 +28,26 @@ proc renderFailureResult(seqId: SeqId; page: int; kind: ErrorKind; message: stri
     httpStatus: HttpNone
   )
 
-proc renderPageError(kind: ErrorKind; message: string): RenderPageOutcome =
-  RenderPageOutcome(
-    kind: kind,
-    webpBytes: @[],
-    errorMessage: message
-  )
+proc renderBitmap(doc: PdfDocument; page: int): PdfBitmap =
+  var pdfPage = loadPage(doc, page - 1)
+  result = renderPageAtScale(pdfPage, RenderScale, rotate = RenderRotate,
+    flags = RenderFlags)
+  let bitmapWidth = width(result)
+  let bitmapHeight = height(result)
+  let pixels = buffer(result)
+  let rowStride = stride(result)
+  if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
+    raise newException(IOError, "invalid bitmap state from renderer")
 
-proc renderPageSuccess(webpBytes: seq[byte]): RenderPageOutcome =
-  RenderPageOutcome(
-    kind: Success,
-    webpBytes: webpBytes,
-    errorMessage: ""
-  )
-
-proc encodeResultToRenderOutcome(encoded: sink EncodeBitmapOutcome): RenderPageOutcome =
-  if encoded.kind == Success:
-    result = renderPageSuccess(move encoded.webpBytes)
-  else:
-    result = renderPageError(encoded.kind, encoded.errorMessage)
-
-proc renderBitmap(doc: PdfDocument; page: int): RenderBitmapOutcome =
-  try:
-    var pdfPage = loadPage(doc, page - 1)
-    let bitmap = renderPageAtScale(pdfPage, RenderScale, rotate = RenderRotate,
-        flags = RenderFlags)
-    result = RenderBitmapOutcome(
-      kind: Success,
-      bitmap: bitmap,
-      errorMessage: ""
-    )
-  except CatchableError:
-    result = RenderBitmapOutcome(
-      kind: PdfError,
-      bitmap: PdfBitmap(),
-      errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
-    )
-
-proc encodeBitmap(bitmap: PdfBitmap): EncodeBitmapOutcome =
+proc encodeBitmap(bitmap: PdfBitmap): seq[byte] =
   let bitmapWidth = width(bitmap)
   let bitmapHeight = height(bitmap)
   let pixels = buffer(bitmap)
   let rowStride = stride(bitmap)
 
-  if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
-    result = EncodeBitmapOutcome(
-      kind: PdfError,
-      webpBytes: @[],
-      errorMessage: "invalid bitmap state from renderer"
-    )
-  else:
-    try:
-      let webpBytes = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride, WebpQuality)
-      if webpBytes.len == 0:
-        result = EncodeBitmapOutcome(
-          kind: EncodeError,
-          webpBytes: @[],
-          errorMessage: "encoded WebP output was empty"
-        )
-      else:
-        result = EncodeBitmapOutcome(
-          kind: Success,
-          webpBytes: webpBytes,
-          errorMessage: ""
-        )
-    except CatchableError:
-      result = EncodeBitmapOutcome(
-        kind: EncodeError,
-        webpBytes: @[],
-        errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
-      )
-
-proc renderPageToWebp(doc: PdfDocument; page: int): RenderPageOutcome =
-  let rendered = renderBitmap(doc, page)
-  if rendered.kind == Success:
-    var encoded = encodeBitmap(rendered.bitmap)
-    result = encodeResultToRenderOutcome(encoded)
-  else:
-    result = renderPageError(rendered.kind, rendered.errorMessage)
+  result = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride, WebpQuality)
+  if result.len == 0:
+    raise newException(IOError, "encoded WebP output was empty")
 
 proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
   resetSharedAtomics()
@@ -265,27 +192,35 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
 
           let seqId = nextToRender
           let page = runtimeConfig.selectedPages[seqId]
-          let rendered = renderPageToWebp(doc, page)
+          var bitmap: PdfBitmap
+          var renderedOk = false
+          try:
+            bitmap = renderBitmap(doc, page)
+            renderedOk = true
+          except CatchableError:
+            discard storePending(renderFailureResult(seqId, page, PdfError,
+              boundedErrorMessage(getCurrentExceptionMsg())), fromNetwork = false)
 
-          if rendered.kind == Success:
-            doAssert canStore(seqId), "rendered seq_id outside pending window"
-            let task = OcrTask(
-              kind: otkPage,
-              seqId: seqId,
-              page: page,
-              webpBytes: rendered.webpBytes
-            )
-            if taskCh.trySend(task):
-              inc outstanding
-              doAssert outstanding <= k, "outstanding overflow"
-            else:
-              stagedTask = some(task)
-              submissionBlocked = true
-            inc nextToRender
-          else:
-            discard storePending(renderFailureResult(seqId, page,
-                rendered.kind, rendered.errorMessage), fromNetwork = false)
-            inc nextToRender
+          if renderedOk:
+            try:
+              let webpBytes = encodeBitmap(bitmap)
+              doAssert canStore(seqId), "rendered seq_id outside pending window"
+              let task = OcrTask(
+                kind: otkPage,
+                seqId: seqId,
+                page: page,
+                webpBytes: webpBytes
+              )
+              if taskCh.trySend(task):
+                inc outstanding
+                doAssert outstanding <= k, "outstanding overflow"
+              else:
+                stagedTask = some(task)
+                submissionBlocked = true
+            except CatchableError:
+              discard storePending(renderFailureResult(seqId, page, EncodeError,
+                boundedErrorMessage(getCurrentExceptionMsg())), fromNetwork = false)
+          inc nextToRender
 
           flushReady()
           if submissionBlocked:
