@@ -26,7 +26,7 @@ This specification defines behavior, concurrency, ordering, retries, backpressur
 
 1. Writing OCR results to files (stdout is the output channel).
 2. Interactive UI.
-3. User-tunable internal scheduling knobs beyond existing hardcoded constants.
+3. User-tunable internal scheduling knobs beyond fixed internal invariants.
 
 ---
 
@@ -48,9 +48,29 @@ pdf-olmocr INPUT.pdf --pages "1,4-6,12" > results.jsonl
 
 ### 4.3 Environment Variables
 
-- `DEEPINFRA_API_KEY` (required)
+- `DEEPINFRA_API_KEY` (optional, overrides `api_key` in `config.json` when set)
 
-### 4.4 Validation and Normalization
+### 4.4 JSON Runtime Config
+
+Implementation SHALL attempt to read `./config.json` (current working directory)
+using `jsonx`. If it is missing, the implementation SHALL continue with built-in defaults
+and log that defaults are being used.
+
+Supported keys (all optional overrides):
+
+- `api_key`
+- `api_url`
+- `model`
+- `prompt`
+- `connect_timeout_ms`
+- `total_timeout_ms`
+- `max_retries`
+- `retry_base_delay_ms`
+- `retry_max_delay_ms`
+- `render_scale`
+- `webp_quality`
+
+### 4.5 Validation and Normalization
 
 Implementation SHALL:
 
@@ -102,36 +122,33 @@ API keys MUST NOT be logged.
 
 ---
 
-## 7. Hardcoded Constants
+## 7. Runtime Settings and Fixed Constants
 
-### 7.1 API
+### 7.1 Runtime Configuration (JSON)
 
-- `ApiUrl = https://api.deepinfra.com/v1/openai/chat/completions`
-- `Model = allenai/olmOCR-2-7B-1025`
+- `api_url`
+- `model`
+- `prompt`
+- `connect_timeout_ms`
+- `total_timeout_ms`
+- `max_retries`
+- `retry_base_delay_ms`
+- `retry_max_delay_ms`
+- `render_scale`
+- `webp_quality`
 
-### 7.2 Concurrency
+### 7.2 Fixed Internal Invariants
 
 - `MaxInflight` (`K`) = maximum in-flight requests and bounded queue capacity.
-
-### 7.3 Timeouts
-
-- `ConnectTimeoutMs`
-- `TotalTimeoutMs`
 - `MultiWaitMaxMs`
-
-### 7.4 Retries
-
-- `MaxRetries` (additional retries after first attempt)
-- `RetryBaseDelayMs`
-- `RetryMaxDelayMs`
-- jitter applied to retry delay
-
-### 7.5 Render/Encode
-
-- `RenderScale`
 - `RenderFlags`
 - `RenderRotate`
-- `WebpQuality`
+
+### 7.3 Exit Codes (Fixed Contract)
+
+- `0`: all pages `ok`
+- `2`: at least one page `error`
+- `>2` (current implementation uses `3`): fatal startup/runtime failure
 
 ---
 

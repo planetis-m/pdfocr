@@ -1,6 +1,6 @@
 import jsonx
 import jsonx/[streams, parsejson]
-import ./[constants, errors, types, curl]
+import ./[errors, types, curl]
 
 {.define: jsonxLenient.}
 
@@ -87,9 +87,9 @@ proc encodeResultLine*(p: PageResult): string =
       error_message: bounded
     ))
 
-proc buildChatCompletionRequest*(instruction: string; imageDataUrl: string): string =
+proc buildChatCompletionRequest*(model: string; instruction: string; imageDataUrl: string): string =
   toJson(Request(
-    model: Model,
+    model: model,
     max_tokens: RequestMaxTokens,
     messages: @[
       Message(

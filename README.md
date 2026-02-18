@@ -58,10 +58,14 @@ Sequential baseline comparison (`K=1`, same 72-page input):
 
 ```bash
 nim c -d:release -o:app src/app.nim
-export DEEPINFRA_API_KEY="your_key_here"
 LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
 ./app INPUT.pdf --pages:"1,4-6,12" > results.jsonl
 ```
+
+Optional `config.json` in the current working directory overrides built-in defaults.
+Use `config.example.json` as a template.
+It can also override the OCR `prompt` sent to the model.
+If `DEEPINFRA_API_KEY` is set, it overrides `api_key` from `config.json`.
 
 ## CLI
 
@@ -117,7 +121,8 @@ Live network benchmarks are noisy. For fair comparison between branches:
 ## Requirements
 
 - Nim `>= 2.2.6`
-- `DEEPINFRA_API_KEY`
+- Optional `config.json` to override defaults
+- Optional `DEEPINFRA_API_KEY` env var to override `api_key` from config
 - `libcurl`, `libwebp`, `libpdfium`
 - repo expects `third_party/pdfium/lib` at runtime
 

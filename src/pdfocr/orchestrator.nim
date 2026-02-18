@@ -1,7 +1,7 @@
 import std/[atomics, options]
 import threading/channels
 import ./[constants, curl, errors, json_codec, logging, network_scheduler,
-         page_selection, pdfium, types, webp]
+         pdfium, runtime_config, types, webp]
 
 type
   PendingEntry = object
@@ -28,9 +28,9 @@ proc renderFailureResult(seqId: SeqId; page: int; kind: ErrorKind; message: stri
     httpStatus: HttpNone
   )
 
-proc renderBitmap(doc: PdfDocument; page: int): PdfBitmap =
+proc renderBitmap(doc: PdfDocument; page: int; config: RenderConfig): PdfBitmap =
   var pdfPage = loadPage(doc, page - 1)
-  result = renderPageAtScale(pdfPage, RenderScale, rotate = RenderRotate,
+  result = renderPageAtScale(pdfPage, config.renderScale, rotate = RenderRotate,
     flags = RenderFlags)
   let bitmapWidth = width(result)
   let bitmapHeight = height(result)
@@ -39,13 +39,13 @@ proc renderBitmap(doc: PdfDocument; page: int): PdfBitmap =
   if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
     raise newException(IOError, "invalid bitmap state from renderer")
 
-proc encodeBitmap(bitmap: PdfBitmap): seq[byte] =
+proc encodeBitmap(bitmap: PdfBitmap; config: RenderConfig): seq[byte] =
   let bitmapWidth = width(bitmap)
   let bitmapHeight = height(bitmap)
   let pixels = buffer(bitmap)
   let rowStride = stride(bitmap)
 
-  result = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride, WebpQuality)
+  result = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride, config.webpQuality)
   if result.len == 0:
     raise newException(IOError, "encoded WebP output was empty")
 
@@ -79,7 +79,8 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     createThread(networkThread, runNetworkWorker, NetworkWorkerContext(
       taskCh: taskCh,
       resultCh: resultCh,
-      apiKey: runtimeConfig.apiKey
+      apiKey: runtimeConfig.apiKey,
+      config: runtimeConfig.networkConfig
     ))
     networkStarted = true
 
@@ -195,7 +196,7 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
           var bitmap: PdfBitmap
           var renderedOk = false
           try:
-            bitmap = renderBitmap(doc, page)
+            bitmap = renderBitmap(doc, page, runtimeConfig.renderConfig)
             renderedOk = true
           except CatchableError:
             discard storePending(renderFailureResult(seqId, page, PdfError,
@@ -203,7 +204,7 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
 
           if renderedOk:
             try:
-              let webpBytes = encodeBitmap(bitmap)
+              let webpBytes = encodeBitmap(bitmap, runtimeConfig.renderConfig)
               doAssert canStore(seqId), "rendered seq_id outside pending window"
               let task = OcrTask(
                 kind: otkPage,

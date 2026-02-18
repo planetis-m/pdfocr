@@ -5,11 +5,27 @@ import ./[errors, curl]
 type
   SeqId* = int
 
+  NetworkConfig* = object
+    apiUrl*: string
+    model*: string
+    prompt*: string
+    connectTimeoutMs*: int
+    totalTimeoutMs*: int
+    maxRetries*: int
+    retryBaseDelayMs*: int
+    retryMaxDelayMs*: int
+
+  RenderConfig* = object
+    renderScale*: float
+    webpQuality*: float32
+
   RuntimeConfig* = object
     inputPath*: string
     apiKey*: string
     selectedPages*: seq[int] # seq_id -> selectedPages[seq_id]
     selectedCount*: int
+    networkConfig*: NetworkConfig
+    renderConfig*: RenderConfig
 
   OcrTaskKind* = enum
     otkPage,
@@ -39,6 +55,7 @@ type
     taskCh*: Chan[OcrTask]
     resultCh*: Chan[PageResult]
     apiKey*: string
+    config*: NetworkConfig
 
 # Shared atomics for diagnostics.
 var

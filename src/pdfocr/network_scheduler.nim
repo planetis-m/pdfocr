@@ -4,7 +4,6 @@ import ./bindings/curl
 import ./[constants, curl, errors, json_codec, types]
 
 const
-  OCRInstruction = "Extract all readable text exactly."
   RetryJitterDivisor = 2
   ResponseExcerptLimit = 240
 
@@ -56,13 +55,17 @@ proc classifyCurlErrorKind*(curlCode: CURLcode): ErrorKind {.inline.} =
 proc httpStatusRetryable*(httpStatus: HttpCode): bool {.inline.} =
   result = httpStatus == Http429 or (httpStatus >= Http500 and httpStatus < Http600)
 
-proc backoffBaseMs*(attempt: int): int =
+proc backoffBaseMs*(attempt: int; retryBaseDelayMs: int; retryMaxDelayMs: int): int =
   let exponent = if attempt <= 1: 0 else: attempt - 1
-  let raw = RetryBaseDelayMs shl exponent
-  result = min(raw, RetryMaxDelayMs)
+  let raw = retryBaseDelayMs shl exponent
+  result = min(raw, retryMaxDelayMs)
 
-proc retryDelayMs(rng: var Rand; attempt: int): int =
-  let capped = backoffBaseMs(attempt)
+proc backoffBaseMs*(attempt: int): int =
+  backoffBaseMs(attempt, RetryBaseDelayMs, RetryMaxDelayMs)
+
+proc retryDelayMs(rng: var Rand; attempt: int; retryBaseDelayMs: int;
+    retryMaxDelayMs: int): int =
+  let capped = backoffBaseMs(attempt, retryBaseDelayMs, retryMaxDelayMs)
   let jitterMax = max(1, capped div RetryJitterDivisor)
   let jitter = rng.rand(jitterMax)
   result = capped + jitter
@@ -122,8 +125,8 @@ proc acquireEasy(idleEasy: var seq[CurlEasy]): CurlEasy =
 proc recycleEasy(idleEasy: var seq[CurlEasy]; easy: sink CurlEasy) =
   idleEasy.add(easy)
 
-proc shouldRetry(attempt: int): bool {.inline.} =
-  attempt < (1 + MaxRetries)
+proc shouldRetry(attempt: int; maxRetries: int): bool {.inline.} =
+  attempt < (1 + maxRetries)
 
 proc msUntilNextRetry(retryQueue: seq[RetryItem]): int =
   if retryQueue.len == 0:
@@ -169,10 +172,11 @@ proc enqueueFinalResult(ctx: NetworkWorkerContext; result: sink PageResult) =
 proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; rng: var Rand;
     task: OcrTask; attempt: int; retryable: bool;
     kind: ErrorKind; message: string; httpStatus = HttpNone) =
-  if retryable and shouldRetry(attempt):
+  if retryable and shouldRetry(attempt, ctx.config.maxRetries):
     let nextAttempt = attempt + 1
     discard RetryCount.fetchAdd(1, moRelaxed)
-    scheduleRetry(retryQueue, task, nextAttempt, retryDelayMs(rng, nextAttempt))
+    scheduleRetry(retryQueue, task, nextAttempt,
+      retryDelayMs(rng, nextAttempt, ctx.config.retryBaseDelayMs, ctx.config.retryMaxDelayMs))
   else:
     if httpStatus == HttpNone:
       ctx.enqueueFinalResult(newErrorResult(task.seqId, task.page, attempt, kind, message))
@@ -182,7 +186,7 @@ proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; 
 
 proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContext];
     idleEasy: var seq[CurlEasy]; task: OcrTask;
-    attempt: int; apiKey: string): tuple[ok: bool, message: string] =
+    attempt: int; apiKey: string; config: NetworkConfig): tuple[ok: bool, message: string] =
   var req: RequestContext
   try:
     let easy = acquireEasy(idleEasy)
@@ -194,16 +198,16 @@ proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContex
     )
 
     let imageDataUrl = "data:image/webp;base64," & base64.encode(task.webpBytes)
-    let body = buildChatCompletionRequest(OCRInstruction, imageDataUrl)
+    let body = buildChatCompletionRequest(config.model, config.prompt, imageDataUrl)
 
     req.headers.addHeader("Authorization: Bearer " & apiKey)
     req.headers.addHeader("Content-Type: application/json")
-    req.easy.setUrl(ApiUrl)
+    req.easy.setUrl(config.apiUrl)
     req.easy.setWriteCallback(writeResponseCb, cast[pointer](addr req.response))
     req.easy.setPostFields(body)
     req.easy.setHeaders(req.headers)
-    req.easy.setTimeoutMs(TotalTimeoutMs)
-    req.easy.setConnectTimeoutMs(ConnectTimeoutMs)
+    req.easy.setTimeoutMs(config.totalTimeoutMs)
+    req.easy.setConnectTimeoutMs(config.connectTimeoutMs)
     req.easy.setSslVerify(true, true)
     req.easy.setAcceptEncoding("gzip, deflate")
     multi.addHandle(req.easy)
@@ -354,7 +358,8 @@ proc tryTakeDispatchTask(ctx: NetworkWorkerContext; state: var WorkerState;
 
 proc dispatchOrFinalize(ctx: NetworkWorkerContext; multi: var CurlMulti;
     state: var WorkerState; task: OcrTask; attempt: int) =
-  let dispatched = dispatchRequest(multi, state.active, state.idleEasy, task, attempt, ctx.apiKey)
+  let dispatched = dispatchRequest(multi, state.active, state.idleEasy, task, attempt,
+    ctx.apiKey, ctx.config)
   if not dispatched.ok:
     finalizeOrRetry(ctx, state.retryQueue, state.rng, task, attempt, retryable = true,
       kind = NetworkError, message = dispatched.message)
