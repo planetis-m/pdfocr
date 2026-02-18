@@ -14,6 +14,7 @@ type
     api_url: string
     model: string
     prompt: string
+    max_inflight: int
     total_timeout_ms: int
     max_retries: int
     render_scale: float
@@ -78,6 +79,7 @@ proc defaultJsonRuntimeConfig(): JsonRuntimeConfig =
     api_url: ApiUrl,
     model: Model,
     prompt: Prompt,
+    max_inflight: MaxInflight,
     total_timeout_ms: TotalTimeoutMs,
     max_retries: MaxRetries,
     render_scale: RenderScale,
@@ -103,6 +105,18 @@ proc resolveApiKey(configApiKey: string): string =
   else:
     result = configApiKey
 
+template ifNonEmpty(value, fallback: untyped): untyped =
+  if value.len > 0: value else: fallback
+
+template ifPositive(value, fallback: untyped): untyped =
+  if value > 0: value else: fallback
+
+template ifNonNegative(value, fallback: untyped): untyped =
+  if value >= 0: value else: fallback
+
+template ifInRange(value, minValue, maxValue, fallback: untyped): untyped =
+  if value >= minValue and value <= maxValue: value else: fallback
+
 proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
   let parsed = parseCliArgs(cliArgs)
   let rawConfig = loadOptionalJsonRuntimeConfig(Path(DefaultConfigPath))
@@ -119,18 +133,19 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
     apiKey: resolveApiKey(rawConfig.api_key),
     selectedPages: selectedPages,
     selectedCount: selectedPages.len,
+    maxInflight: ifPositive(rawConfig.max_inflight, MaxInflight),
     networkConfig: NetworkConfig(
-      apiUrl: rawConfig.api_url,
-      model: rawConfig.model,
-      prompt: rawConfig.prompt,
+      apiUrl: ifNonEmpty(rawConfig.api_url, ApiUrl),
+      model: ifNonEmpty(rawConfig.model, Model),
+      prompt: ifNonEmpty(rawConfig.prompt, Prompt),
       connectTimeoutMs: ConnectTimeoutMs,
-      totalTimeoutMs: rawConfig.total_timeout_ms,
-      maxRetries: rawConfig.max_retries,
+      totalTimeoutMs: ifPositive(rawConfig.total_timeout_ms, TotalTimeoutMs),
+      maxRetries: ifNonNegative(rawConfig.max_retries, MaxRetries),
       retryBaseDelayMs: RetryBaseDelayMs,
       retryMaxDelayMs: RetryMaxDelayMs
     ),
     renderConfig: RenderConfig(
-      renderScale: rawConfig.render_scale,
-      webpQuality: rawConfig.webp_quality
+      renderScale: ifPositive(rawConfig.render_scale, RenderScale),
+      webpQuality: ifInRange(rawConfig.webp_quality, 0, 100, WebpQuality)
     )
   )

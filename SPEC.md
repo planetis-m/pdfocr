@@ -26,7 +26,7 @@ This specification defines behavior, concurrency, ordering, retries, backpressur
 
 1. Writing OCR results to files (stdout is the output channel).
 2. Interactive UI.
-3. User-tunable internal scheduling knobs beyond fixed internal invariants.
+3. User-tunable internal scheduling knobs beyond the runtime settings listed in Section 7.
 
 ---
 
@@ -62,6 +62,7 @@ Supported keys (all optional overrides):
 - `api_url`
 - `model`
 - `prompt`
+- `max_inflight`
 - `total_timeout_ms`
 - `max_retries`
 - `render_scale`
@@ -126,6 +127,7 @@ API keys MUST NOT be logged.
 - `api_url`
 - `model`
 - `prompt`
+- `max_inflight`
 - `total_timeout_ms`
 - `max_retries`
 - `render_scale`
@@ -133,7 +135,6 @@ API keys MUST NOT be logged.
 
 ### 7.2 Fixed Internal Invariants
 
-- `MaxInflight` (`K`) = maximum in-flight requests and bounded queue capacity.
 - `MultiWaitMaxMs`
 - `RenderFlags`
 - `RenderRotate`
@@ -171,7 +172,7 @@ No renderer thread and no writer thread exist in this design.
 
 ## 9. Communication Model
 
-Two bounded channels, both capacity `K = MaxInflight`:
+Two bounded channels, both capacity `K = max_inflight`:
 
 1. `TaskQ` (`main -> network`) carrying `OcrTask`
 2. `ResultQ` (`network -> main`) carrying final `PageResult`

@@ -13,9 +13,9 @@ const
   RetryMaxDelayMs* = 20_000
   RenderScale* = 2.0
   WebpQuality* = 80.0'f32
+  MaxInflight* = 32
 
   # Fixed internal scheduling invariants.
-  MaxInflight* = 32
   MultiWaitMaxMs* = 250
   RenderFlags* = 0
   RenderRotate* = 0

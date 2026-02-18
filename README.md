@@ -24,7 +24,7 @@ This branch uses a two-thread design with bounded in-flight work:
 
 2. `network` thread:
 - runs HTTP requests via libcurl multi
-- keeps up to `K = MaxInflight` requests active
+- keeps up to `K = max_inflight` requests active
 - applies retries/backoff/jitter
 - returns final per-page results
 
@@ -64,6 +64,7 @@ LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
 
 Optional `config.json` in the current working directory overrides built-in defaults.
 It can also override the OCR `prompt` sent to the model.
+It can also override `max_inflight` to control parallelism.
 If `DEEPINFRA_API_KEY` is set, it overrides `api_key` from `config.json`.
 
 ## CLI

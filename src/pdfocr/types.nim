@@ -24,6 +24,7 @@ type
     apiKey*: string
     selectedPages*: seq[int] # seq_id -> selectedPages[seq_id]
     selectedCount*: int
+    maxInflight*: int
     networkConfig*: NetworkConfig
     renderConfig*: RenderConfig
 
@@ -55,6 +56,7 @@ type
     taskCh*: Chan[OcrTask]
     resultCh*: Chan[PageResult]
     apiKey*: string
+    maxInflight*: int
     config*: NetworkConfig
 
 # Shared atomics for diagnostics.
