@@ -73,14 +73,14 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     globalsInitialized = true
 
     let doc = loadDocument(runtimeConfig.inputPath)
-    taskCh = newChan[OcrTask](runtimeConfig.maxInflight)
-    resultCh = newChan[PageResult](runtimeConfig.maxInflight)
+    let k = runtimeConfig.networkConfig.maxInflight
+    taskCh = newChan[OcrTask](k)
+    resultCh = newChan[PageResult](k)
 
     createThread(networkThread, runNetworkWorker, NetworkWorkerContext(
       taskCh: taskCh,
       resultCh: resultCh,
       apiKey: runtimeConfig.apiKey,
-      maxInflight: runtimeConfig.maxInflight,
       config: runtimeConfig.networkConfig
     ))
     networkStarted = true
@@ -89,7 +89,6 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
       " first_page=" & $runtimeConfig.selectedPages[0] &
       " last_page=" & $runtimeConfig.selectedPages[^1])
 
-    let k = runtimeConfig.maxInflight
     var pending = newSeq[Option[PendingEntry]](k)
     var stagedTask = none(OcrTask)
 

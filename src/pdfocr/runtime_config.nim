@@ -133,11 +133,11 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
     apiKey: resolveApiKey(rawConfig.api_key),
     selectedPages: selectedPages,
     selectedCount: selectedPages.len,
-    maxInflight: ifPositive(rawConfig.max_inflight, MaxInflight),
     networkConfig: NetworkConfig(
       apiUrl: ifNonEmpty(rawConfig.api_url, ApiUrl),
       model: ifNonEmpty(rawConfig.model, Model),
       prompt: ifNonEmpty(rawConfig.prompt, Prompt),
+      maxInflight: ifPositive(rawConfig.max_inflight, MaxInflight),
       connectTimeoutMs: ConnectTimeoutMs,
       totalTimeoutMs: ifPositive(rawConfig.total_timeout_ms, TotalTimeoutMs),
       maxRetries: ifNonNegative(rawConfig.max_retries, MaxRetries),

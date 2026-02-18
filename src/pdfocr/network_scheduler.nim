@@ -366,7 +366,7 @@ proc dispatchOrFinalize(ctx: NetworkWorkerContext; multi: var CurlMulti;
 
 proc refillActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
     state: var WorkerState) =
-  while state.active.len < ctx.maxInflight:
+  while state.active.len < ctx.config.maxInflight:
     var task: OcrTask
     var attempt = 1
     if not tryTakeDispatchTask(ctx, state, task, attempt):
