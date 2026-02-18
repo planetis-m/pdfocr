@@ -94,8 +94,7 @@ proc encodeBitmap(bitmap: PdfBitmap): EncodeBitmapOutcome =
     )
   else:
     try:
-      let webpBytes = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride,
-          WebpQuality)
+      let webpBytes = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride, WebpQuality)
       if webpBytes.len == 0:
         result = EncodeBitmapOutcome(
           kind: EncodeError,
@@ -177,7 +176,7 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
         " next_write=" & $nextToWrite &
         " k=" & $k
       let idx = slotIndex(resultForSeq.seqId)
-      if pending[idx].isSome():
+      if isSome(pending[idx]):
         let existing = pending[idx].get()
         if existing.result.seqId == resultForSeq.seqId:
           result = false
@@ -284,15 +283,8 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
               submissionBlocked = true
             inc nextToRender
           else:
-            discard storePending(
-              renderFailureResult(
-                seqId,
-                page,
-                rendered.kind,
-                rendered.errorMessage
-              ),
-              fromNetwork = false
-            )
+            discard storePending(renderFailureResult(seqId, page,
+                rendered.kind, rendered.errorMessage), fromNetwork = false)
             inc nextToRender
 
           flushReady()

@@ -155,10 +155,10 @@ proc renderPageAtScale*(page: PdfPage; scale: float; rotate: int = 0; flags: int
   fillRect(result, 0, 0, width, height, 0xFFFFFFFF'u32)
   renderPage(result, page, 0, 0, width, height, rotate, flags)
 
-proc width*(bitmap: PdfBitmap): int =
+proc width*(bitmap: PdfBitmap): int {.inline.} =
   bitmap.width
 
-proc height*(bitmap: PdfBitmap): int =
+proc height*(bitmap: PdfBitmap): int {.inline.} =
   bitmap.height
 
 proc buffer*(bitmap: PdfBitmap): pointer =

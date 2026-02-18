@@ -40,4 +40,4 @@ proc compressBgr*(width, height: Positive; pixels: pointer; stride: int;
     raise newException(ValueError, "WebPEncode failed with code " & $int(err))
 
   WebPPictureFree(addr picture)
-  result = buffer
+  result = ensureMove buffer

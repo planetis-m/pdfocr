@@ -368,6 +368,8 @@ proc setLogCallback*(fn: LibLogFn; userdata: pointer) =
 * **Pointer Stability**: To prevent multiple Nim objects from managing the same C pointer, which causes double-free crashes.
 
 Prefer `ensureMove()` (compiler-verified); use `move()` only to force a move.
+If you implement a custom `=destroy`, explicitly call `=destroy` for owned nested
+destructor-managed fields (`string`, `seq`, etc.) after releasing C resources, or they can leak.
 
 ---
 
