@@ -246,15 +246,13 @@ proc handleSuccessfulTransfer(ctx: NetworkWorkerContext; state: var WorkerState;
     handleHttpResponse(ctx, state, req, responseBody, httpCode)
   except CatchableError:
     finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
-      kind = NetworkError,
-      message = boundedErrorMessage(getCurrentExceptionMsg()))
+      kind = NetworkError, message = boundedErrorMessage(getCurrentExceptionMsg()))
 
 proc handleCurlCompletion(ctx: NetworkWorkerContext; state: var WorkerState;
     req: RequestContext; curlCode: CURLcode) =
   if curlCode != CURLE_OK:
     finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
-      kind = classifyCurlErrorKind(curlCode),
-      message = "curl transfer failed code=" & $int(curlCode))
+      kind = classifyCurlErrorKind(curlCode), message = "curl transfer failed code=" & $int(curlCode))
   else:
     handleSuccessfulTransfer(ctx, state, req)
 
@@ -265,8 +263,7 @@ proc tryRemoveCompletionHandle(ctx: NetworkWorkerContext; multi: var CurlMulti;
     result = true
   except CatchableError:
     finalizeOrRetry(ctx, state.retryQueue, state.rng, req.task, req.attempt, retryable = true,
-      kind = NetworkError,
-      message = boundedErrorMessage(getCurrentExceptionMsg()))
+      kind = NetworkError, message = boundedErrorMessage(getCurrentExceptionMsg()))
     result = false
 
 proc handleDoneMessage(ctx: NetworkWorkerContext; multi: var CurlMulti;

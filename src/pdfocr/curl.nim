@@ -90,15 +90,14 @@ proc cleanupCurlGlobal*() =
   curl_global_cleanup()
 
 proc initEasy*(): CurlEasy =
-  new(result)
-  result.raw = curl_easy_init()
+  result = CurlEasy(raw: curl_easy_init())
   if pointer(result.raw) == nil:
     raise newException(IOError, "curl_easy_init failed")
   discard curl_easy_setopt(result.raw, CURLOPT_ERRORBUFFER, addr result.errorBuf[0])
   discard curl_easy_setopt(result.raw, CURLOPT_NOSIGNAL, clong(1))
 
 proc initMulti*(): CurlMulti =
-  result.raw = curl_multi_init()
+  result = CurlMulti(raw: curl_multi_init())
   if pointer(result.raw) == nil:
     raise newException(IOError, "curl_multi_init failed")
 
