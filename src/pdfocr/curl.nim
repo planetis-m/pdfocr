@@ -38,6 +38,7 @@ proc `$`*(code: HttpCode): string =
 proc `=destroy`*(easy: CurlEasyObj) =
   if pointer(easy.raw) != nil:
     curl_easy_cleanup(easy.raw)
+    `=destroy`(easy.postData)
 
 proc `=destroy`*(multi: CurlMulti) =
   if pointer(multi.raw) != nil:

@@ -8,7 +8,7 @@ proc main() =
     status: psOk,
     attempts: 1,
     text: "hello",
-    errorKind: PARSE_ERROR,
+    kind: SUCCESS,
     errorMessage: "",
     httpStatus: HttpNone
   ))
@@ -27,7 +27,7 @@ proc main() =
     status: psError,
     attempts: 2,
     text: "",
-    errorKind: HTTP_ERROR,
+    kind: HTTP_ERROR,
     errorMessage: longError,
     httpStatus: Http503
   ))
@@ -53,7 +53,7 @@ proc main() =
       status: psOk,
       attempts: attempts,
       text: "",
-      errorKind: PARSE_ERROR,
+      kind: SUCCESS,
       errorMessage: "",
       httpStatus: HttpNone
     ))

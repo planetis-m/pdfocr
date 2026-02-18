@@ -17,7 +17,7 @@ proc getLogLevel*(): LogLevel =
     result = configuredLogLevel
 
 proc shouldLog(level: LogLevel): bool =
-  configuredLogLevel != logLevelOff and ord(level) >= ord(configuredLogLevel)
+  configuredLogLevel != LogLevel.off and ord(level) >= ord(configuredLogLevel)
 
 proc log(level: LogLevel; prefix: string; message: string) =
   withLock(logLock):
@@ -25,10 +25,10 @@ proc log(level: LogLevel; prefix: string; message: string) =
       stderr.writeLine(prefix & message)
 
 proc logInfo*(message: string) =
-  log(logLevelInfo, "[info] ", message)
+  log(info, "[info] ", message)
 
 proc logWarn*(message: string) =
-  log(logLevelWarn, "[warn] ", message)
+  log(warn, "[warn] ", message)
 
 proc logError*(message: string) =
-  log(logLevelError, "[error] ", message)
+  log(error, "[error] ", message)

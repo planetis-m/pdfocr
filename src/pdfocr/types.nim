@@ -31,7 +31,7 @@ type
     status*: PageStatus
     attempts*: int
     text*: string
-    errorKind*: ErrorKind
+    kind*: ErrorKind
     errorMessage*: string
     httpStatus*: HttpCode
 

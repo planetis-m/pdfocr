@@ -74,7 +74,7 @@ proc encodeResultLine*(p: PageResult): string =
       page: p.page,
       status: "error",
       attempts: p.attempts,
-      error_kind: $p.errorKind,
+      error_kind: $p.kind,
       error_message: bounded,
       http_status: int(p.httpStatus)
     ))
@@ -83,7 +83,7 @@ proc encodeResultLine*(p: PageResult): string =
       page: p.page,
       status: "error",
       attempts: p.attempts,
-      error_kind: $p.errorKind,
+      error_kind: $p.kind,
       error_message: bounded
     ))
 

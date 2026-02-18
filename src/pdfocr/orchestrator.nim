@@ -5,20 +5,18 @@ import ./[constants, curl, errors, json_codec, logging, network_scheduler,
 
 type
   RenderPageOutcome = object
-    ok: bool
+    kind: ErrorKind
     webpBytes: seq[byte]
-    errorKind: ErrorKind
     errorMessage: string
 
   RenderBitmapOutcome = object
-    ok: bool
+    kind: ErrorKind
     bitmap: PdfBitmap
     errorMessage: string
 
   EncodeBitmapOutcome = object
-    ok: bool
+    kind: ErrorKind
     webpBytes: seq[byte]
-    errorKind: ErrorKind
     errorMessage: string
 
   PendingEntry = object
@@ -40,32 +38,30 @@ proc renderFailureResult(seqId: SeqId; page: int; kind: ErrorKind; message: stri
     status: psError,
     attempts: 1,
     text: "",
-    errorKind: kind,
+    kind: kind,
     errorMessage: boundedErrorMessage(message),
     httpStatus: HttpNone
   )
 
 proc renderPageError(kind: ErrorKind; message: string): RenderPageOutcome =
   RenderPageOutcome(
-    ok: false,
+    kind: kind,
     webpBytes: @[],
-    errorKind: kind,
     errorMessage: message
   )
 
 proc renderPageSuccess(webpBytes: seq[byte]): RenderPageOutcome =
   RenderPageOutcome(
-    ok: true,
+    kind: Success,
     webpBytes: webpBytes,
-    errorKind: NoError,
     errorMessage: ""
   )
 
 proc encodeResultToRenderOutcome(encoded: sink EncodeBitmapOutcome): RenderPageOutcome =
-  if encoded.ok:
+  if encoded.kind == Success:
     result = renderPageSuccess(move encoded.webpBytes)
   else:
-    result = renderPageError(encoded.errorKind, encoded.errorMessage)
+    result = renderPageError(encoded.kind, encoded.errorMessage)
 
 proc renderBitmap(doc: PdfDocument; page: int): RenderBitmapOutcome =
   try:
@@ -73,13 +69,13 @@ proc renderBitmap(doc: PdfDocument; page: int): RenderBitmapOutcome =
     let bitmap = renderPageAtScale(pdfPage, RenderScale, rotate = RenderRotate,
         flags = RenderFlags)
     result = RenderBitmapOutcome(
-      ok: true,
+      kind: Success,
       bitmap: bitmap,
       errorMessage: ""
     )
   except CatchableError:
     result = RenderBitmapOutcome(
-      ok: false,
+      kind: PdfError,
       bitmap: PdfBitmap(),
       errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
     )
@@ -92,9 +88,8 @@ proc encodeBitmap(bitmap: PdfBitmap): EncodeBitmapOutcome =
 
   if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
     result = EncodeBitmapOutcome(
-      ok: false,
+      kind: PdfError,
       webpBytes: @[],
-      errorKind: PdfError,
       errorMessage: "invalid bitmap state from renderer"
     )
   else:
@@ -103,33 +98,30 @@ proc encodeBitmap(bitmap: PdfBitmap): EncodeBitmapOutcome =
           WebpQuality)
       if webpBytes.len == 0:
         result = EncodeBitmapOutcome(
-          ok: false,
+          kind: EncodeError,
           webpBytes: @[],
-          errorKind: EncodeError,
           errorMessage: "encoded WebP output was empty"
         )
       else:
         result = EncodeBitmapOutcome(
-          ok: true,
+          kind: Success,
           webpBytes: webpBytes,
-          errorKind: NoError,
           errorMessage: ""
         )
     except CatchableError:
       result = EncodeBitmapOutcome(
-        ok: false,
+        kind: EncodeError,
         webpBytes: @[],
-        errorKind: EncodeError,
         errorMessage: boundedErrorMessage(getCurrentExceptionMsg())
       )
 
 proc renderPageToWebp(doc: PdfDocument; page: int): RenderPageOutcome =
   let rendered = renderBitmap(doc, page)
-  if rendered.ok:
+  if rendered.kind == Success:
     var encoded = encodeBitmap(rendered.bitmap)
     result = encodeResultToRenderOutcome(encoded)
   else:
-    result = renderPageError(PdfError, rendered.errorMessage)
+    result = renderPageError(rendered.kind, rendered.errorMessage)
 
 proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
   resetSharedAtomics()
@@ -276,7 +268,7 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
           let page = runtimeConfig.selectedPages[seqId]
           let rendered = renderPageToWebp(doc, page)
 
-          if rendered.ok:
+          if rendered.kind == Success:
             doAssert canStore(seqId), "rendered seq_id outside pending window"
             let task = OcrTask(
               kind: otkPage,
@@ -296,7 +288,7 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
               renderFailureResult(
                 seqId,
                 page,
-                rendered.errorKind,
+                rendered.kind,
                 rendered.errorMessage
               ),
               fromNetwork = false

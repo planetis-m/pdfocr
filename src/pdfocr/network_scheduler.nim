@@ -75,7 +75,7 @@ proc newErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind;
     status: psError,
     attempts: attempts,
     text: "",
-    errorKind: kind,
+    kind: kind,
     errorMessage: boundedErrorMessage(message),
     httpStatus: HttpNone
   )
@@ -88,7 +88,7 @@ proc newHttpErrorResult(seqId: SeqId; page: int; attempts: int; kind: ErrorKind;
     status: psError,
     attempts: attempts,
     text: "",
-    errorKind: kind,
+    kind: kind,
     errorMessage: boundedErrorMessage(message),
     httpStatus: httpStatus
   )
@@ -100,7 +100,7 @@ proc newSuccessResult(seqId: SeqId; page: int; attempts: int; text: string): Pag
     status: psOk,
     attempts: attempts,
     text: text,
-    errorKind: NoError,
+    kind: Success,
     errorMessage: "",
     httpStatus: HttpNone
   )
