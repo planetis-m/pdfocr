@@ -62,11 +62,8 @@ Supported keys (all optional overrides):
 - `api_url`
 - `model`
 - `prompt`
-- `connect_timeout_ms`
 - `total_timeout_ms`
 - `max_retries`
-- `retry_base_delay_ms`
-- `retry_max_delay_ms`
 - `render_scale`
 - `webp_quality`
 
@@ -129,11 +126,8 @@ API keys MUST NOT be logged.
 - `api_url`
 - `model`
 - `prompt`
-- `connect_timeout_ms`
 - `total_timeout_ms`
 - `max_retries`
-- `retry_base_delay_ms`
-- `retry_max_delay_ms`
 - `render_scale`
 - `webp_quality`
 
@@ -143,6 +137,9 @@ API keys MUST NOT be logged.
 - `MultiWaitMaxMs`
 - `RenderFlags`
 - `RenderRotate`
+- `ConnectTimeoutMs`
+- `RetryBaseDelayMs`
+- `RetryMaxDelayMs`
 
 ### 7.3 Exit Codes (Fixed Contract)
 

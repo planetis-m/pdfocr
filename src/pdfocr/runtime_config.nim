@@ -2,6 +2,8 @@ import std/[envvars, parseopt, paths, files]
 import jsonx
 import ./[constants, logging, page_selection, pdfium, types]
 
+{.define: jsonxLenient.}
+
 type
   CliArgs = object
     inputPath: string
@@ -12,11 +14,8 @@ type
     api_url: string
     model: string
     prompt: string
-    connect_timeout_ms: int
     total_timeout_ms: int
     max_retries: int
-    retry_base_delay_ms: int
-    retry_max_delay_ms: int
     render_scale: float
     webp_quality: float32
 
@@ -79,11 +78,8 @@ proc defaultJsonRuntimeConfig(): JsonRuntimeConfig =
     api_url: ApiUrl,
     model: Model,
     prompt: Prompt,
-    connect_timeout_ms: ConnectTimeoutMs,
     total_timeout_ms: TotalTimeoutMs,
     max_retries: MaxRetries,
-    retry_base_delay_ms: RetryBaseDelayMs,
-    retry_max_delay_ms: RetryMaxDelayMs,
     render_scale: RenderScale,
     webp_quality: WebpQuality
   )
@@ -127,11 +123,11 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
       apiUrl: rawConfig.api_url,
       model: rawConfig.model,
       prompt: rawConfig.prompt,
-      connectTimeoutMs: rawConfig.connect_timeout_ms,
+      connectTimeoutMs: ConnectTimeoutMs,
       totalTimeoutMs: rawConfig.total_timeout_ms,
       maxRetries: rawConfig.max_retries,
-      retryBaseDelayMs: rawConfig.retry_base_delay_ms,
-      retryMaxDelayMs: rawConfig.retry_max_delay_ms
+      retryBaseDelayMs: RetryBaseDelayMs,
+      retryMaxDelayMs: RetryMaxDelayMs
     ),
     renderConfig: RenderConfig(
       renderScale: rawConfig.render_scale,

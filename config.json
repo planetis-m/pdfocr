@@ -3,11 +3,8 @@
   "api_url": "https://api.deepinfra.com/v1/openai/chat/completions",
   "model": "allenai/olmOCR-2-7B-1025",
   "prompt": "Extract the content of this lecture slide into structured Markdown. Use headers for titles, bullet points for lists, and LaTeX for any mathematical formulas. Ignore background graphics and slide numbers.",
-  "connect_timeout_ms": 10000,
   "total_timeout_ms": 120000,
   "max_retries": 5,
-  "retry_base_delay_ms": 500,
-  "retry_max_delay_ms": 20000,
   "render_scale": 2.0,
   "webp_quality": 80.0
 }

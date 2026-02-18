@@ -63,7 +63,6 @@ LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
 ```
 
 Optional `config.json` in the current working directory overrides built-in defaults.
-Use `config.example.json` as a template.
 It can also override the OCR `prompt` sent to the model.
 If `DEEPINFRA_API_KEY` is set, it overrides `api_key` from `config.json`.
 
