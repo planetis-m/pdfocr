@@ -138,11 +138,8 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
       model: ifNonEmpty(rawConfig.model, Model),
       prompt: ifNonEmpty(rawConfig.prompt, Prompt),
       maxInflight: ifPositive(rawConfig.max_inflight, MaxInflight),
-      connectTimeoutMs: ConnectTimeoutMs,
       totalTimeoutMs: ifPositive(rawConfig.total_timeout_ms, TotalTimeoutMs),
-      maxRetries: ifNonNegative(rawConfig.max_retries, MaxRetries),
-      retryBaseDelayMs: RetryBaseDelayMs,
-      retryMaxDelayMs: RetryMaxDelayMs
+      maxRetries: ifNonNegative(rawConfig.max_retries, MaxRetries)
     ),
     renderConfig: RenderConfig(
       renderScale: ifPositive(rawConfig.render_scale, RenderScale),

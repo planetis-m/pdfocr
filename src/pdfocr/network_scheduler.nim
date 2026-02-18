@@ -175,8 +175,8 @@ proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; 
   if retryable and shouldRetry(attempt, ctx.config.maxRetries):
     let nextAttempt = attempt + 1
     discard RetryCount.fetchAdd(1, moRelaxed)
-    scheduleRetry(retryQueue, task, nextAttempt,
-      retryDelayMs(rng, nextAttempt, ctx.config.retryBaseDelayMs, ctx.config.retryMaxDelayMs))
+    scheduleRetry(retryQueue, task, nextAttempt, retryDelayMs(rng, nextAttempt,
+      RetryBaseDelayMs, RetryMaxDelayMs))
   else:
     if httpStatus == HttpNone:
       ctx.enqueueFinalResult(newErrorResult(task.seqId, task.page, attempt, kind, message))
@@ -207,7 +207,7 @@ proc dispatchRequest(multi: var CurlMulti; active: var Table[uint, RequestContex
     req.easy.setPostFields(body)
     req.easy.setHeaders(req.headers)
     req.easy.setTimeoutMs(config.totalTimeoutMs)
-    req.easy.setConnectTimeoutMs(config.connectTimeoutMs)
+    req.easy.setConnectTimeoutMs(ConnectTimeoutMs)
     req.easy.setSslVerify(true, true)
     req.easy.setAcceptEncoding("gzip, deflate")
     multi.addHandle(req.easy)

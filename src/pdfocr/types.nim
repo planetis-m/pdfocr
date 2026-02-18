@@ -10,11 +10,8 @@ type
     model*: string
     prompt*: string
     maxInflight*: int
-    connectTimeoutMs*: int
     totalTimeoutMs*: int
     maxRetries*: int
-    retryBaseDelayMs*: int
-    retryMaxDelayMs*: int
 
   RenderConfig* = object
     renderScale*: float
