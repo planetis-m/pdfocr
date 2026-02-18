@@ -17,6 +17,10 @@ Default to simple, explicit code over clever shortcuts.
 - If a helper uses `if`, `case`, loops, `try`, or `block`, it must be a `proc`.
 - Do not weaken proc contracts (e.g., `Positive` -> `int`) and then add manual checks.
 - Do not add redundant runtime checks that restate existing type/proc contracts unless the spec explicitly requires them.
+- Prefer exception propagation over manual result-wrapper plumbing for recoverable errors.
+- Do not introduce ad-hoc result objects that pass only `ok`/`kind`/`message` between steps.
+- Do not add custom exception types unless callers handle them differently from existing exceptions.
+- Catch errors only where you can recover, translate across a boundary, or add required context.
 - Avoid one-argument-per-line function call formatting for normal calls.
 - Use helper-proc extraction when a large block under one condition hurts readability.
 - Prefer object-construction syntax (`TypeName(field: ...)`) over field-by-field `result.field = ...`
@@ -187,6 +191,7 @@ proc initWorkerState(seed: int): WorkerState =
 - `continue` is banned; structure branches instead.
 - Use early `return` for real guard exits (found/fatal/precondition), not as default style.
 - Keep one clear normal success path.
+- In stepwise pipelines, let exceptions bubble to the point where they become actionable output.
 
 ### Do
 
@@ -213,6 +218,33 @@ proc process(values: seq[int]): int =
     if value < 0:
       continue
     result.inc(value)
+```
+
+### Don't (Error Plumbing)
+
+```nim
+type
+  StepResult = object
+    ok: bool
+    kind: string
+    message: string
+
+proc renderPage(): StepResult =
+  discard
+```
+
+### Do (Error Propagation)
+
+```nim
+proc renderPage() =
+  if rawRenderFailed():
+    raise newException(IOError, "render failed")
+
+proc run() =
+  try:
+    renderPage()
+  except CatchableError:
+    recordPageError(getCurrentExceptionMsg())
 ```
 
 ## 5. Returns and `result`
@@ -246,10 +278,9 @@ proc parsePort(text: string): int =
 
 ```nim
 type
-  RenderOutcome = object
-    ok: bool
-    payload: seq[byte]
-    errorMessage: string
+  PageImage = object
+    page: int
+    webpBytes: seq[byte]
 ```
 
 ### Don't

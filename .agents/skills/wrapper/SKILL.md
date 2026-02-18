@@ -48,6 +48,26 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 - Prefer `incompleteStruct` for C structs and list only the fields you actually use. This reduces ABI risk and keeps bindings aligned with real usage.
 - Avoid stateful “isOpen/used” flags on stack objects with destructors: stack addresses are not stable and destructor timing is too implicit for multi‑step C workflows.
 - When a resource has a strict init/write/finish sequence, prefer single‑call convenience wrappers (or explicit `try/finally` blocks) over stateful objects.
+- Prefer exceptions in the ergonomic layer over manual result wrappers that only carry `ok`/`kind`/`message`.
+- Do not introduce custom exception types unless a caller genuinely handles that type differently.
+- Catch low-level errors only at meaningful boundaries:
+  - where you translate C return codes/pointers to Nim exceptions, or
+  - where you map an exception to a final domain result.
+  Otherwise, let exceptions propagate.
+
+**Error-flow example (preferred):**
+
+```nim
+proc renderPage(doc: PdfDocument; page: int): PdfBitmap =
+  result = renderPageAtScale(loadPage(doc, page - 1), 2.0)
+
+proc runPage(doc: PdfDocument; page: int) =
+  try:
+    let bitmap = renderPage(doc, page)
+    submit(bitmap)
+  except CatchableError:
+    emitPageError(page, "PdfError", getCurrentExceptionMsg())
+```
 
 ## 4. Naming & API Conventions (Idiomatic Nim)
 
