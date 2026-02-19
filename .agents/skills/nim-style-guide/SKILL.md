@@ -15,16 +15,11 @@ Default to simple, explicit code over clever shortcuts.
 - Do not use early `return` only to reduce nesting.
 - Do not rewrite normal helper procs into templates unless the helper is a single expression.
 - If a helper uses `if`, `case`, loops, `try`, or `block`, it must be a `proc`.
-- Do not weaken proc contracts (e.g., `Positive` -> `int`) and then add manual checks.
-- Do not add redundant runtime checks that restate existing type/proc contracts unless the spec explicitly requires them.
-- Prefer exception propagation over manual result-wrapper plumbing for recoverable errors.
+- Do not weaken proc contracts (for example, `Positive` -> `int`) and then add manual checks.
+- Do not add redundant runtime checks that restate existing type/proc contracts unless required.
 - Do not introduce ad-hoc result objects that pass only `ok`/`kind`/`message` between steps.
 - Do not add custom exception types unless callers handle them differently from existing exceptions.
 - Catch errors only where you can recover, translate across a boundary, or add required context.
-- Avoid one-argument-per-line function call formatting for normal calls.
-- Use helper-proc extraction when a large block under one condition hurts readability.
-- Prefer object-construction syntax (`TypeName(field: ...)`) over field-by-field `result.field = ...`
-  when creating a value object.
 - In orchestration code, avoid nested helper procs that capture mutable outer locals.
 
 ## 1. Formatting
@@ -110,7 +105,7 @@ proc existsFile(path: string): bool = discard
 proc parseURL(text: string): string = discard
 ```
 
-## 3. Procs, templates, macros
+## 3. Proc Boundaries and Call Style
 
 ### Rules
 
@@ -122,6 +117,7 @@ proc parseURL(text: string): string = discard
 - For multi-line calls, prefer compact wrapped calls over one-argument-per-line blocks.
 - This call-formatting rule is for proc/function calls, not object constructors.
 - Prefer UFCS for accessor-style APIs when it reads like field access (`bitmap.width`).
+- For multi-step orchestration, use outer-scope helper procs and explicit state objects.
 
 ### Do
 
@@ -132,25 +128,18 @@ finalizeOrRetry(ctx, retryQueue, rng, req.task, req.attempt,
 ```
 
 ```nim
-proc runOrchestrator*(cliArgs: seq[string]): int =
-  let runtimeConfig = buildRuntimeConfig(cliArgs)
-  result = runOrchestratorWithConfig(runtimeConfig)
+type
+  WriteState = object
+    nextToWrite: int
+
+proc flushReady(state: var WriteState; total: int) =
+  if state.nextToWrite < total:
+    inc state.nextToWrite
 ```
 
 ```nim
-template slotIndex(i, k: int): int =
-  i mod k
-```
-
-```nim
-proc initWorkerState(seed: int): WorkerState =
-  WorkerState(
-    active: initTable[uint, RequestContext](),
-    retryQueue: @[],
-    idleEasy: @[],
-    rng: initRand(seed),
-    stopRequested: false
-  )
+proc readBitmapMetrics(bitmap: PdfBitmap): tuple[w, h: int] =
+  result = (bitmap.width, bitmap.height)
 ```
 
 ### Don't
@@ -161,6 +150,15 @@ template nextReady(): bool =
     let idx = slotIndex(nextToWrite, k)
     pending[idx].isSome() and pending[idx].get() == nextToWrite
   )
+```
+
+```nim
+proc run() =
+  let total = 10
+  var nextToWrite = 0
+  proc flushReady() =
+    if nextToWrite < total:
+      inc nextToWrite
 ```
 
 ```nim
@@ -176,39 +174,7 @@ finalizeOrRetry(
 )
 ```
 
-```nim
-proc initWorkerState(seed: int): WorkerState =
-  result.active = initTable[uint, RequestContext]()
-  result.retryQueue = @[]
-  result.idleEasy = @[]
-  result.rng = initRand(seed)
-  result.stopRequested = false
-```
-
-### Don't (Implicit Closure State)
-
-```nim
-proc run() =
-  let total = 10
-  var nextToWrite = 0
-  proc flushReady() =
-    if nextToWrite < total:
-      inc nextToWrite
-```
-
-### Do (Explicit State and Outer-Scope Helper)
-
-```nim
-type
-  WriteState = object
-    nextToWrite: int
-
-proc flushReady(state: var WriteState; total: int) =
-  if state.nextToWrite < total:
-    inc state.nextToWrite
-```
-
-## 4. Control flow
+## 4. Control Flow and Returns
 
 ### Rules
 
@@ -216,7 +182,8 @@ proc flushReady(state: var WriteState; total: int) =
 - `continue` is banned; structure branches instead.
 - Use early `return` for real guard exits (found/fatal/precondition), not as default style.
 - Keep one clear normal success path.
-- In stepwise pipelines, let exceptions bubble to the point where they become actionable output.
+- Use `result = ...` for normal flow.
+- Keep return style consistent inside each proc.
 
 ### Do
 
@@ -235,6 +202,14 @@ proc process(values: seq[int]): int =
       result.inc(value)
 ```
 
+```nim
+proc parsePort(text: string): int =
+  let parsed = parseInt(text)
+  if parsed < 1 or parsed > 65535:
+    raise newException(ValueError, "invalid port")
+  result = parsed
+```
+
 ### Don't
 
 ```nim
@@ -244,6 +219,63 @@ proc process(values: seq[int]): int =
       continue
     result.inc(value)
 ```
+
+## 5. Type and State Design
+
+### Rules
+
+- Use named `object` types for semantic data.
+- Use tuples for short local values only.
+- If a tuple grows beyond a small pair/triple, create a named object.
+- Never declare `type` blocks inside procs.
+- Group related fields with the same type when it improves readability (`a, b: int`).
+- Prefer object-construction syntax (`TypeName(field: ...)`) over field-by-field `result.field = ...`.
+
+### Do
+
+```nim
+type
+  OrchestratorState = object
+    written, okCount, errCount: int
+    nextToRender, nextToWrite: int
+```
+
+```nim
+proc initWorkerState(seed: int): WorkerState =
+  WorkerState(
+    active: initTable[uint, RequestContext](),
+    retryQueue: @[],
+    idleEasy: @[],
+    rng: initRand(seed),
+    stopRequested: false
+  )
+```
+
+### Don't
+
+```nim
+proc render(): tuple[ok: bool, payload: seq[byte], errorMessage: string] =
+  discard
+```
+
+```nim
+proc initWorkerState(seed: int): WorkerState =
+  result.active = initTable[uint, RequestContext]()
+  result.retryQueue = @[]
+  result.idleEasy = @[]
+  result.rng = initRand(seed)
+  result.stopRequested = false
+```
+
+## 6. Error Handling and Propagation
+
+### Rules
+
+- Raise clear, bounded, actionable errors.
+- Do not silently swallow exceptions.
+- Prefer exception propagation over manual result-wrapper plumbing for recoverable errors.
+- Let stepwise pipeline errors bubble until the boundary where they become actionable output.
+- Convert low-level errors at module boundaries when needed for context or contracts.
 
 ### Don't (Error Plumbing)
 
@@ -258,7 +290,7 @@ proc renderPage(): StepResult =
   discard
 ```
 
-### Do (Error Propagation Across Levels)
+### Do (Propagation Across Levels)
 
 ```nim
 type
@@ -294,51 +326,16 @@ proc runOrchestrator(pages: seq[int]) =
       recordPageFailure(page, boundedErrorMessage(getCurrentExceptionMsg()))
 ```
 
-## 5. Returns and `result`
-
-### Rules
-
-- Use `result = ...` for normal flow.
-- Use `return` only when the control-flow meaning is important.
-- Keep return style consistent inside each proc.
-
-### Do
+### Do (Boundary Translation)
 
 ```nim
-proc parsePort(text: string): int =
-  let parsed = parseInt(text)
-  if parsed < 1 or parsed > 65535:
-    raise newException(ValueError, "invalid port")
-  result = parsed
+try:
+  discard doWork()
+except CatchableError:
+  raise newException(IOError, "doWork failed: " & getCurrentExceptionMsg())
 ```
 
-## 6. Type design
-
-### Rules
-
-- Use named `object` types for semantic data.
-- Use tuples for short local values only.
-- If a tuple grows beyond a small pair/triple, create a named object.
-- Never declare `type` blocks inside procs.
-- Group related fields with the same type when it improves readability (`a, b: int`).
-
-### Do
-
-```nim
-type
-  PageImage = object
-    page: int
-    webpBytes: seq[byte]
-```
-
-### Don't
-
-```nim
-proc render(): tuple[ok: bool, payload: seq[byte], errorMessage: string] =
-  discard
-```
-
-## 7. Local declarations and mutability
+## 7. Local Declarations and Mutability
 
 ### Rules
 
@@ -353,24 +350,7 @@ let page = pages[idx]
 var attempts = 0
 ```
 
-## 8. Errors
-
-### Rules
-
-- Raise clear, bounded, actionable errors.
-- Do not silently swallow exceptions.
-- Convert low-level errors at module boundaries.
-
-### Do
-
-```nim
-try:
-  discard doWork()
-except CatchableError:
-  raise newException(IOError, "doWork failed: " & getCurrentExceptionMsg())
-```
-
-## 9. Module hygiene
+## 8. Module Hygiene
 
 ### Rules
 
@@ -383,5 +363,6 @@ except CatchableError:
 - Is every template a true single-expression helper?
 - Are there any `continue` statements?
 - Are there nested `type` declarations?
-- Are return paths structured and readable?
+- Are helper procs capturing mutable outer locals?
+- Are error catches located at actionable boundaries?
 - Did this change introduce dead code or dead exports?
