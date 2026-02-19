@@ -1,28 +1,19 @@
-import std/locks
-
-var logLock: Lock
 type
   LogLevel* = enum
     info, warn, error, off
 
-var configuredLogLevel = LogLevel.info
-initLock(logLock)
-
-proc setLogLevel*(level: LogLevel) =
-  withLock(logLock):
-    configuredLogLevel = level
-
-proc getLogLevel*(): LogLevel =
-  withLock(logLock):
-    result = configuredLogLevel
+const configuredLogLevel =
+  when defined(release):
+    LogLevel.warn
+  else:
+    LogLevel.info
 
 proc shouldLog(level: LogLevel): bool =
   configuredLogLevel != LogLevel.off and ord(level) >= ord(configuredLogLevel)
 
 proc log(level: LogLevel; prefix: string; message: string) =
-  withLock(logLock):
-    if shouldLog(level):
-      stderr.writeLine(prefix & message)
+  if shouldLog(level):
+    stderr.writeLine(prefix & message)
 
 proc logInfo*(message: string) =
   log(info, "[info] ", message)
