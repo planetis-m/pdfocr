@@ -82,6 +82,12 @@ Run from repository root.
 - Single-test example:
   - `nim c -r tests/phase08/test_data_contracts.nim`
 - Live network tests are opt-in and require `DEEPINFRA_API_KEY`.
+- In Codex/sandbox sessions, always request terminal permission approval before running any live network test.
+- Live ASan test command (repository root):
+  - `nim c -d:addressSanitizer -o:pdfocr_asan src/app.nim`
+  - `set -a; source .env; set +a` to export `DEEPINFRA_API_KEY` from `.env` into the shell environment.
+  - `ASAN_OPTIONS=detect_leaks=0 LD_LIBRARY_PATH=./third_party/pdfium/lib:./tests ./pdfocr_asan tests/input.pdf --all-pages`
+  - `ASAN_OPTIONS=detect_leaks=0` is required in this environment because LeakSanitizer is not usable under ptrace/sandbox.
 
 When behavior changes, update or add tests in `tests/phase08/` first.
 
