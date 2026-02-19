@@ -20,12 +20,6 @@ Download a release asset for your platform from:
 
 - <https://github.com/planetis-m/pdfocr/releases/latest>
 
-Current release archive names:
-
-- `pdfocr-linux-x86_64.tar.gz`
-- `pdfocr-macos-arm64.tar.gz`
-- `pdfocr-windows-x86_64.zip`
-
 Linux x86_64:
 
 ```bash
@@ -47,9 +41,8 @@ tar -xzf pdfocr-macos-arm64.tar.gz
 Windows x86_64 (PowerShell):
 
 ```powershell
-curl.exe -L -o pdfocr-windows-x86_64.zip `
-  https://github.com/planetis-m/pdfocr/releases/latest/download/pdfocr-windows-x86_64.zip
-tar -xf pdfocr-windows-x86_64.zip
+curl.exe -L -o pdfocr-windows-x86_64.zip "https://github.com/planetis-m/pdfocr/releases/latest/download/pdfocr-windows-x86_64.zip"
+tar.exe -xf pdfocr-windows-x86_64.zip
 .\pdfocr.exe --help
 ```
 
