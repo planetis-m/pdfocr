@@ -99,52 +99,7 @@ When behavior changes, update or add tests in `tests/phase08/` first.
 - Keep code explicit and readable over cleverness.
 - Favor object constructors (`TypeName(field: ...)`) over field-by-field result mutation.
 
-## 11. Protected File
-
-- Do not modify `src/pdfocr/page_selection.nim` unless the user explicitly asks in the current conversation.
-
-## 12. Internal Architecture Notes
-
-Current implementation uses a two-thread design with bounded in-flight work:
-
-1. `main` thread:
-- parse CLI and page selection
-- render PDF pages and encode WebP
-- submit OCR tasks
-- write ordered JSONL to stdout
-
-2. `network` thread:
-- run HTTP requests via libcurl multi
-- keep up to `K = max_inflight` requests active
-- apply retries/backoff/jitter
-- return final per-page results
-
-Bounded channels:
-- `TaskQ` (`main -> network`) capacity `K`
-- `ResultQ` (`network -> main`) capacity `K`
-
-The main thread keeps a fixed-size reorder ring and allows at most `K` outstanding pages.
-
-## 13. Benchmark Baseline (Informational)
-
-Reference benchmark from February 17, 2026 against `tests/slides.pdf` (72 pages):
-
-- Result quality: `72/72` pages succeeded
-- Output contract: strict page order preserved, exit code `0`
-- Runtime: `24.88s`
-- Throughput: `2.89` pages/s
-- Mean wall-clock per page: `0.35s`
-- Retry pressure: `1` total retry (`71` pages at `attempts=1`, `1` page at `attempts=2`)
-
-Sequential baseline comparison (`K=1`, same input):
-
-- Sequential runtime: `316.66s`
-- Current runtime: `24.88s`
-- Speedup: `12.73x`
-- Absolute reduction: `291.78s`
-- Relative reduction: `92.14%`
-
-## 14. Benchmarking Notes
+## 11. Benchmarking Notes
 
 Live network benchmarks are noisy. For fair branch comparison:
 
