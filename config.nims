@@ -4,5 +4,5 @@
 # nested config imports (e.g. `import mimalloc/config` in `src/config.nims`).
 when defined(threadSanitizer) or defined(addressSanitizer):
   switch("define", "useMalloc")
-else:
+elif not defined(useMalloc):
   switch("define", "useMimalloc")

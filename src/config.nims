@@ -49,8 +49,7 @@ when defined(threadSanitizer) or defined(addressSanitizer):
     else:
       {.warning: "Thread Sanitizer is not supported on Windows.".}
   else:
-    # Logic for Linux/macOS
-    switch("cc", "clang")
+    # Linux/macOS: keep Nim's default compiler (gcc on Linux, clang on macOS).
     when defined(threadSanitizer):
       switch("passC", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
       switch("passL", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
