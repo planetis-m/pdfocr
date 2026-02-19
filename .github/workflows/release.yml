@@ -56,6 +56,12 @@ jobs:
           nim-version: stable
           repo-token: ${{ github.token }}
 
+      - name: Install Atlas via Nimble
+        run: nimble install -y atlas
+
+      - name: Install Nim dependencies
+        run: atlas install
+
       - name: Install build dependencies (Linux)
         if: matrix.target.platform == 'Linux'
         run: |
