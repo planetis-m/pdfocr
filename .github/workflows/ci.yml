@@ -29,6 +29,34 @@ jobs:
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz -o pdfium-linux-x64.tgz
           tar -xf pdfium-linux-x64.tgz -C third_party/pdfium
 
+      - name: Build App
+        run: nim c -d:release -o:app src/app.nim
+
+      - name: ASan Offline Smoke Run
+        run: |
+          mkdir -p ci-smoke
+          nim c -d:addressSanitizer -d:useMalloc -o:ci-smoke/app-asan src/app.nim
+          cp third_party/pdfium/lib/libpdfium.so ci-smoke/
+          cat > ci-smoke/config.json <<'EOF'
+          {
+            "api_key": "invalid",
+            "api_url": "http://127.0.0.1:9/v1/openai/chat/completions",
+            "max_retries": 0,
+            "total_timeout_ms": 500
+          }
+          EOF
+          set +e
+          LD_LIBRARY_PATH="$PWD/ci-smoke" \
+          ci-smoke/app-asan tests/slides.pdf --pages:1 > ci-smoke/out.jsonl 2> ci-smoke/err.log
+          status=$?
+          set -e
+          if [ "$status" -ne 2 ]; then
+            echo "Expected exit code 2 from offline ASan smoke run; got $status"
+            cat ci-smoke/err.log
+            exit 1
+          fi
+          test -s ci-smoke/out.jsonl
+
       - name: Run Tests
         working-directory: tests
         run: |
@@ -56,6 +84,34 @@ jobs:
           mkdir -p third_party/pdfium
           curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz -o pdfium-mac-arm64.tgz
           tar -xf pdfium-mac-arm64.tgz -C third_party/pdfium
+
+      - name: Build App
+        run: nim c -d:release -o:app src/app.nim
+
+      - name: ASan Offline Smoke Run
+        run: |
+          mkdir -p ci-smoke
+          nim c -d:addressSanitizer -d:useMalloc -o:ci-smoke/app-asan src/app.nim
+          cp third_party/pdfium/lib/libpdfium.dylib ci-smoke/
+          cat > ci-smoke/config.json <<'EOF'
+          {
+            "api_key": "invalid",
+            "api_url": "http://127.0.0.1:9/v1/openai/chat/completions",
+            "max_retries": 0,
+            "total_timeout_ms": 500
+          }
+          EOF
+          set +e
+          DYLD_LIBRARY_PATH="$PWD/ci-smoke" \
+          ci-smoke/app-asan tests/slides.pdf --pages:1 > ci-smoke/out.jsonl 2> ci-smoke/err.log
+          status=$?
+          set -e
+          if [ "$status" -ne 2 ]; then
+            echo "Expected exit code 2 from offline ASan smoke run; got $status"
+            cat ci-smoke/err.log
+            exit 1
+          fi
+          test -s ci-smoke/out.jsonl
 
       - name: Run Tests
         working-directory: tests
@@ -94,6 +150,37 @@ jobs:
         shell: cmd
         run: |
           echo VCPKG_ROOT=${{ github.workspace }}\vcpkg\installed\x64-windows-release>> %GITHUB_ENV%
+
+      - name: Build App
+        shell: pwsh
+        run: nim c -d:release -o:app.exe src/app.nim
+
+      - name: ASan Offline Smoke Run
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ci-smoke | Out-Null
+          nim c -d:addressSanitizer -d:useMalloc -o:ci-smoke\app-asan.exe src/app.nim
+          Copy-Item third_party\pdfium\bin\pdfium.dll ci-smoke\ -Force
+          Copy-Item "$env:VCPKG_ROOT\\bin\\*.dll" ci-smoke\ -ErrorAction Stop -Force
+          @'
+          {
+            "api_key": "invalid",
+            "api_url": "http://127.0.0.1:9/v1/openai/chat/completions",
+            "max_retries": 0,
+            "total_timeout_ms": 500
+          }
+          '@ | Set-Content -Path ci-smoke\config.json -NoNewline
+          $env:PATH = "$PWD\ci-smoke;$env:PATH"
+          & .\ci-smoke\app-asan.exe tests/slides.pdf --pages:1 1> ci-smoke\out.jsonl 2> ci-smoke\err.log
+          if ($LASTEXITCODE -ne 2) {
+            Write-Host "Expected exit code 2 from offline ASan smoke run; got $LASTEXITCODE"
+            Get-Content ci-smoke\err.log
+            exit 1
+          }
+          if (-not (Test-Path ci-smoke\out.jsonl) -or (Get-Item ci-smoke\out.jsonl).Length -eq 0) {
+            Write-Host "Expected non-empty JSONL output from offline ASan smoke run."
+            exit 1
+          }
 
       - name: Run Tests
         working-directory: tests
