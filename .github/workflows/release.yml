@@ -52,6 +52,7 @@ jobs:
         run: |
           mkdir -p dist
           cp pdfocr dist/
+          cp config.json dist/
           cp third_party/pdfium/lib/libpdfium.so dist/
           cp README.md LICENSE.md dist/
           tar -czf pdfocr-linux-x86_64.tar.gz -C dist .
@@ -98,6 +99,7 @@ jobs:
         run: |
           mkdir -p dist
           cp pdfocr dist/
+          cp config.json dist/
           cp third_party/pdfium/lib/libpdfium.dylib dist/
           cp README.md LICENSE.md dist/
           tar -czf pdfocr-macos-arm64.tar.gz -C dist .
@@ -156,6 +158,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item pdfocr.exe dist/
+          Copy-Item config.json dist/
           Copy-Item third_party/pdfium/bin/pdfium.dll dist/
           Copy-Item README.md dist/
           Copy-Item LICENSE.md dist/

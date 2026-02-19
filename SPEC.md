@@ -56,9 +56,9 @@ pdf-olmocr INPUT.pdf --all-pages > results.jsonl
 
 ### 4.4 JSON Runtime Config
 
-Implementation SHALL attempt to read `./config.json` (current working directory)
-using `jsonx`. If it is missing, the implementation SHALL continue with built-in defaults
-and log that defaults are being used.
+Implementation SHALL attempt to read `config.json` from the executable directory
+(`getAppDir()`) using `jsonx`. If it is missing, the implementation SHALL continue
+with built-in defaults and log that defaults are being used.
 
 Supported keys (all optional overrides):
 

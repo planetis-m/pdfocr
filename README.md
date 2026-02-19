@@ -141,7 +141,7 @@ For development-oriented setup, testing, and benchmarking notes, see `AGENTS.md`
 
 ## Runtime configuration
 
-Optional `config.json` in the current working directory overrides built-in defaults.
+Optional `config.json` next to the `pdfocr` executable overrides built-in defaults.
 It can also override the OCR `prompt` sent to the model.
 It can also override `max_inflight` to control parallelism.
 If `DEEPINFRA_API_KEY` is set, it overrides `api_key` from `config.json`.

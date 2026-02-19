@@ -1,4 +1,5 @@
 import std/[envvars, parseopt, paths, files]
+from std/os import getAppDir
 import jsonx
 import ./[constants, logging, page_selection, pdfium, types]
 
@@ -126,7 +127,8 @@ template ifInRange(value, minValue, maxValue, fallback: untyped): untyped =
 
 proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
   let parsed = parseCliArgs(cliArgs)
-  let rawConfig = loadOptionalJsonRuntimeConfig(Path(DefaultConfigPath))
+  let configPath = Path(getAppDir()) / Path(DefaultConfigPath)
+  let rawConfig = loadOptionalJsonRuntimeConfig(configPath)
 
   let totalPages = getPdfPageCount(parsed.inputPath)
   let selectedPages =
