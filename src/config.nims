@@ -44,7 +44,7 @@ when defined(threadSanitizer) or defined(addressSanitizer):
   switch("define", "noSignalHandler")
 
   when defined(windows):
-    when defined(threadSanitizer):
+    when defined(addressSanitizer):
       switch("passC", "/fsanitize=address")
     else:
       {.warning: "Thread Sanitizer is not supported on Windows.".}
@@ -54,7 +54,6 @@ when defined(threadSanitizer) or defined(addressSanitizer):
     when defined(threadSanitizer):
       switch("passC", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
       switch("passL", "-fsanitize=thread -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer")
-
-    when defined(addressSanitizer):
+    elif defined(addressSanitizer):
       switch("passC", "-fsanitize=address -fno-omit-frame-pointer")
       switch("passL", "-fsanitize=address -fno-omit-frame-pointer")
