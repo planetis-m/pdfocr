@@ -25,7 +25,7 @@ Split modules by library domain and keep raw bindings isolated from idiomatic wr
 
 **Suggested module pattern (conceptual):**
 
-- `lib_raw_*`: raw FFI modules (structs, enums, `importc` procs)
+- `lib_raw_*`: raw FFI modules (structs, typed constants, `importc` procs)
 - `lib_*`: ergonomic modules (overloads, helpers, resource management)
 
 **Public vs private symbols:**
@@ -78,9 +78,9 @@ proc runPage(doc: PdfDocument; page: int) =
 
 **Casing rules:**
 
-- Types/enums/objects: `PascalCase`
+- Types/objects/distincts: `PascalCase`
 - Procs/vars: `lowerCamelCase`
-- Constants: `const` in Nim with `PascalCase` (or `CamelCase`) as appropriate
+- Raw binding constants: keep upstream C-style names (for example, `CURLE_OK`).
 
 **When to keep original C names:**
 
@@ -116,7 +116,7 @@ proc runPage(doc: PdfDocument; page: int) =
 **Don’t accidentally change ABI rules:**
 
 - Don’t reorder fields in structs.
-- Don’t use Nim’s default enums if C expects explicit integer sizes.
+- In raw bindings for this repo, avoid Nim `enum`; use typed integer aliases + `const` values.
 - Don’t “helpfully” convert pointer types in the raw layer.
 
 ---
@@ -195,46 +195,56 @@ type
 
 ---
 
-## 6. Wrapping Enums, Flags, and Constants
+## 6. Wrapping C Enum-Like Values, Flags, and Macros
 
-**Enums:**
+For this project’s raw binding layer, do not model C enums with Nim `enum`.
+Use a typed integer alias and define only the constants the code actually needs.
 
-- Use explicit values to match C.
-- Use `enum` with explicit base type if needed.
+**Enum-like values (project style):**
+
+- Define the C enum storage type as `cint`/`cuint` alias (or a `distinct` int when useful).
+- Add minimal `const` values used by the wrapper/orchestrator.
+- Keep names close to upstream C names to reduce lookup friction.
 
 ```c
 typedef enum LIB_Mode {
   LIB_ModeA = 0,
-  LIB_ModeB = 2
+  LIB_ModeB = 2,
+  LIB_ModeC = 3
 } LIB_Mode;
 ```
 
 ```nim
 type
-  LibMode* {.size: sizeof(cint).} = enum
-    ModeA = 0,
-    ModeB = 2
+  LibMode* = cint
+
+const
+  LIB_ModeA* = LibMode(0)
+  LIB_ModeB* = LibMode(2)
 ```
 
-**Bitflags:**
+**Bitflags (project style):**
 
-- Prefer `set[Enum]` if values are powers of two and max bit count is small.
-- Otherwise use a distinct integer type and helper procs.
+- Use integer/`distinct` integer flag types with bitwise helpers.
+- Do not use `set[Enum]` in raw bindings.
 
 ```nim
 type
   LibFlags* = distinct cuint
 
+const
+  LIB_FLAG_READ* = LibFlags(1'u32 shl 0)
+  LIB_FLAG_WRITE* = LibFlags(1'u32 shl 1)
+
 proc has*(flags: LibFlags; flag: LibFlags): bool {.inline.} =
-  (flags.uint and flag.uint) != 0
+  (cuint(flags) and cuint(flag)) != 0'u32
 ```
 
 **Macros:**
 
-- Simple numeric macros → `const`.
-- Function-like macros → wrap as inline procs or templates.
-
-If a macro depends on `sizeof` or expressions with side effects, prefer a Nim template.
+- Simple numeric macros -> `const`.
+- Function-like macros -> wrap as inline procs or templates.
+- If a macro depends on `sizeof` or expressions with side effects, prefer a Nim template.
 
 ---
 

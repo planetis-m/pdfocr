@@ -51,7 +51,7 @@ proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
 
 ```nim
 if WebPConfigInitInternal(addr config, WEBP_PRESET_DEFAULT, quality,
-      WEBP_ENCODER_ABI_VERSION) == 0:
+    WEBP_ENCODER_ABI_VERSION) == 0:
   raise newException(ValueError, "WebPConfigInitInternal failed")
 ```
 
@@ -73,7 +73,7 @@ proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
 
 ```nim
 if WebPConfigInitInternal(addr config, WEBP_PRESET_DEFAULT, quality,
-    WEBP_ENCODER_ABI_VERSION) == 0:
+  WEBP_ENCODER_ABI_VERSION) == 0:
   raise newException(ValueError, "WebPConfigInitInternal failed")
 ```
 
