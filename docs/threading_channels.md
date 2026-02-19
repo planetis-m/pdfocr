@@ -1,6 +1,6 @@
 # `threading/channels` API
 
-> **Memory management**: Requires one of `--mm:arc`, `--mm:atomicArc`, or `--mm:orc`
+> **Project note**: `pdfocr` uses `--mm:atomicArc` via `config.nims`.
 
 This module implements **multi-producer, multi-consumer (MPMC) channels** backed by a shared-memory, fixed-size circular buffer. Channels provide a high-level, type-safe concurrency primitive for communication and synchronization between threads, supporting both blocking and non-blocking operations.
 
@@ -253,4 +253,3 @@ proc main(chanSize: Natural) =
 ```
 
 This pattern illustrates a common use case for channels: **work distribution and result aggregation** with clear ownership transfer and safe synchronization.
-

@@ -1,8 +1,8 @@
 # config.nims for src/
 # This file configures Nim compiler options for the main application.
 
-# threading/channels requires ARC/ORC/atomicArc; use atomicArc to keep
-# reference-count operations thread-safe for cross-thread shared refs.
+# threading/channels supports multiple ARC-family memory models.
+# This project intentionally pins `atomicArc` for thread-safe cross-thread refs.
 switch("mm", "atomicArc")
 
 # Allocator selection (`useMimalloc` / `useMalloc`) is set in top-level
