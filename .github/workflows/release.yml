@@ -57,7 +57,7 @@ jobs:
           repo-token: ${{ github.token }}
 
       - name: Install Atlas via Nimble
-        run: nimble install -y atlas
+        run: nimble install -y "https://github.com/nim-lang/atlas@#head"
 
       - name: Install Nim dependencies
         run: atlas install
