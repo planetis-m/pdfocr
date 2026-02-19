@@ -12,57 +12,59 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - bounded memory under backpressure
 - retry handling for transient network/API failures
 
-## Current design
+## Installation
 
-This branch uses a two-thread design with bounded in-flight work:
+### Prebuilt binaries (recommended)
 
-1. `main` thread:
-- parses CLI and page selection
-- renders PDF pages and encodes WebP
-- submits OCR tasks
-- writes ordered JSONL to stdout
+Download a release asset for your platform from:
 
-2. `network` thread:
-- runs HTTP requests via libcurl multi
-- keeps up to `K = max_inflight` requests active
-- applies retries/backoff/jitter
-- returns final per-page results
+- <https://github.com/planetis-m/pdfocr/releases/latest>
 
-Bounded channels:
-- `TaskQ` (`main -> network`) capacity `K`
-- `ResultQ` (`network -> main`) capacity `K`
+Current release archive names:
 
-The main thread keeps a fixed-size reorder ring and only allows at most `K` outstanding pages at a time.
+- `pdfocr-linux-x86_64.tar.gz`
+- `pdfocr-macos-arm64.tar.gz`
+- `pdfocr-windows-x86_64.zip`
 
-## Measured performance
-
-Live benchmark on February 17, 2026 against `tests/slides.pdf` (72 pages):
-
-- Result quality: `72/72` pages succeeded
-- Output contract: strict page order preserved, exit code `0`
-- Measured runtime: `24.88s`
-- Throughput: `2.89` pages/s
-- Mean wall-clock per page (`runtime / pages`): `0.35s`
-- Retry pressure: `1` total retry (`71` pages at `attempts=1`, `1` page at `attempts=2`)
-
-Sequential baseline comparison (`K=1`, same 72-page input):
-
-- Sequential runtime: `316.66s` (`5m16.66s`)
-- Current runtime: `24.88s`
-- Speedup: `12.73x`
-- Absolute time reduction: `291.78s` (`4m51.78s`)
-- Relative reduction: `92.14%`
-- Both runs: `72/72 ok`, ordered output, exit code `0`
-
-## Quick start
+Linux x86_64:
 
 ```bash
-nim c -d:release -o:app src/app.nim
-LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
-./app INPUT.pdf --pages:"1,4-6,12" > results.jsonl
-LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
-./app INPUT.pdf --all-pages > results.jsonl
+curl -L -o pdfocr-linux-x86_64.tar.gz \
+  https://github.com/planetis-m/pdfocr/releases/latest/download/pdfocr-linux-x86_64.tar.gz
+tar -xzf pdfocr-linux-x86_64.tar.gz
+./pdfocr --help
 ```
+
+macOS arm64:
+
+```bash
+curl -L -o pdfocr-macos-arm64.tar.gz \
+  https://github.com/planetis-m/pdfocr/releases/latest/download/pdfocr-macos-arm64.tar.gz
+tar -xzf pdfocr-macos-arm64.tar.gz
+./pdfocr --help
+```
+
+Windows x86_64 (PowerShell):
+
+```powershell
+curl.exe -L -o pdfocr-windows-x86_64.zip `
+  https://github.com/planetis-m/pdfocr/releases/latest/download/pdfocr-windows-x86_64.zip
+tar -xf pdfocr-windows-x86_64.zip
+.\pdfocr.exe --help
+```
+
+Keep the executable and bundled runtime libraries in the same directory.
+
+### Build from source
+
+```bash
+atlas install
+nim c -d:release -o:pdfocr src/app.nim
+```
+
+For development-oriented setup, testing, and benchmarking notes, see `AGENTS.md`.
+
+## Runtime configuration
 
 Optional `config.json` in the current working directory overrides built-in defaults.
 It can also override the OCR `prompt` sent to the model.
@@ -72,11 +74,12 @@ If `DEEPINFRA_API_KEY` is set, it overrides `api_key` from `config.json`.
 ## CLI
 
 ```bash
-./app INPUT.pdf --pages:"1,4-6,12"
-./app INPUT.pdf --all-pages
+./pdfocr INPUT.pdf --pages:"1,4-6,12"
+./pdfocr INPUT.pdf --all-pages
 ```
 
 Page spec is 1-based:
+
 - `N` for a single page
 - `A-B` for an inclusive range
 - comma-separated combinations like `"1,4-6,12"`
@@ -100,6 +103,7 @@ Error line:
 ```
 
 `error_kind` values:
+
 - `PdfError`
 - `EncodeError`
 - `NetworkError`
@@ -114,30 +118,11 @@ Error line:
 - `2`: at least one page failed
 - `3`: fatal startup/runtime failure
 
-## Benchmarking notes
-
-Live network benchmarks are noisy. For fair comparison between branches:
-
-1. run interleaved pairs (`master`, `candidate`, `master`, `candidate`, ...)
-2. run sequentially (no overlapping network traffic)
-3. compare medians/trimmed means, not only a single average
-4. track retry pressure (`attempts`, 429/5xx) per run
-
 ## Requirements
 
-- Nim `>= 2.2.6`
-- Optional `config.json` to override defaults
-- Optional `DEEPINFRA_API_KEY` env var to override `api_key` from config
-- `libcurl`, `libwebp`, `libpdfium`
-- repo expects `third_party/pdfium/lib` at runtime
-
-## Test suite
-
-Run current phase acceptance tests:
-
-```bash
-nim test tests/phase08/ci.nims
-```
+- DeepInfra API key (via `DEEPINFRA_API_KEY` or `config.json`)
+- input PDF file
+- if building from source: Nim `>= 2.2.6`, `libcurl`, `libwebp`, `libpdfium`
 
 ## License
 
