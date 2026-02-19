@@ -5,12 +5,6 @@
 # This project intentionally pins `atomicArc` for thread-safe cross-thread refs.
 switch("mm", "atomicArc")
 
-# mimalloc currently injects Linux-only link flags (-lrt/-latomic) on non-Windows.
-# Force system malloc on macOS to keep release builds linkable.
-when defined(macosx):
-  switch("undef", "useMimalloc")
-  switch("define", "useMalloc")
-
 # Allocator selection (`useMimalloc` / `useMalloc`) is set in top-level
 # `config.nims` (outer scope) or by explicit CLI `-d:` flags.
 import mimalloc/config
