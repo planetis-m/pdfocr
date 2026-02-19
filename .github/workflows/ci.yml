@@ -53,7 +53,7 @@ jobs:
           EOF
           set +e
           LD_LIBRARY_PATH="$PWD/ci-smoke" \
-          ci-smoke/app-asan tests/slides.pdf --pages:1 > ci-smoke/out.jsonl 2> ci-smoke/err.log
+          ci-smoke/app-asan tests/input.pdf --pages:1 > ci-smoke/out.jsonl 2> ci-smoke/err.log
           status=$?
           set -e
           if [ "$status" -ne 2 ]; then
@@ -115,7 +115,7 @@ jobs:
           EOF
           set +e
           DYLD_LIBRARY_PATH="$PWD/ci-smoke" \
-          ci-smoke/app-asan tests/slides.pdf --pages:1 > ci-smoke/out.jsonl 2> ci-smoke/err.log
+          ci-smoke/app-asan tests/input.pdf --pages:1 > ci-smoke/out.jsonl 2> ci-smoke/err.log
           status=$?
           set -e
           if [ "$status" -ne 2 ]; then
@@ -189,7 +189,7 @@ jobs:
           }
           '@ | Set-Content -Path ci-smoke\config.json -NoNewline
           $env:PATH = "$PWD\ci-smoke;$env:PATH"
-          & .\ci-smoke\app-asan.exe tests/slides.pdf --pages:1 1> ci-smoke\out.jsonl 2> ci-smoke\err.log
+          & .\ci-smoke\app-asan.exe tests/input.pdf --pages:1 1> ci-smoke\out.jsonl 2> ci-smoke\err.log
           if ($LASTEXITCODE -ne 2) {
             Write-Host "Expected exit code 2 from offline ASan smoke run; got $LASTEXITCODE"
             Get-Content ci-smoke\err.log
