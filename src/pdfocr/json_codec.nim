@@ -31,16 +31,16 @@ type
 
   ImageUrl = object
     url: string
-  
+
   ContentPart = object
     `type`: string
     text: string
     image_url: ImageUrl
-  
+
   Message = object
     role: string
     content: seq[ContentPart]
-  
+
   Request = object
     model: string
     max_tokens: int
@@ -87,7 +87,7 @@ proc encodeResultLine*(p: PageResult): string =
       error_message: bounded
     ))
 
-proc buildChatCompletionRequest*(model: string; instruction: string; imageDataUrl: string): string =
+proc buildChatCompletionRequest*(model, instruction, imageDataUrl: string): string =
   toJson(Request(
     model: model,
     max_tokens: RequestMaxTokens,

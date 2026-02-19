@@ -25,6 +25,7 @@ Default to simple, explicit code over clever shortcuts.
 - Use helper-proc extraction when a large block under one condition hurts readability.
 - Prefer object-construction syntax (`TypeName(field: ...)`) over field-by-field `result.field = ...`
   when creating a value object.
+- In orchestration code, avoid nested helper procs that capture mutable outer locals.
 
 ## 1. Formatting
 
@@ -120,6 +121,7 @@ proc parseURL(text: string): string = discard
 - Use `macro` only when syntax transformation is required.
 - For multi-line calls, prefer compact wrapped calls over one-argument-per-line blocks.
 - This call-formatting rule is for proc/function calls, not object constructors.
+- Prefer UFCS for accessor-style APIs when it reads like field access (`bitmap.width`).
 
 ### Do
 
@@ -183,6 +185,29 @@ proc initWorkerState(seed: int): WorkerState =
   result.stopRequested = false
 ```
 
+### Don't (Implicit Closure State)
+
+```nim
+proc run() =
+  let total = 10
+  var nextToWrite = 0
+  proc flushReady() =
+    if nextToWrite < total:
+      inc nextToWrite
+```
+
+### Do (Explicit State and Outer-Scope Helper)
+
+```nim
+type
+  WriteState = object
+    nextToWrite: int
+
+proc flushReady(state: var WriteState; total: int) =
+  if state.nextToWrite < total:
+    inc state.nextToWrite
+```
+
 ## 4. Control flow
 
 ### Rules
@@ -233,18 +258,40 @@ proc renderPage(): StepResult =
   discard
 ```
 
-### Do (Error Propagation)
+### Do (Error Propagation Across Levels)
 
 ```nim
-proc renderPage() =
-  if rawRenderFailed():
-    raise newException(IOError, "render failed")
+type
+  Bitmap = object
+    width: int
+    height: int
+    pixels: pointer
 
-proc run() =
-  try:
-    renderPage()
-  except CatchableError:
-    recordPageError(getCurrentExceptionMsg())
+  PageTask = object
+    page: int
+    webpBytes: seq[byte]
+
+proc renderPageBitmap(page: int): Bitmap =
+  result = rendererRender(page)
+  if result.width <= 0 or result.height <= 0 or result.pixels.isNil:
+    raise newException(IOError, "invalid bitmap state from renderer")
+
+proc encodePageBitmap(bitmap: Bitmap): seq[byte] =
+  result = encodeWebp(bitmap)
+  if result.len == 0:
+    raise newException(IOError, "encoded WebP output was empty")
+
+proc buildPageTask(page: int): PageTask =
+  let bitmap = renderPageBitmap(page)
+  let webpBytes = encodePageBitmap(bitmap)
+  result = PageTask(page: page, webpBytes: webpBytes)
+
+proc runOrchestrator(pages: seq[int]) =
+  for page in pages:
+    try:
+      submit(buildPageTask(page))
+    except CatchableError:
+      recordPageFailure(page, boundedErrorMessage(getCurrentExceptionMsg()))
 ```
 
 ## 5. Returns and `result`
@@ -273,6 +320,7 @@ proc parsePort(text: string): int =
 - Use tuples for short local values only.
 - If a tuple grows beyond a small pair/triple, create a named object.
 - Never declare `type` blocks inside procs.
+- Group related fields with the same type when it improves readability (`a, b: int`).
 
 ### Do
 

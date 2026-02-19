@@ -8,6 +8,14 @@ type
     result: PageResult
     fromNetwork: bool
 
+  OrchestratorState = object
+    anyError: bool
+    written, okCount, errCount: int
+    nextToRender, nextToWrite: int
+    outstanding, windowSize: int
+    pending: seq[Option[PendingEntry]]
+    stagedTask: Option[OcrTask]
+
 proc initGlobalLibraries() =
   initPdfium()
   initCurlGlobal()
@@ -32,22 +40,114 @@ proc renderBitmap(doc: PdfDocument; page: int; config: RenderConfig): PdfBitmap 
   var pdfPage = loadPage(doc, page - 1)
   result = renderPageAtScale(pdfPage, config.renderScale, rotate = RenderRotate,
     flags = RenderFlags)
-  let bitmapWidth = width(result)
-  let bitmapHeight = height(result)
-  let pixels = buffer(result)
-  let rowStride = stride(result)
+  let bitmapWidth = result.width
+  let bitmapHeight = result.height
+  let pixels = result.buffer
+  let rowStride = result.stride
   if bitmapWidth <= 0 or bitmapHeight <= 0 or pixels.isNil or rowStride <= 0:
     raise newException(IOError, "invalid bitmap state from renderer")
 
 proc encodeBitmap(bitmap: PdfBitmap; config: RenderConfig): seq[byte] =
-  let bitmapWidth = width(bitmap)
-  let bitmapHeight = height(bitmap)
-  let pixels = buffer(bitmap)
-  let rowStride = stride(bitmap)
+  let bitmapWidth = bitmap.width
+  let bitmapHeight = bitmap.height
+  let pixels = bitmap.buffer
+  let rowStride = bitmap.stride
 
   result = compressBgr(bitmapWidth, bitmapHeight, pixels, rowStride, config.webpQuality)
   if result.len == 0:
     raise newException(IOError, "encoded WebP output was empty")
+
+proc initOrchestratorState(windowSize: int): OrchestratorState =
+  OrchestratorState(
+    anyError: false,
+    written: 0,
+    okCount: 0,
+    errCount: 0,
+    nextToRender: 0,
+    nextToWrite: 0,
+    outstanding: 0,
+    pending: newSeq[Option[PendingEntry]](windowSize),
+    stagedTask: none(OcrTask),
+    windowSize: windowSize
+  )
+
+proc slotIndex(state: OrchestratorState; seqId: int): int {.inline.} =
+  seqId mod state.windowSize
+
+proc canStore(state: OrchestratorState; seqId: int): bool {.inline.} =
+  seqId >= state.nextToWrite and seqId < state.nextToWrite + state.windowSize
+
+proc storePending(state: var OrchestratorState; resultForSeq: PageResult; fromNetwork: bool): bool =
+  doAssert state.canStore(resultForSeq.seqId),
+    "seq_id outside pending window: seq=" & $resultForSeq.seqId &
+    " next_write=" & $state.nextToWrite &
+    " k=" & $state.windowSize
+  let idx = state.slotIndex(resultForSeq.seqId)
+  if state.pending[idx].isSome():
+    let existing = state.pending[idx].get()
+    if existing.result.seqId == resultForSeq.seqId:
+      result = false
+    else:
+      raise newException(IOError,
+        "ring slot collision: slot=" & $idx &
+        " existing_seq=" & $existing.result.seqId &
+        " incoming_seq=" & $resultForSeq.seqId)
+  else:
+    state.pending[idx] = some(PendingEntry(result: resultForSeq, fromNetwork: fromNetwork))
+    result = true
+
+proc nextReady(state: OrchestratorState): bool =
+  let idx = state.slotIndex(state.nextToWrite)
+  if state.pending[idx].isSome():
+    let entry = state.pending[idx].get()
+    result = entry.result.seqId == state.nextToWrite
+  else:
+    result = false
+
+proc writeResult(state: var OrchestratorState; resultForSeq: PageResult; fromNetwork: bool) =
+  stdout.write(encodeResultLine(resultForSeq))
+  stdout.write('\n')
+
+  if resultForSeq.status == psOk:
+    inc state.okCount
+  else:
+    inc state.errCount
+    state.anyError = true
+
+  if fromNetwork:
+    dec state.outstanding
+    doAssert state.outstanding >= 0, "outstanding underflow"
+
+  inc state.written
+  inc state.nextToWrite
+
+proc flushReady(state: var OrchestratorState; runtimeConfig: RuntimeConfig) =
+  while state.nextToWrite < runtimeConfig.selectedCount and state.nextReady():
+    let idx = state.slotIndex(state.nextToWrite)
+    let entry = state.pending[idx].get()
+    state.pending[idx] = none(PendingEntry)
+    var pageResult = entry.result
+    let mappedPage = runtimeConfig.selectedPages[state.nextToWrite]
+    if pageResult.seqId != state.nextToWrite:
+      logWarn("corrected mismatched seq_id before ordered write")
+      pageResult.seqId = state.nextToWrite
+    if pageResult.page != mappedPage:
+      logWarn("corrected mismatched page before ordered write")
+      pageResult.page = mappedPage
+    state.writeResult(pageResult, entry.fromNetwork)
+
+proc onNetworkResult(state: var OrchestratorState; runtimeConfig: RuntimeConfig;
+    networkResult: PageResult) =
+  let seqId = networkResult.seqId
+  if seqId < 0 or seqId >= runtimeConfig.selectedCount:
+    raise newException(IOError, "network returned out-of-range seq_id: " & $seqId)
+  elif not state.canStore(seqId):
+    raise newException(IOError,
+      "network returned seq_id outside pending window: seq=" & $seqId &
+      " next_write=" & $state.nextToWrite &
+      " k=" & $state.windowSize)
+  elif not state.storePending(networkResult, fromNetwork = true):
+    raise newException(IOError, "network returned duplicate seq_id result: " & $seqId)
 
 proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
   resetSharedAtomics()
@@ -56,13 +156,6 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     globalsInitialized = false
     networkStarted = false
     stopSent = false
-    anyError = false
-    written = 0
-    okCount = 0
-    errCount = 0
-    nextToRender = 0
-    nextToWrite = 0
-    outstanding = 0
 
     taskCh: Chan[OcrTask]
     resultCh: Chan[PageResult]
@@ -74,6 +167,7 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
 
     let doc = loadDocument(runtimeConfig.inputPath)
     let k = runtimeConfig.networkConfig.maxInflight
+    var state = initOrchestratorState(k)
     taskCh = newChan[OcrTask](k)
     resultCh = newChan[PageResult](k)
 
@@ -89,109 +183,29 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
       " first_page=" & $runtimeConfig.selectedPages[0] &
       " last_page=" & $runtimeConfig.selectedPages[^1])
 
-    var pending = newSeq[Option[PendingEntry]](k)
-    var stagedTask = none(OcrTask)
-
-    template slotIndex(seqId: int): int =
-      seqId mod k
-
-    template canStore(seqId: int): bool =
-      seqId >= nextToWrite and seqId < nextToWrite + k
-
-    proc storePending(resultForSeq: PageResult; fromNetwork: bool): bool =
-      doAssert canStore(resultForSeq.seqId),
-        "seq_id outside pending window: seq=" & $resultForSeq.seqId &
-        " next_write=" & $nextToWrite &
-        " k=" & $k
-      let idx = slotIndex(resultForSeq.seqId)
-      if isSome(pending[idx]):
-        let existing = pending[idx].get()
-        if existing.result.seqId == resultForSeq.seqId:
-          result = false
-        else:
-          raise newException(IOError,
-            "ring slot collision: slot=" & $idx &
-            " existing_seq=" & $existing.result.seqId &
-            " incoming_seq=" & $resultForSeq.seqId)
-      else:
-        pending[idx] = some(PendingEntry(result: resultForSeq, fromNetwork: fromNetwork))
-        result = true
-
-    proc nextReady(): bool =
-      let idx = slotIndex(nextToWrite)
-      if pending[idx].isSome():
-        let entry = pending[idx].get()
-        result = entry.result.seqId == nextToWrite
-      else:
-        result = false
-
-    proc writeResult(resultForSeq: PageResult; fromNetwork: bool) =
-      stdout.write(encodeResultLine(resultForSeq))
-      stdout.write('\n')
-
-      if resultForSeq.status == psOk:
-        inc okCount
-      else:
-        inc errCount
-        anyError = true
-
-      if fromNetwork:
-        dec outstanding
-        doAssert outstanding >= 0, "outstanding underflow"
-
-      inc written
-      inc nextToWrite
-
-    proc flushReady() =
-      while nextToWrite < runtimeConfig.selectedCount and nextReady():
-        let idx = slotIndex(nextToWrite)
-        let entry = pending[idx].get()
-        pending[idx] = none(PendingEntry)
-        var pageResult = entry.result
-        let mappedPage = runtimeConfig.selectedPages[nextToWrite]
-        if pageResult.seqId != nextToWrite:
-          logWarn("corrected mismatched seq_id before ordered write")
-          pageResult.seqId = nextToWrite
-        if pageResult.page != mappedPage:
-          logWarn("corrected mismatched page before ordered write")
-          pageResult.page = mappedPage
-        writeResult(pageResult, entry.fromNetwork)
-
-    proc onNetworkResult(networkResult: PageResult) =
-      let seqId = networkResult.seqId
-      if seqId < 0 or seqId >= runtimeConfig.selectedCount:
-        raise newException(IOError, "network returned out-of-range seq_id: " & $seqId)
-      elif not canStore(seqId):
-        raise newException(IOError,
-          "network returned seq_id outside pending window: seq=" & $seqId &
-          " next_write=" & $nextToWrite &
-          " k=" & $k)
-      elif not storePending(networkResult, fromNetwork = true):
-        raise newException(IOError, "network returned duplicate seq_id result: " & $seqId)
-
-    while nextToWrite < runtimeConfig.selectedCount:
+    while state.nextToWrite < runtimeConfig.selectedCount:
       var submissionBlocked = false
       while true:
-        if stagedTask.isSome():
-          if outstanding >= k:
+        if state.stagedTask.isSome():
+          if state.outstanding >= k:
             break
-          let task = stagedTask.get()
+          let task = state.stagedTask.get()
           if taskCh.trySend(task):
-            stagedTask = none(OcrTask)
-            inc outstanding
-            doAssert outstanding <= k, "outstanding overflow"
+            state.stagedTask = none(OcrTask)
+            inc state.outstanding
+            doAssert state.outstanding <= k, "outstanding overflow"
           else:
             submissionBlocked = true
             break
         else:
-          if nextToRender >= runtimeConfig.selectedCount:
+          if state.nextToRender >= runtimeConfig.selectedCount:
             break
-          if (nextToRender - nextToWrite) >= k:
+          if (state.nextToRender - state.nextToWrite) >= k:
             break
-          if outstanding >= k:
+          if state.outstanding >= k:
             break
 
-          let seqId = nextToRender
+          let seqId = state.nextToRender
           let page = runtimeConfig.selectedPages[seqId]
           var bitmap: PdfBitmap
           var renderedOk = false
@@ -199,13 +213,13 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
             bitmap = renderBitmap(doc, page, runtimeConfig.renderConfig)
             renderedOk = true
           except CatchableError:
-            discard storePending(renderFailureResult(seqId, page, PdfError,
+            discard state.storePending(renderFailureResult(seqId, page, PdfError,
               boundedErrorMessage(getCurrentExceptionMsg())), fromNetwork = false)
 
           if renderedOk:
             try:
               let webpBytes = encodeBitmap(bitmap, runtimeConfig.renderConfig)
-              doAssert canStore(seqId), "rendered seq_id outside pending window"
+              doAssert state.canStore(seqId), "rendered seq_id outside pending window"
               let task = OcrTask(
                 kind: otkPage,
                 seqId: seqId,
@@ -213,44 +227,44 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
                 webpBytes: webpBytes
               )
               if taskCh.trySend(task):
-                inc outstanding
-                doAssert outstanding <= k, "outstanding overflow"
+                inc state.outstanding
+                doAssert state.outstanding <= k, "outstanding overflow"
               else:
-                stagedTask = some(task)
+                state.stagedTask = some(task)
                 submissionBlocked = true
             except CatchableError:
-              discard storePending(renderFailureResult(seqId, page, EncodeError,
+              discard state.storePending(renderFailureResult(seqId, page, EncodeError,
                 boundedErrorMessage(getCurrentExceptionMsg())), fromNetwork = false)
-          inc nextToRender
+          inc state.nextToRender
 
-          flushReady()
+          state.flushReady(runtimeConfig)
           if submissionBlocked:
             break
 
-      if nextToWrite >= runtimeConfig.selectedCount:
+      if state.nextToWrite >= runtimeConfig.selectedCount:
         break
 
-      if not nextReady():
-        if outstanding > 0:
+      if not state.nextReady():
+        if state.outstanding > 0:
           var networkResult: PageResult
           resultCh.recv(networkResult)
-          onNetworkResult(networkResult)
-        elif submissionBlocked or stagedTask.isSome():
+          state.onNetworkResult(runtimeConfig, networkResult)
+        elif submissionBlocked or state.stagedTask.isSome():
           raise newException(IOError, "task submission blocked but no outstanding network work")
-        elif nextToRender >= runtimeConfig.selectedCount:
+        elif state.nextToRender >= runtimeConfig.selectedCount:
           raise newException(IOError, "orchestrator stalled with no outstanding work")
       else:
         var networkResult: PageResult
         while resultCh.tryRecv(networkResult):
-          onNetworkResult(networkResult)
+          state.onNetworkResult(runtimeConfig, networkResult)
 
-      flushReady()
+      state.flushReady(runtimeConfig)
 
-      if not nextReady() and outstanding > 0:
+      if not state.nextReady() and state.outstanding > 0:
         var networkResult: PageResult
         while resultCh.tryRecv(networkResult):
-          onNetworkResult(networkResult)
-        flushReady()
+          state.onNetworkResult(runtimeConfig, networkResult)
+        state.flushReady(runtimeConfig)
 
     flushFile(stdout)
     taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))
@@ -258,12 +272,12 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     joinThread(networkThread)
     networkStarted = false
 
-    logInfo("completion: written=" & $written &
-      " ok=" & $okCount &
-      " err=" & $errCount &
+    logInfo("completion: written=" & $state.written &
+      " ok=" & $state.okCount &
+      " err=" & $state.errCount &
       " retries=" & $RetryCount.load(moRelaxed))
 
-    if anyError:
+    if state.anyError:
       result = ExitHasPageErrors
     else:
       result = ExitAllOk
