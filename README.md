@@ -68,7 +68,8 @@ Runtime dependencies:
 - macOS: `curl` and `webp` (Homebrew)
 - Windows: no extra runtime install (required DLLs are bundled in the archive)
 
-Linux x86_64:
+<details>
+<summary>Linux x86_64</summary>
 
 ```bash
 sudo apt-get update
@@ -79,7 +80,10 @@ tar -xzf pdfocr-linux-x86_64.tar.gz
 ./pdfocr --help
 ```
 
-macOS arm64:
+</details>
+
+<details>
+<summary>macOS arm64</summary>
 
 ```bash
 brew install curl webp
@@ -89,7 +93,10 @@ tar -xzf pdfocr-macos-arm64.tar.gz
 ./pdfocr --help
 ```
 
-Windows x86_64 (PowerShell):
+</details>
+
+<details>
+<summary>Windows x86_64 (PowerShell)</summary>
 
 ```powershell
 curl.exe -L -o pdfocr-windows-x86_64.zip "https://github.com/planetis-m/pdfocr/releases/latest/download/pdfocr-windows-x86_64.zip"
@@ -97,13 +104,16 @@ tar.exe -xf pdfocr-windows-x86_64.zip
 .\pdfocr.exe --help
 ```
 
+</details>
+
 Keep the executable and bundled runtime libraries in the same directory.
 
 ### Build from source
 
 System dependencies and PDFium:
 
-Linux x86_64:
+<details>
+<summary>Linux x86_64</summary>
 
 ```bash
 sudo apt-get update
@@ -113,7 +123,10 @@ curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pd
 tar -xf pdfium-linux-x64.tgz -C third_party/pdfium
 ```
 
-macOS arm64:
+</details>
+
+<details>
+<summary>macOS arm64</summary>
 
 ```bash
 brew install curl webp
@@ -122,13 +135,18 @@ curl -L https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pd
 tar -xf pdfium-mac-arm64.tgz -C third_party/pdfium
 ```
 
-Windows x86_64 (PowerShell):
+</details>
+
+<details>
+<summary>Windows x86_64 (PowerShell)</summary>
 
 ```powershell
 curl.exe -L -o pdfium-win-x64.tgz "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz"
 New-Item -ItemType Directory -Force -Path third_party/pdfium | Out-Null
 tar.exe -xf pdfium-win-x64.tgz -C third_party/pdfium
 ```
+
+</details>
 
 Build:
 
