@@ -114,17 +114,17 @@ jobs:
           triplet: x64-windows-release
           token: ${{ github.token }}
 
-      - name: Set vcpkg Root
-        shell: cmd
-        run: |
-          echo VCPKG_ROOT=${{ github.workspace }}\vcpkg\installed\x64-windows-release>> %GITHUB_ENV%
-
       - name: Build App
         shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg\installed\x64-windows-release
         run: nim c -d:release -o:app.exe src/app.nim
 
       - name: Run Tests
         working-directory: tests
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg\installed\x64-windows-release
         run: |
           $env:PATH = "$env:VCPKG_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
