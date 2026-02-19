@@ -1,5 +1,10 @@
 import std/[algorithm, parseutils]
 
+proc allPagesSelection*(totalPages: int): seq[int] =
+  result = newSeqOfCap[int](totalPages)
+  for page in 1..totalPages:
+    result.add(page)
+
 proc parsePageAt(spec: string; idx: var int): int =
   let consumed = parseInt(spec, result, idx)
   if consumed <= 0 or result < 1:

@@ -124,11 +124,6 @@ template ifNonNegative(value, fallback: untyped): untyped =
 template ifInRange(value, minValue, maxValue, fallback: untyped): untyped =
   if value >= minValue and value <= maxValue: value else: fallback
 
-proc allPagesSelection(totalPages: int): seq[int] =
-  result = newSeqOfCap[int](totalPages)
-  for page in 1 .. totalPages:
-    result.add(page)
-
 proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
   let parsed = parseCliArgs(cliArgs)
   let rawConfig = loadOptionalJsonRuntimeConfig(Path(DefaultConfigPath))
