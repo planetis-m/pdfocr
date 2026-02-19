@@ -1,0 +1,185 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ github.ref_name }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.target.platform }} (${{ matrix.target.arch }})
+    runs-on: ${{ matrix.target.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - {
+              platform: Linux,
+              lower_platform: linux,
+              arch: x86_64,
+              os: ubuntu-latest,
+              archive_ext: tar.gz,
+              pdfium_url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz,
+              pdfium_runtime: lib/libpdfium.so,
+            }
+          - {
+              platform: macOS,
+              lower_platform: macos,
+              arch: arm64,
+              os: macos-latest,
+              archive_ext: tar.gz,
+              pdfium_url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz,
+              pdfium_runtime: lib/libpdfium.dylib,
+            }
+          - {
+              platform: Windows,
+              lower_platform: windows,
+              arch: x86_64,
+              os: windows-latest,
+              archive_ext: zip,
+              pdfium_url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz,
+            }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+          repo-token: ${{ github.token }}
+
+      - name: Install build dependencies (Linux)
+        if: matrix.target.platform == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libwebp-dev
+
+      - name: Install build dependencies (macOS)
+        if: matrix.target.platform == 'macOS'
+        run: brew install curl webp
+
+      - name: Install build dependencies (Windows)
+        if: matrix.target.platform == 'Windows'
+        uses: johnwason/vcpkg-action@v7
+        id: vcpkg
+        with:
+          pkgs: curl libwebp
+          triplet: x64-windows-release
+          token: ${{ github.token }}
+
+      - name: Download PDFium (Linux/macOS)
+        if: matrix.target.platform != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p third_party/pdfium
+          curl -L "${{ matrix.target.pdfium_url }}" -o pdfium.tgz
+          tar -xf pdfium.tgz -C third_party/pdfium
+
+      - name: Download PDFium (Windows)
+        if: matrix.target.platform == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path third_party/pdfium | Out-Null
+          curl.exe -L "${{ matrix.target.pdfium_url }}" -o pdfium.tgz
+          tar -xf pdfium.tgz -C third_party/pdfium
+
+      - name: Build release binary (Linux/macOS)
+        if: matrix.target.platform != 'Windows'
+        shell: bash
+        run: nim c -d:release -o:pdfocr src/app.nim
+
+      - name: Build release binary (Windows)
+        if: matrix.target.platform == 'Windows'
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg\installed\x64-windows-release
+        run: nim c -d:release -o:pdfocr.exe src/app.nim
+
+      - name: Strip executable (Linux)
+        if: matrix.target.platform == 'Linux'
+        run: strip pdfocr
+
+      - name: Create archive (Linux/macOS)
+        if: matrix.target.platform != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp pdfocr dist/
+          cp "third_party/pdfium/${{ matrix.target.pdfium_runtime }}" dist/
+          cp README.md LICENSE.md dist/
+          tar -czf "pdfocr-${{ matrix.target.lower_platform }}-${{ matrix.target.arch }}.${{ matrix.target.archive_ext }}" -C dist .
+
+      - name: Create archive (Windows)
+        if: matrix.target.platform == 'Windows'
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg\installed\x64-windows-release
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item pdfocr.exe dist/
+          Copy-Item third_party/pdfium/bin/pdfium.dll dist/
+          Copy-Item README.md dist/
+          Copy-Item LICENSE.md dist/
+          Copy-Item "$env:VCPKG_ROOT\\bin\\*.dll" dist/ -ErrorAction Stop
+          Compress-Archive -Path dist\* -DestinationPath "pdfocr-${{ matrix.target.lower_platform }}-${{ matrix.target.arch }}.${{ matrix.target.archive_ext }}" -Force
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdfocr-${{ matrix.target.lower_platform }}-${{ matrix.target.arch }}-${{ env.VERSION }}
+          path: pdfocr-${{ matrix.target.lower_platform }}-${{ matrix.target.arch }}.${{ matrix.target.archive_ext }}
+          if-no-files-found: error
+
+  create-release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+
+      - name: Gather release files
+        run: |
+          mkdir -p artifacts/release
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} artifacts/release/ \;
+          ls -la artifacts/release/
+
+      - name: Create release notes
+        run: |
+          cat > release-notes.md << EOF
+          ## Release ${{ env.VERSION }}
+
+          Prebuilt binaries for:
+
+          - Linux x86_64: pdfocr-linux-x86_64.tar.gz
+          - macOS arm64: pdfocr-macos-arm64.tar.gz
+          - Windows x86_64: pdfocr-windows-x86_64.zip
+
+          Each archive includes the pdfocr executable, PDFium runtime library, and project license/readme files.
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          body_path: release-notes.md
+          files: artifacts/release/*
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
