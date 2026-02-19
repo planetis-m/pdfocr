@@ -60,6 +60,8 @@ Sequential baseline comparison (`K=1`, same 72-page input):
 nim c -d:release -o:app src/app.nim
 LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
 ./app INPUT.pdf --pages:"1,4-6,12" > results.jsonl
+LD_LIBRARY_PATH="third_party/pdfium/lib:${LD_LIBRARY_PATH}" \
+./app INPUT.pdf --all-pages > results.jsonl
 ```
 
 Optional `config.json` in the current working directory overrides built-in defaults.
@@ -71,14 +73,17 @@ If `DEEPINFRA_API_KEY` is set, it overrides `api_key` from `config.json`.
 
 ```bash
 ./app INPUT.pdf --pages:"1,4-6,12"
+./app INPUT.pdf --all-pages
 ```
 
 Page spec is 1-based:
 - `N` for a single page
 - `A-B` for an inclusive range
 - comma-separated combinations like `"1,4-6,12"`
+- use `--all-pages` to OCR every page in the input PDF
 
 Selection is normalized to sorted unique pages.
+Provide exactly one of `--pages` or `--all-pages`.
 
 ## Output format
 

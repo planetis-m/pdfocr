@@ -36,15 +36,19 @@ This specification defines behavior, concurrency, ordering, retries, backpressur
 
 ```bash
 pdf-olmocr INPUT.pdf --pages "1,4-6,12" > results.jsonl
+pdf-olmocr INPUT.pdf --all-pages > results.jsonl
 ```
 
 ### 4.2 Arguments
 
 - `INPUT.pdf` (required positional): local PDF path.
-- `--pages "<spec>"` (required):
-  - `N` for a single page
-  - `A-B` for inclusive range
-  - comma-separated selectors
+- Exactly one of:
+  - `--pages "<spec>"`:
+    - `N` for a single page
+    - `A-B` for inclusive range
+    - comma-separated selectors
+  - `--all-pages`:
+    - selects all pages `1..total_pages`
 
 ### 4.3 Environment Variables
 

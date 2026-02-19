@@ -8,6 +8,7 @@ type
   CliArgs = object
     inputPath: string
     pagesSpec: string
+    allPages: bool
 
   JsonRuntimeConfig = object
     api_key: string
@@ -23,9 +24,11 @@ type
 const HelpText = """
 Usage:
   pdf-olmocr INPUT.pdf --pages:"1,4-6,12"
+  pdf-olmocr INPUT.pdf --all-pages
 
 Options:
   --pages:<spec>   Comma-separated page selectors (1-based).
+  --all-pages      OCR every page in INPUT.pdf.
   --help, -h       Show this help and exit.
 """
 
@@ -33,7 +36,7 @@ template cliError(message) =
   quit(message & "\n\n" & HelpText, ExitFatalRuntime)
 
 proc parseCliArgs(cliArgs: seq[string]): CliArgs =
-  result = CliArgs(inputPath: "", pagesSpec: "")
+  result = CliArgs(inputPath: "", pagesSpec: "", allPages: false)
   var parser = initOptParser(cliArgs)
 
   for kind, key, val in parser.getopt():
@@ -47,6 +50,8 @@ proc parseCliArgs(cliArgs: seq[string]): CliArgs =
       case key
       of "pages":
         result.pagesSpec = val
+      of "all-pages":
+        result.allPages = true
       of "help":
         quit(HelpText, ExitAllOk)
       else:
@@ -61,8 +66,10 @@ proc parseCliArgs(cliArgs: seq[string]): CliArgs =
 
   if result.inputPath.len == 0:
     cliError("missing required INPUT.pdf argument")
-  if result.pagesSpec.len == 0:
-    cliError("missing required --pages argument")
+  if result.pagesSpec.len == 0 and not result.allPages:
+    cliError("must provide exactly one of --pages or --all-pages")
+  if result.pagesSpec.len > 0 and result.allPages:
+    cliError("cannot combine --pages with --all-pages")
 
 proc getPdfPageCount(path: string): int =
   result = 0
@@ -117,12 +124,21 @@ template ifNonNegative(value, fallback: untyped): untyped =
 template ifInRange(value, minValue, maxValue, fallback: untyped): untyped =
   if value >= minValue and value <= maxValue: value else: fallback
 
+proc allPagesSelection(totalPages: int): seq[int] =
+  result = newSeqOfCap[int](totalPages)
+  for page in 1 .. totalPages:
+    result.add(page)
+
 proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
   let parsed = parseCliArgs(cliArgs)
   let rawConfig = loadOptionalJsonRuntimeConfig(Path(DefaultConfigPath))
 
   let totalPages = getPdfPageCount(parsed.inputPath)
-  let selectedPages = normalizePageSelection(parsed.pagesSpec, totalPages)
+  let selectedPages =
+    if parsed.allPages:
+      allPagesSelection(totalPages)
+    else:
+      normalizePageSelection(parsed.pagesSpec, totalPages)
   if selectedPages.len == 0:
     raise newException(ValueError, "no valid pages selected")
   if selectedPages[^1] > totalPages:
