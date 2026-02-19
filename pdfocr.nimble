@@ -1,4 +1,4 @@
-version       = "0.1.0"
+version       = "0.1.1"
 author        = "planetis"
 description   = "High-throughput PDF OCR extractor"
 license       = "MIT"
@@ -9,4 +9,3 @@ requires "nim >= 2.2.6"
 requires "threading"
 requires "mimalloc"
 requires "https://github.com/planetis-m/jsonx"
-
