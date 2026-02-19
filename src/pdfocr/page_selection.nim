@@ -13,7 +13,6 @@ proc parsePageAt(spec: string; idx: var int): int =
 
 proc normalizePageSelection*(spec: string; totalPages: int): seq[int] =
   result = @[]
-  if spec.len == 0: return
   var idx = 0
   while idx < spec.len:
     let first = parsePageAt(spec, idx)

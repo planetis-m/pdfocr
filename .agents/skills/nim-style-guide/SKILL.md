@@ -181,6 +181,8 @@ finalizeOrRetry(
 - Prefer structured control flow (`if/elif/else`, explicit loop conditions).
 - `continue` is banned; structure branches instead.
 - Use early `return` for real guard exits (found/fatal/precondition), not as default style.
+- Do not early-return for empty/zero normal inputs; keep one normal flow and let
+  loop bounds naturally produce empty output.
 - Keep one clear normal success path.
 - Use `result = ...` for normal flow.
 - Keep return style consistent inside each proc.
@@ -210,6 +212,13 @@ proc parsePort(text: string): int =
   result = parsed
 ```
 
+```nim
+proc allPagesSelection(totalPages: int): seq[int] =
+  result = @[]
+  for page in 1 .. totalPages:
+    result.add(page)
+```
+
 ### Don't
 
 ```nim
@@ -218,6 +227,15 @@ proc process(values: seq[int]): int =
     if value < 0:
       continue
     result.inc(value)
+```
+
+```nim
+proc allPagesSelection(totalPages: int): seq[int] =
+  if totalPages <= 0:
+    return @[]
+  result = newSeqOfCap[int](totalPages)
+  for page in 1 .. totalPages:
+    result.add(page)
 ```
 
 ## 5. Type and State Design
