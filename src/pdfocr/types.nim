@@ -54,13 +54,14 @@ type
     resultCh*: Chan[PageResult]
     apiKey*: string
     config*: NetworkConfig
-    abortSignal*: ptr Atomic[int]
 
 # Shared atomics for diagnostics.
 var
   RetryCount*: Atomic[int]
+  AbortSignal*: Atomic[int]
 
 proc resetSharedAtomics*() =
   RetryCount.store(0, moRelaxed)
+  AbortSignal.store(0, moRelaxed)
 
 # Channel payloads intentionally use value types / strings / byte sequences only.

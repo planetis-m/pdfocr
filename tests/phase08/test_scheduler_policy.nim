@@ -21,15 +21,10 @@ proc main() =
   doAssert MAX_INFLIGHT > 0
   doAssert MULTI_WAIT_MAX_MS > 0
 
-  let nilCtx = NetworkWorkerContext(abortSignal: nil)
-  doAssert not abortRequested(nilCtx)
-
-  var abortSignal: Atomic[int]
-  abortSignal.store(0, moRelaxed)
-  let activeCtx = NetworkWorkerContext(abortSignal: addr abortSignal)
-  doAssert not abortRequested(activeCtx)
-  abortSignal.store(1, moRelease)
-  doAssert abortRequested(activeCtx)
+  doAssert not abortRequested()
+  AbortSignal.store(1)
+  doAssert abortRequested()
+  AbortSignal.store(0)
 
 when isMainModule:
   main()

@@ -156,13 +156,10 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     globalsInitialized = false
     networkStarted = false
     stopSent = false
-    abortSignal: Atomic[int]
 
     taskCh: Chan[OcrTask]
     resultCh: Chan[PageResult]
     networkThread: Thread[NetworkWorkerContext]
-
-  abortSignal.store(0, moRelaxed)
 
   try:
     initGlobalLibraries()
@@ -178,8 +175,7 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
       taskCh: taskCh,
       resultCh: resultCh,
       apiKey: runtimeConfig.apiKey,
-      config: runtimeConfig.networkConfig,
-      abortSignal: addr abortSignal
+      config: runtimeConfig.networkConfig
     ))
     networkStarted = true
 
@@ -286,12 +282,12 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     else:
       result = ExitAllOk
   except CatchableError:
-    abortSignal.store(1, moRelease)
+    AbortSignal.store(1, moRelease)
     logError(getCurrentExceptionMsg())
     result = ExitFatalRuntime
   finally:
     if networkStarted:
-      abortSignal.store(1, moRelease)
+      AbortSignal.store(1, moRelease)
       if not stopSent:
         try:
           taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))

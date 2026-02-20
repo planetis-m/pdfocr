@@ -169,8 +169,8 @@ proc popReadyRetry(retryQueue: var seq[RetryItem]; task: var OcrTask; attempt: v
 proc enqueueFinalResult(ctx: NetworkWorkerContext; result: sink PageResult) =
   ctx.resultCh.send(result)
 
-proc abortRequested*(ctx: NetworkWorkerContext): bool {.inline.} =
-  result = not ctx.abortSignal.isNil and ctx.abortSignal[].load(moAcquire) != 0
+proc abortRequested*(): bool {.inline.} =
+  result = AbortSignal.load(moAcquire) != 0
 
 proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; rng: var Rand;
     task: OcrTask; attempt: int; retryable: bool;
@@ -405,7 +405,7 @@ proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
   var state = initWorkerState(seed = int(getMonoTime().ticks))
   var running = true
   while running:
-    if ctx.abortRequested():
+    if abortRequested():
       enterDrainErrorMode(ctx, "fatal shutdown requested", multi, state)
       running = false
     else:
