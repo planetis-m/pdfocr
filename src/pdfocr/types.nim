@@ -54,6 +54,7 @@ type
     resultCh*: Chan[PageResult]
     apiKey*: string
     config*: NetworkConfig
+    abortSignal*: ptr Atomic[int]
 
 # Shared atomics for diagnostics.
 var

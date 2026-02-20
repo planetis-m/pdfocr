@@ -169,6 +169,9 @@ proc popReadyRetry(retryQueue: var seq[RetryItem]; task: var OcrTask; attempt: v
 proc enqueueFinalResult(ctx: NetworkWorkerContext; result: sink PageResult) =
   ctx.resultCh.send(result)
 
+proc abortRequested*(ctx: NetworkWorkerContext): bool {.inline.} =
+  result = not ctx.abortSignal.isNil and ctx.abortSignal[].load(moAcquire) != 0
+
 proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; rng: var Rand;
     task: OcrTask; attempt: int; retryable: bool;
     kind: ErrorKind; message: string; httpStatus = HttpNone) =
@@ -402,14 +405,18 @@ proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
   var state = initWorkerState(seed = int(getMonoTime().ticks))
   var running = true
   while running:
-    refillActiveRequests(ctx, multi, state)
-
-    if state.stopRequested and state.active.len == 0 and state.retryQueue.len == 0:
+    if ctx.abortRequested():
+      enterDrainErrorMode(ctx, "fatal shutdown requested", multi, state)
       running = false
-    elif state.active.len == 0:
-      handleNoActiveRequests(ctx, multi, state)
     else:
-      running = processActiveRequests(ctx, multi, state)
+      refillActiveRequests(ctx, multi, state)
+
+      if state.stopRequested and state.active.len == 0 and state.retryQueue.len == 0:
+        running = false
+      elif state.active.len == 0:
+        handleNoActiveRequests(ctx, multi, state)
+      else:
+        running = processActiveRequests(ctx, multi, state)
 
 proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
   var multi: CurlMulti

@@ -1,4 +1,5 @@
-import pdfocr/[bindings/curl, constants, curl, errors, network_scheduler]
+import std/atomics
+import pdfocr/[bindings/curl, constants, curl, errors, network_scheduler, types]
 
 proc main() =
   doAssert classifyCurlErrorKind(CURLE_OPERATION_TIMEDOUT) == TIMEOUT
@@ -19,6 +20,16 @@ proc main() =
     doAssert base <= RETRY_MAX_DELAY_MS
   doAssert MAX_INFLIGHT > 0
   doAssert MULTI_WAIT_MAX_MS > 0
+
+  let nilCtx = NetworkWorkerContext(abortSignal: nil)
+  doAssert not abortRequested(nilCtx)
+
+  var abortSignal: Atomic[int]
+  abortSignal.store(0, moRelaxed)
+  let activeCtx = NetworkWorkerContext(abortSignal: addr abortSignal)
+  doAssert not abortRequested(activeCtx)
+  abortSignal.store(1, moRelease)
+  doAssert abortRequested(activeCtx)
 
 when isMainModule:
   main()

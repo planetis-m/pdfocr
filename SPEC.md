@@ -252,6 +252,7 @@ Network thread SHALL:
 4. emit exactly one final `PageResult` per task,
 5. retry only retryable failures up to max attempts,
 6. stop cleanly after receiving stop token and draining active/retry work.
+7. on fatal abort signal from `main`, short-circuit retries and drain to shutdown.
 
 ---
 
@@ -288,6 +289,8 @@ Non-retryable by default:
 ### 14.4 Backoff
 
 Exponential backoff with jitter and max cap.
+
+Fatal shutdown is an exception: retry/backoff may be skipped to ensure prompt process exit.
 
 ---
 
@@ -336,6 +339,8 @@ Program completes when all selected pages have emitted and written final results
 ### 17.3 Fatal Failures
 
 Fatal errors are logged to stderr and may leave stdout stream incomplete.
+After a fatal failure, `main` signals network abort and shutdown should not wait for full
+retry/timeout exhaustion.
 
 ---
 

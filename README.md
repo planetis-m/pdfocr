@@ -11,6 +11,7 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - strict output order by normalized page list
 - bounded memory under backpressure
 - retry handling for transient network/API failures
+- fatal shutdown short-circuits retries for prompt exit
 
 ## Design
 
@@ -26,6 +27,7 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - runs HTTP requests via libcurl multi
 - keeps up to `K = max_inflight` requests active
 - applies retries/backoff/jitter
+- honors fatal abort from `main` for fast unwind
 - returns final per-page results
 
 Bounded channels:
