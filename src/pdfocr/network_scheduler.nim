@@ -301,7 +301,7 @@ proc abandonOutstandingWork(multi: var CurlMulti; state: var WorkerState) =
   state.active.clear()
   state.retryQueue.setLen(0)
 
-proc initWorkerState(seed: int): WorkerState =
+proc initWorkerState(seed: int64): WorkerState =
   WorkerState(
     active: initTable[uint, RequestContext](),
     retryQueue: @[],
@@ -366,7 +366,7 @@ proc processActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
     result = false
 
 proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
-  var state = initWorkerState(seed = int(getMonoTime().ticks))
+  var state = initWorkerState(seed = getMonoTime().ticks)
   var running = true
   while running:
     if ctx.resultCh.stopToken():
