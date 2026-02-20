@@ -362,7 +362,6 @@ proc processActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
     processCompletions(ctx, multi, state)
   except CatchableError:
     ctx.resultCh.stop()
-    ctx.taskCh.stop()
     abandonOutstandingWork(multi, state)
     result = false
 
@@ -371,7 +370,6 @@ proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
   var running = true
   while running:
     if ctx.resultCh.stopToken():
-      ctx.taskCh.stop()
       abandonOutstandingWork(multi, state)
       running = false
     else:
@@ -397,4 +395,3 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
     runInitializedWorker(ctx, multi)
   else:
     ctx.resultCh.stop()
-    ctx.taskCh.stop()
