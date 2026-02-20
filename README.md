@@ -11,7 +11,7 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - strict output order by normalized page list
 - bounded memory under backpressure
 - retry handling for transient network/API failures
-- fatal shutdown short-circuits retries for prompt exit
+- fatal unwind stops channels for prompt exit
 
 ## Design
 
@@ -27,12 +27,13 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - runs HTTP requests via libcurl multi
 - keeps up to `K = max_inflight` requests active
 - applies retries/backoff/jitter
-- honors fatal abort from `main` for fast unwind
+- exits promptly when `main` stops channels during fatal unwind
 - returns final per-page results
 
 Bounded channels:
 - `TaskQ` (`main -> network`) capacity `K`
 - `ResultQ` (`network -> main`) capacity `K`
+- shutdown uses `TaskQ.stop()` to wake blocked network receives
 
 The main thread keeps a fixed-size reorder ring and only allows at most `K` outstanding pages at a time.
 

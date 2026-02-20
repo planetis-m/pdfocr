@@ -1,5 +1,5 @@
 import std/atomics
-import threading/channels
+import sync/channels
 import ./[errors, curl]
 
 type
@@ -25,12 +25,7 @@ type
     networkConfig*: NetworkConfig
     renderConfig*: RenderConfig
 
-  OcrTaskKind* = enum
-    otkPage,
-    otkStop
-
   OcrTask* = object
-    kind*: OcrTaskKind
     seqId*: SeqId
     page*: int
     webpBytes*: seq[byte]
@@ -58,10 +53,8 @@ type
 # Shared atomics for diagnostics.
 var
   RetryCount*: Atomic[int]
-  AbortSignal*: Atomic[int]
 
 proc resetSharedAtomics*() =
   RetryCount.store(0, moRelaxed)
-  AbortSignal.store(0, moRelaxed)
 
 # Channel payloads intentionally use value types / strings / byte sequences only.

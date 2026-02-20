@@ -236,7 +236,7 @@ For each selected page sequence:
 After completion:
 
 - flush stdout
-- send stop task to network thread
+- stop `TaskQ` to wake/terminate network intake
 - join network thread
 - return exit code based on whether any page failed.
 
@@ -251,8 +251,8 @@ Network thread SHALL:
 3. process completions and classify outcomes,
 4. emit exactly one final `PageResult` per task,
 5. retry only retryable failures up to max attempts,
-6. stop cleanly after receiving stop token and draining active/retry work.
-7. on fatal abort signal from `main`, short-circuit retries and drain to shutdown.
+6. stop cleanly after `TaskQ` stop signal and draining active/retry work.
+7. if `ResultQ` is stopped (fatal main-thread unwind), drain and shutdown promptly.
 
 ---
 
@@ -290,7 +290,8 @@ Non-retryable by default:
 
 Exponential backoff with jitter and max cap.
 
-Fatal shutdown is an exception: retry/backoff may be skipped to ensure prompt process exit.
+Fatal main-thread unwind is an exception: retry/backoff may be skipped to ensure prompt
+process exit.
 
 ---
 

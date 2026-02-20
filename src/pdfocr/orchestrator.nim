@@ -1,5 +1,5 @@
 import std/[atomics, options]
-import threading/channels
+import sync/channels
 import ./[constants, curl, errors, json_codec, logging, network_scheduler,
          pdfium, runtime_config, types, webp]
 
@@ -155,7 +155,8 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
   var
     globalsInitialized = false
     networkStarted = false
-    stopSent = false
+    taskChannelStopped = false
+    resultChannelStopped = false
 
     taskCh: Chan[OcrTask]
     resultCh: Chan[PageResult]
@@ -221,7 +222,6 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
               let webpBytes = encodeBitmap(bitmap, runtimeConfig.renderConfig)
               doAssert state.canStore(seqId), "rendered seq_id outside pending window"
               let task = OcrTask(
-                kind: otkPage,
                 seqId: seqId,
                 page: page,
                 webpBytes: webpBytes
@@ -247,7 +247,8 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
       if not state.nextReady():
         if state.outstanding > 0:
           var networkResult: PageResult
-          resultCh.recv(networkResult)
+          if not resultCh.recv(networkResult):
+            raise newException(IOError, "result channel stopped before outstanding work completed")
           state.onNetworkResult(runtimeConfig, networkResult)
         elif submissionBlocked or state.stagedTask.isSome():
           raise newException(IOError, "task submission blocked but no outstanding network work")
@@ -267,8 +268,8 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
         state.flushReady(runtimeConfig)
 
     flushFile(stdout)
-    taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))
-    stopSent = true
+    taskCh.stop()
+    taskChannelStopped = true
     joinThread(networkThread)
     networkStarted = false
 
@@ -282,17 +283,19 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     else:
       result = ExitAllOk
   except CatchableError:
-    AbortSignal.store(1, moRelease)
+    if networkStarted and not resultChannelStopped:
+      resultCh.stop()
+      resultChannelStopped = true
     logError(getCurrentExceptionMsg())
     result = ExitFatalRuntime
   finally:
     if networkStarted:
-      AbortSignal.store(1, moRelease)
-      if not stopSent:
-        try:
-          taskCh.send(OcrTask(kind: otkStop, seqId: -1, page: 0, webpBytes: @[]))
-        except CatchableError:
-          discard
+      if result == ExitFatalRuntime and not resultChannelStopped:
+        resultCh.stop()
+        resultChannelStopped = true
+      if not taskChannelStopped:
+        taskCh.stop()
+        taskChannelStopped = true
       joinThread(networkThread)
     if globalsInitialized:
       cleanupGlobalLibraries()

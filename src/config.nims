@@ -1,7 +1,7 @@
 # config.nims for src/
 # This file configures Nim compiler options for the main application.
 
-# threading/channels supports multiple ARC-family memory models.
+# sync/channels supports multiple ARC-family memory models.
 # This project intentionally pins `atomicArc` for thread-safe cross-thread refs.
 switch("mm", "atomicArc")
 

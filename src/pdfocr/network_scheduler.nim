@@ -1,5 +1,5 @@
 import std/[atomics, base64, monotimes, os, random, tables, times]
-import threading/channels
+import sync/channels
 import ./bindings/curl
 import ./[constants, curl, errors, json_codec, types]
 
@@ -167,10 +167,7 @@ proc popReadyRetry(retryQueue: var seq[RetryItem]; task: var OcrTask; attempt: v
       result = true
 
 proc enqueueFinalResult(ctx: NetworkWorkerContext; result: sink PageResult) =
-  ctx.resultCh.send(result)
-
-proc abortRequested*(): bool {.inline.} =
-  result = AbortSignal.load(moAcquire) != 0
+  discard ctx.resultCh.send(result)
 
 proc finalizeOrRetry(ctx: NetworkWorkerContext; retryQueue: var seq[RetryItem]; rng: var Rand;
     task: OcrTask; attempt: int; retryable: bool;
@@ -315,8 +312,7 @@ proc failRetryQueue(ctx: NetworkWorkerContext; state: var WorkerState; bounded: 
 proc drainIncomingAfterFailure(ctx: NetworkWorkerContext; bounded: string) =
   while true:
     var task: OcrTask
-    ctx.taskCh.recv(task)
-    if task.kind == otkStop:
+    if not ctx.taskCh.recv(task):
       break
     ctx.enqueueFinalResult(newErrorResult(task.seqId, task.page, 1, NetworkError, bounded))
 
@@ -353,11 +349,10 @@ proc tryTakeDispatchTask(ctx: NetworkWorkerContext; state: var WorkerState;
   elif not state.stopRequested:
     var incoming: OcrTask
     if ctx.taskCh.tryRecv(incoming):
-      if incoming.kind == otkStop:
-        state.stopRequested = true
-      else:
-        task = incoming
-        result = true
+      task = incoming
+      result = true
+    elif ctx.taskCh.stopToken():
+      state.stopRequested = true
 
 proc dispatchOrFinalize(ctx: NetworkWorkerContext; multi: var CurlMulti;
     state: var WorkerState; task: OcrTask; attempt: int) =
@@ -384,11 +379,10 @@ proc handleNoActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
       sleep(waitMs)
   elif not state.stopRequested:
     var task: OcrTask
-    ctx.taskCh.recv(task)
-    if task.kind == otkStop:
-      state.stopRequested = true
-    else:
+    if ctx.taskCh.recv(task):
       dispatchOrFinalize(ctx, multi, state, task, 1)
+    else:
+      state.stopRequested = true
 
 proc processActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
     state: var WorkerState): bool =
@@ -405,8 +399,8 @@ proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
   var state = initWorkerState(seed = int(getMonoTime().ticks))
   var running = true
   while running:
-    if abortRequested():
-      enterDrainErrorMode(ctx, "fatal shutdown requested", multi, state)
+    if ctx.resultCh.stopToken():
+      enterDrainErrorMode(ctx, "result channel stopped", multi, state)
       running = false
     else:
       refillActiveRequests(ctx, multi, state)

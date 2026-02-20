@@ -1,5 +1,5 @@
-import std/atomics
-import pdfocr/[bindings/curl, constants, curl, errors, network_scheduler, types]
+import sync/channels
+import pdfocr/[bindings/curl, constants, curl, errors, network_scheduler]
 
 proc main() =
   doAssert classifyCurlErrorKind(CURLE_OPERATION_TIMEDOUT) == TIMEOUT
@@ -21,10 +21,15 @@ proc main() =
   doAssert MAX_INFLIGHT > 0
   doAssert MULTI_WAIT_MAX_MS > 0
 
-  doAssert not abortRequested()
-  AbortSignal.store(1)
-  doAssert abortRequested()
-  AbortSignal.store(0)
+  var stopCh = newChan[int](1)
+  doAssert stopCh.send(42)
+  stopCh.stop()
+  doAssert stopCh.stopToken()
+  var drained = 0
+  doAssert stopCh.recv(drained)
+  doAssert drained == 42
+  doAssert not stopCh.send(7)
+  doAssert not stopCh.recv(drained)
 
 when isMainModule:
   main()
