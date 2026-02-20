@@ -291,37 +291,15 @@ proc processCompletions(ctx: NetworkWorkerContext; multi: var CurlMulti;
     if msg.msg == CURLMSG_DONE:
       handleDoneMessage(ctx, multi, state, msg)
 
-proc failActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
-    state: var WorkerState; bounded: string) =
+proc abandonOutstandingWork(multi: var CurlMulti; state: var WorkerState) =
   for req in state.active.values:
     try:
       multi.removeHandle(req.easy)
     except CatchableError:
       discard
     recycleEasy(state.idleEasy, req.easy)
-    ctx.enqueueFinalResult(newErrorResult(req.task.seqId, req.task.page, req.attempt,
-      NetworkError, bounded))
   state.active.clear()
-
-proc failRetryQueue(ctx: NetworkWorkerContext; state: var WorkerState; bounded: string) =
-  for item in state.retryQueue:
-    ctx.enqueueFinalResult(newErrorResult(item.task.seqId, item.task.page, item.attempt,
-      NetworkError, bounded))
   state.retryQueue.setLen(0)
-
-proc drainIncomingAfterFailure(ctx: NetworkWorkerContext; bounded: string) =
-  while true:
-    var task: OcrTask
-    if not ctx.taskCh.recv(task):
-      break
-    ctx.enqueueFinalResult(newErrorResult(task.seqId, task.page, 1, NetworkError, bounded))
-
-proc enterDrainErrorMode(ctx: NetworkWorkerContext; message: string;
-    multi: var CurlMulti; state: var WorkerState) =
-  let bounded = boundedErrorMessage(message)
-  failActiveRequests(ctx, multi, state, bounded)
-  failRetryQueue(ctx, state, bounded)
-  drainIncomingAfterFailure(ctx, bounded)
 
 proc initWorkerState(seed: int): WorkerState =
   WorkerState(
@@ -330,15 +308,6 @@ proc initWorkerState(seed: int): WorkerState =
     idleEasy: @[],
     rng: initRand(seed),
     stopRequested: false
-  )
-
-proc initDrainState(): WorkerState =
-  WorkerState(
-    active: initTable[uint, RequestContext](),
-    retryQueue: @[],
-    idleEasy: @[],
-    rng: initRand(0),
-    stopRequested: true
   )
 
 proc tryTakeDispatchTask(ctx: NetworkWorkerContext; state: var WorkerState;
@@ -392,7 +361,9 @@ proc processActiveRequests(ctx: NetworkWorkerContext; multi: var CurlMulti;
     discard multi.poll(min(MultiWaitMaxMs, msUntilNextRetry(state.retryQueue)))
     processCompletions(ctx, multi, state)
   except CatchableError:
-    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, state)
+    ctx.resultCh.stop()
+    ctx.taskCh.stop()
+    abandonOutstandingWork(multi, state)
     result = false
 
 proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
@@ -400,7 +371,8 @@ proc runInitializedWorker(ctx: NetworkWorkerContext; multi: var CurlMulti) =
   var running = true
   while running:
     if ctx.resultCh.stopToken():
-      enterDrainErrorMode(ctx, "result channel stopped", multi, state)
+      ctx.taskCh.stop()
+      abandonOutstandingWork(multi, state)
       running = false
     else:
       refillActiveRequests(ctx, multi, state)
@@ -424,5 +396,5 @@ proc runNetworkWorker*(ctx: NetworkWorkerContext) {.thread.} =
   if initialized:
     runInitializedWorker(ctx, multi)
   else:
-    var state = initDrainState()
-    enterDrainErrorMode(ctx, getCurrentExceptionMsg(), multi, state)
+    ctx.resultCh.stop()
+    ctx.taskCh.stop()

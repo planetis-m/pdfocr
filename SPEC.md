@@ -252,7 +252,7 @@ Network thread SHALL:
 4. emit exactly one final `PageResult` per task,
 5. retry only retryable failures up to max attempts,
 6. stop cleanly after `TaskQ` stop signal and draining active/retry work.
-7. if `ResultQ` is stopped (fatal main-thread unwind), drain and shutdown promptly.
+7. if `ResultQ` is stopped (fatal main-thread unwind), stop promptly without draining pending work.
 
 ---
 
@@ -290,8 +290,8 @@ Non-retryable by default:
 
 Exponential backoff with jitter and max cap.
 
-Fatal main-thread unwind is an exception: retry/backoff may be skipped to ensure prompt
-process exit.
+Fatal main-thread unwind is an exception: retry/backoff may be skipped and pending work may
+be dropped to ensure prompt process exit.
 
 ---
 
@@ -340,8 +340,8 @@ Program completes when all selected pages have emitted and written final results
 ### 17.3 Fatal Failures
 
 Fatal errors are logged to stderr and may leave stdout stream incomplete.
-After a fatal failure, `main` signals network abort and shutdown should not wait for full
-retry/timeout exhaustion.
+After a fatal failure, `main` stops channels and shutdown does not wait for retry/timeout
+exhaustion or completion of pending requests.
 
 ---
 
@@ -358,7 +358,8 @@ retry/timeout exhaustion.
 Implementation is conformant when all are true:
 
 1. CLI parsing/validation/normalization behaves as specified.
-2. stdout contains exactly one JSON object per selected page, in strict order.
+2. on non-fatal completion, stdout contains exactly one JSON object per selected page,
+   in strict order.
 3. stdout is pure JSONL, stderr carries diagnostics.
 4. retries apply to retryable failures with bounded attempts and jittered backoff.
 5. memory remains bounded under slow/blocked stdout.

@@ -7,11 +7,11 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 ## Core guarantees
 
 - stdout is results only (JSON Lines), stderr is logs only
-- one output object per selected page
-- strict output order by normalized page list
+- on non-fatal completion: one output object per selected page
+- on non-fatal completion: strict output order by normalized page list
 - bounded memory under backpressure
 - retry handling for transient network/API failures
-- fatal unwind stops channels for prompt exit
+- fatal unwind stops channels and drops pending work for prompt exit
 
 ## Design
 
@@ -27,7 +27,7 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - runs HTTP requests via libcurl multi
 - keeps up to `K = max_inflight` requests active
 - applies retries/backoff/jitter
-- exits promptly when `main` stops channels during fatal unwind
+- exits promptly when `main` stops channels during fatal unwind, without draining pending items
 - returns final per-page results
 
 Bounded channels:

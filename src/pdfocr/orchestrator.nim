@@ -155,8 +155,6 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
   var
     globalsInitialized = false
     networkStarted = false
-    taskChannelStopped = false
-    resultChannelStopped = false
 
     taskCh: Chan[OcrTask]
     resultCh: Chan[PageResult]
@@ -269,7 +267,6 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
 
     flushFile(stdout)
     taskCh.stop()
-    taskChannelStopped = true
     joinThread(networkThread)
     networkStarted = false
 
@@ -283,19 +280,13 @@ proc runOrchestratorWithConfig(runtimeConfig: RuntimeConfig): int =
     else:
       result = ExitAllOk
   except CatchableError:
-    if networkStarted and not resultChannelStopped:
+    if networkStarted:
       resultCh.stop()
-      resultChannelStopped = true
     logError(getCurrentExceptionMsg())
     result = ExitFatalRuntime
   finally:
     if networkStarted:
-      if result == ExitFatalRuntime and not resultChannelStopped:
-        resultCh.stop()
-        resultChannelStopped = true
-      if not taskChannelStopped:
-        taskCh.stop()
-        taskChannelStopped = true
+      taskCh.stop()
       joinThread(networkThread)
     if globalsInitialized:
       cleanupGlobalLibraries()
