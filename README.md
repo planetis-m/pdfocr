@@ -32,22 +32,22 @@ The main thread keeps a fixed-size reorder ring and only allows at most `K` outs
 
 ## Measured performance
 
-Live benchmark on February 17, 2026 against `test_inputs/slides.pdf` (72 pages):
+Live benchmark on February 24, 2026 against `test_files/slides.pdf` (72 pages):
 
 - Result quality: `72/72` pages succeeded
 - Output contract: strict page order preserved, exit code `0`
-- Measured runtime: `24.88s`
-- Throughput: `2.89` pages/s
-- Mean wall-clock per page (`runtime / pages`): `0.35s`
-- Retry pressure: `1` total retry (`71` pages at `attempts=1`, `1` page at `attempts=2`)
+- Measured runtime: `19.93s`
+- Throughput: `3.61` pages/s
+- Mean wall-clock per page (`runtime / pages`): `0.28s`
+- Retry pressure: `0` total retries (`72` pages at `attempts=1`)
 
 Sequential baseline comparison (`K=1`, same 72-page input):
 
 - Sequential runtime: `316.66s` (`5m16.66s`)
-- Current runtime: `24.88s`
-- Speedup: `12.73x`
-- Absolute time reduction: `291.78s` (`4m51.78s`)
-- Relative reduction: `92.14%`
+- Current runtime: `19.93s`
+- Speedup: `15.89x`
+- Absolute time reduction: `296.73s` (`4m56.73s`)
+- Relative reduction: `93.71%`
 - Both runs: `72/72 ok`, ordered output, exit code `0`
 
 ## Installation
