@@ -10,12 +10,11 @@ type
 
 proc shouldRetry*(item: RequestResult; attempt: int; maxAttempts: int): bool =
   if attempt >= maxAttempts:
-    return false
-
-  if item.error.kind != teNone:
-    return isRetriableTransport(item.error.kind)
-
-  result = isRetriableStatus(item.response.code)
+    result = false
+  elif item.error.kind != teNone:
+    result = isRetriableTransport(item.error.kind)
+  else:
+    result = isRetriableStatus(item.response.code)
 
 proc classifyFinalError*(item: RequestResult): FinalError =
   if item.error.kind != teNone:

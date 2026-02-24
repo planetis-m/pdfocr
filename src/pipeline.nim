@@ -1,8 +1,7 @@
 import std/[os, random, times]
-import jsonx
-import jsonx/streams
+import jsonx, jsonx/streams
 import relay
-import openai_retry
+import openai, openai_retry
 import ./[ocr_client, pdf_render, pdfium_wrap, request_id_codec,
   retry_and_errors, types]
 
@@ -98,12 +97,12 @@ proc queueAttempt(cfg: RuntimeConfig; doc: PdfDocument; seqId: int; attempt: int
   if canBuildRequest:
     let requestId = packRequestId(seqId, attempt)
     try:
-      var req = buildOcrRequest(cfg.networkConfig, cfg.apiKey, webp, requestId)
+      let req = buildOcrRequest(cfg.networkConfig, cfg.apiKey, webp, requestId)
       state.submitBatch.addRequest(
         verb = req.verb,
-        url = move req.url,
-        headers = move req.headers,
-        body = move req.body,
+        url = req.url,
+        headers = req.headers,
+        body = req.body,
         requestId = req.requestId,
         timeoutMs = req.timeoutMs
       )
@@ -167,7 +166,7 @@ proc runPipeline*(cfg: RuntimeConfig; client: Relay): bool =
         startBatchIfAny(client, state)
       else:
         let pageNumber = cfg.selectedPages[seqId]
-        if item.error.kind != teNone or item.response.code div 100 != 2:
+        if item.error.kind != teNone or not isHttpSuccess(item.response.code):
           let finalError = classifyFinalError(item)
           state.staged[seqId] = errorPageResult(
             page = pageNumber,
