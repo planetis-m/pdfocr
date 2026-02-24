@@ -9,18 +9,14 @@ const
   RetryPollSliceMs = 25
 
 type
-  CachedRequest = object
-    verb: HttpVerb
-    url: string
-    headers: HttpHeaders
-    body: string
-    timeoutMs: int
+  CachedPayload = object
+    webpBytes: seq[byte]
 
   PipelineState = object
     inFlightCount: int
     activeCount: int
     staged: seq[PageResult]
-    cachedRequests: seq[CachedRequest]
+    cachedPayloads: seq[CachedPayload]
     retryQueue: seq[RetryItem]
     nextSubmitSeqId: int
     nextEmitSeqId: int
@@ -58,7 +54,7 @@ proc initPipelineState(total: int): PipelineState =
     inFlightCount: 0,
     activeCount: 0,
     staged: newSeq[PageResult](total),
-    cachedRequests: newSeq[CachedRequest](total),
+    cachedPayloads: newSeq[CachedPayload](total),
     retryQueue: @[],
     nextSubmitSeqId: 0,
     nextEmitSeqId: 0,
@@ -91,28 +87,15 @@ proc startBatchIfAny(client: Relay; state: var PipelineState) =
 proc nowMs(): int64 {.inline.} =
   result = int64(epochTime() * 1000.0)
 
-proc queueCachedAttempt(seqId, attempt: int; state: var PipelineState) =
-  let cached = state.cachedRequests[seqId]
-  let requestId = packRequestId(seqId, attempt)
-  state.submitBatch.addRequest(
-    verb = cached.verb,
-    url = cached.url,
-    headers = cached.headers,
-    body = cached.body,
-    requestId = requestId,
-    timeoutMs = cached.timeoutMs
-  )
-  inc state.inFlightCount
-
-proc queueFreshAttempt(cfg: RuntimeConfig; doc: PdfDocument; seqId: int;
+proc prepareFreshPayload(cfg: RuntimeConfig; doc: PdfDocument; seqId: int;
     state: var PipelineState): bool =
   let pageNumber = cfg.selectedPages[seqId]
   var webp: seq[byte]
-  var canBuildRequest = false
 
   try:
     webp = renderPageToWebp(doc, pageNumber, cfg.renderConfig)
-    canBuildRequest = true
+    state.cachedPayloads[seqId] = CachedPayload(webpBytes: move webp)
+    result = true
   except IOError:
     state.staged[seqId] = errorPageResult(
       page = pageNumber,
@@ -128,35 +111,39 @@ proc queueFreshAttempt(cfg: RuntimeConfig; doc: PdfDocument; seqId: int;
       message = getCurrentExceptionMsg()
     )
 
-  if canBuildRequest:
-    let requestId = packRequestId(seqId, 1)
-    try:
-      let req = buildOcrRequest(cfg.networkConfig, cfg.apiKey, webp, requestId)
-      state.cachedRequests[seqId] = CachedRequest(
-        verb: req.verb,
-        url: req.url,
-        headers: req.headers,
-        body: req.body,
-        timeoutMs: req.timeoutMs
-      )
-      queueCachedAttempt(seqId, 1, state)
-      inc state.activeCount
-      result = true
-    except CatchableError:
-      state.staged[seqId] = errorPageResult(
-        page = pageNumber,
-        attempts = 1,
-        kind = NetworkError,
-        message = getCurrentExceptionMsg()
-      )
+proc queueAttemptFromPayload(cfg: RuntimeConfig; seqId, attempt: int;
+    state: var PipelineState): bool =
+  let pageNumber = cfg.selectedPages[seqId]
+  let requestId = packRequestId(seqId, attempt)
+  let endpoint = OpenAIConfig(
+    url: cfg.networkConfig.apiUrl,
+    apiKey: cfg.apiKey
+  )
 
-proc submitDueRetries(maxInFlight: int; state: var PipelineState) =
+  try:
+    let params = buildOcrParams(cfg.networkConfig, state.cachedPayloads[seqId].webpBytes)
+    chatAdd(state.submitBatch, endpoint, params, requestId = requestId,
+        timeoutMs = cfg.networkConfig.totalTimeoutMs)
+    inc state.inFlightCount
+    result = true
+  except CatchableError:
+    state.staged[seqId] = errorPageResult(
+      page = pageNumber,
+      attempts = attempt,
+      kind = NetworkError,
+      message = getCurrentExceptionMsg()
+    )
+    state.cachedPayloads[seqId] = CachedPayload()
+
+proc submitDueRetries(cfg: RuntimeConfig; maxInFlight: int;
+    state: var PipelineState) =
   if state.inFlightCount < maxInFlight and state.retryQueue.len > 0:
     let now = nowMs()
     var retryItem: RetryItem
     while state.inFlightCount < maxInFlight and
         popDueRetry(state.retryQueue, now, retryItem):
-      queueCachedAttempt(retryItem.seqId, retryItem.attempt, state)
+      if not queueAttemptFromPayload(cfg, retryItem.seqId, retryItem.attempt, state):
+        dec state.activeCount
 
 proc submitFreshAttempts(cfg: RuntimeConfig; doc: PdfDocument; maxInFlight: int;
     state: var PipelineState) =
@@ -164,8 +151,12 @@ proc submitFreshAttempts(cfg: RuntimeConfig; doc: PdfDocument; maxInFlight: int;
     let capacity = maxInFlight - state.activeCount
     var added = 0
     while added < capacity and state.nextSubmitSeqId < state.staged.len:
-      if queueFreshAttempt(cfg, doc, state.nextSubmitSeqId, state):
-        inc added
+      if prepareFreshPayload(cfg, doc, state.nextSubmitSeqId, state):
+        inc state.activeCount
+        if queueAttemptFromPayload(cfg, state.nextSubmitSeqId, 1, state):
+          inc added
+        else:
+          dec state.activeCount
       inc state.nextSubmitSeqId
 
 proc millisUntilNextRetry(retryQueue: seq[RetryItem]): int =
@@ -220,7 +211,7 @@ proc processResult(cfg: RuntimeConfig; item: RequestResult; maxAttempts: int;
           kind = ParseError,
           message = "failed to parse OCR response"
         )
-    state.cachedRequests[seqId] = CachedRequest()
+    state.cachedPayloads[seqId] = CachedPayload()
     dec state.activeCount
 
 proc drainReadyResults(cfg: RuntimeConfig; client: Relay; maxAttempts: int;
@@ -268,7 +259,7 @@ proc runPipeline*(cfg: RuntimeConfig; client: Relay): bool =
   let doc = loadDocument(cfg.inputPath)
 
   while state.remaining > 0:
-    submitDueRetries(maxInFlight, state)
+    submitDueRetries(cfg, maxInFlight, state)
     submitFreshAttempts(cfg, doc, maxInFlight, state)
     startBatchIfAny(client, state)
     flushOrderedResults(state)

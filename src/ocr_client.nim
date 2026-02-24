@@ -1,12 +1,11 @@
 import std/base64
-import relay
 import openai
 import ./[constants, types]
 
-proc buildOcrRequest*(network: NetworkConfig; apiKey: string;
-    webpBytes: seq[byte]; requestId: int64): RequestSpec =
+proc buildOcrParams*(network: NetworkConfig;
+    webpBytes: seq[byte]): ChatCreateParams =
   let imageDataUrl = "data:image/webp;base64," & encode(webpBytes)
-  let params = chatCreate(
+  result = chatCreate(
     model = network.model,
     messages = @[
       userMessageParts(@[
@@ -18,14 +17,6 @@ proc buildOcrRequest*(network: NetworkConfig; apiKey: string;
     maxTokens = MaxOutputTokens,
     toolChoice = ToolChoice.none,
     responseFormat = formatText
-  )
-
-  let cfg = OpenAIConfig(url: network.apiUrl, apiKey: apiKey)
-  result = chatRequest(
-    cfg = cfg,
-    params = params,
-    requestId = requestId,
-    timeoutMs = network.totalTimeoutMs
   )
 
 proc parseOcrText*(body: string; text: var string): bool =
