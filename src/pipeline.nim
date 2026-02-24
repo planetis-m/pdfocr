@@ -1,5 +1,6 @@
 import std/[os, random, times]
 import jsonx
+import jsonx/streams
 import relay
 import openai_retry
 import ./[ocr_client, pdf_render, pdfium_wrap, request_id_codec,
@@ -51,7 +52,9 @@ proc initPipelineState(total: int): PipelineState =
   )
 
 proc emitPageResult(value: PageResult): bool =
-  stdout.writeLine(toJson(value))
+  let output = streams.open(stdout)
+  output.writeJson(value)
+  streams.write(output, '\n')
   result = value.status == PageOk
 
 proc flushOrderedResults(state: var PipelineState) =
