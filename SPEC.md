@@ -1,66 +1,54 @@
-# Engineering Specification: Ordered-Stdout PDF OCR CLI (DeepInfra olmOCR)
+# Engineering Specification: `pdfocr` Ordered-Stdout PDF OCR CLI
 
-## 1. Purpose and Scope
+## 1. Purpose
 
-This CLI extracts text from selected PDF pages by:
+`pdfocr` renders selected PDF pages to WebP, sends each page image to DeepInfra's OpenAI-compatible chat completions API, and streams ordered JSONL page results to stdout.
 
-1. rendering each selected page to WebP,
-2. sending each image to DeepInfra's OpenAI-compatible chat completions endpoint (`allenai/olmOCR-2-7B-1025`),
-3. emitting exactly one ordered JSON line per selected page to stdout.
+This document describes the current implemented behavior in `src/`.
 
-This specification defines behavior, concurrency, ordering, retries, backpressure, and shutdown semantics for the current simplified design.
+## 2. CLI Contract
 
----
-
-## 2. Goals
-
-1. Strictly ordered stdout JSONL output by normalized page selection.
-2. Streaming results as soon as ordering permits.
-3. Bounded memory under normal and backpressured operation.
-4. Robust retry behavior for transient network/API failures.
-5. Simple, auditable concurrency model with minimal deadlock risk.
-
----
-
-## 3. Non-Goals
-
-1. Writing OCR results to files (stdout is the output channel).
-2. Interactive UI.
-3. User-tunable internal scheduling knobs beyond the runtime settings listed in Section 7.
-
----
-
-## 4. Command-Line Interface
-
-### 4.1 Usage
+### 2.1 Program name and usage
 
 ```bash
-pdf-olmocr INPUT.pdf --pages "1,4-6,12" > results.jsonl
-pdf-olmocr INPUT.pdf --all-pages > results.jsonl
+pdfocr INPUT.pdf --pages:"1,4-6,12" > results.jsonl
+pdfocr INPUT.pdf --all-pages > results.jsonl
 ```
 
-### 4.2 Arguments
+### 2.2 Arguments
 
-- `INPUT.pdf` (required positional): local PDF path.
-- Exactly one of:
-  - `--pages "<spec>"`:
-    - `N` for a single page
-    - `A-B` for inclusive range
-    - comma-separated selectors
-  - `--all-pages`:
-    - selects all pages `1..total_pages`
+- `INPUT.pdf` is a required positional argument.
+- Exactly one selector mode is required: `--pages:<spec>` or `--all-pages`.
+- `--help` and `-h` print help text and exit `0`.
 
-### 4.3 Environment Variables
+CLI parse errors (missing input, multiple input files, unknown option, invalid selector mode combination) terminate with exit code `3`.
 
-- `DEEPINFRA_API_KEY` (optional, overrides `api_key` in `config.json` when set)
+### 2.3 Page selector semantics (`--pages`)
 
-### 4.4 JSON Runtime Config
+- Tokens are comma-separated.
+- Token form `N` is a single page where `N >= 1`.
+- Token form `A-B` is an inclusive range where `A >= 1`, `B >= 1`, and `A <= B`.
+- Selection is normalized to sorted unique ascending pages.
+- Empty or malformed specs fail.
+- After normalization, any selected page greater than the PDF page count fails.
 
-Implementation SHALL attempt to read `config.json` from the executable directory
-(`getAppDir()`) using `jsonx`. If it is missing, the implementation SHALL continue
-with built-in defaults and log that defaults are being used.
+### 2.4 `--all-pages`
 
-Supported keys (all optional overrides):
+- Selects `1..total_pages`.
+- Empty resulting selection (for example a zero-page document) is a fatal error.
+
+## 3. Runtime Configuration
+
+### 3.1 Configuration sources
+
+- Built-in defaults from `src/constants.nim`.
+- Optional `config.json` loaded from executable directory (`getAppDir()/config.json`).
+- `DEEPINFRA_API_KEY` environment variable overrides `config.json.api_key` when non-empty.
+
+If `config.json` is missing, defaults are used.  
+If `config.json` exists but parsing fails, the file is ignored and defaults are used.
+
+### 3.2 Supported config keys
 
 - `api_key`
 - `api_url`
@@ -72,286 +60,187 @@ Supported keys (all optional overrides):
 - `render_scale`
 - `webp_quality`
 
-### 4.5 Validation and Normalization
+Unknown extra keys are tolerated (`jsonxLenient`).
 
-Implementation SHALL:
+### 3.3 Value normalization rules
 
-1. open the PDF and get total page count,
-2. parse and validate page selectors,
-3. normalize to sorted unique ascending page numbers,
-4. fail fatally if selection is empty or invalid.
+- `api_url`, `model`, `prompt`: empty string falls back to defaults.
+- `max_inflight`, `total_timeout_ms`, `render_scale`: must be `> 0`, else default.
+- `max_retries`: must be `>= 0`, else default.
+- `webp_quality`: must be in `[0, 100]`, else default.
 
----
+### 3.4 Built-in defaults
 
-## 5. Output Contract (stdout)
+- `api_url`: `https://api.deepinfra.com/v1/openai/chat/completions`
+- `model`: `allenai/olmOCR-2-7B-1025`
+- `prompt`: `Extract all readable text exactly.`
+- `max_inflight`: `32`
+- `total_timeout_ms`: `120000`
+- `max_retries`: `5`
+- `render_scale`: `2.0`
+- `webp_quality`: `80.0`
 
-### 5.1 Format
+Missing API key after resolution is fatal.
 
-stdout SHALL contain JSON Lines only (one object per selected page).
+## 4. Output Contract
 
-### 5.2 Order
+### 4.1 Stream and ordering
 
-Output SHALL be strictly ordered by normalized page list.
+- stdout contains JSON Lines only.
+- On non-fatal completion, exactly one JSON object is emitted per selected page.
+- Emission order is strictly the normalized page order.
 
-### 5.3 Page Result Object
+### 4.2 Result object schema
 
-Required fields:
+Common fields:
 
-- `page` (1-based page number)
+- `page` (1-based PDF page number)
 - `status` (`"ok"` or `"error"`)
-- `attempts` (>= 1)
+- `attempts` (`>= 1`)
 
-If `status == "ok"`:
+For `status == "ok"`:
 
 - `text` (string)
 
-If `status == "error"`:
+For `status == "error"`:
 
-- `error_kind`
-- `error_message` (bounded length)
-- `http_status` (optional)
+- `error_kind` (`PdfError`, `EncodeError`, `NetworkError`, `Timeout`, `RateLimit`, `HttpError`, `ParseError`)
+- `error_message` (string)
+- `http_status` only when non-zero
 
-### 5.4 stdout Purity
+## 5. Concurrency and Architecture
 
-No logs, banners, or diagnostics on stdout.
+Exactly two threads are used:
 
----
+- `main` thread handles CLI/config loading, page normalization, PDF render+WebP encode, request submission, retry scheduling, completion processing, and ordered stdout emission.
+- Relay transport thread (inside `Relay`) executes HTTP requests via libcurl multi and returns completions to the main thread.
 
-## 6. Logging (stderr)
+No dedicated renderer thread and no dedicated writer thread exist.
 
-All logs and diagnostics SHALL go to stderr.
-API keys MUST NOT be logged.
+## 6. Pipeline State and Invariants
 
----
+Let `N = selectedPages.len` and `K = max(1, network.maxInflight)`.
 
-## 7. Runtime Settings and Fixed Constants
+Main orchestration tracks:
 
-### 7.1 Runtime Configuration (JSON)
+- `nextSubmitSeqId` (next page sequence to render/submit)
+- `nextEmitSeqId` (next sequence required for ordered output)
+- `inFlightCount` (submitted attempts not yet completed)
+- `activeCount` (pages with active lifecycle, including retry-waiting pages)
+- `remaining` (final page results not yet emitted)
+- `retryQueue` (time-ordered retries)
+- `staged` (`seq[PageResult]`, length `N`)
+- `cachedPayloads` (`seq[CachedPayload]`, length `N`)
 
-- `api_url`
-- `model`
-- `prompt`
-- `max_inflight`
-- `total_timeout_ms`
-- `max_retries`
-- `render_scale`
-- `webp_quality`
+Key invariants:
 
-### 7.2 Fixed Internal Invariants
+- `activeCount <= K`
+- `inFlightCount <= K`
+- At most `K` payloads are non-empty at once.
+- Output order is determined by sequence id (`seqId`), mapped to `selectedPages[seqId]`.
 
-- `MultiWaitMaxMs`
-- `RenderFlags`
-- `RenderRotate`
-- `ConnectTimeoutMs`
-- `RetryBaseDelayMs`
-- `RetryMaxDelayMs`
+Memory model in practice:
 
-### 7.3 Exit Codes (Fixed Contract)
+- O(`N`) metadata for staged/result bookkeeping.
+- O(`K`) large WebP payload retention.
 
-- `0`: all pages `ok`
-- `2`: at least one page `error`
-- `>2` (current implementation uses `3`): fatal startup/runtime failure
+## 7. Request and Response Handling
 
----
+### 7.1 Request construction
 
-## 8. Architecture (Current Design)
+Each attempt submits one chat completion request with:
 
-Exactly two threads:
+- model from runtime config
+- one user message containing the text prompt and a `data:image/webp;base64,...` image URL
+- `temperature = 0.0`
+- `max_tokens = 1024`
+- `tool_choice = none`
+- `response_format = text`
 
-1. `main` thread:
-- CLI parsing and page normalization
-- PDF rendering and WebP encoding
-- retry scheduling / backoff decisions
-- response parsing and final result classification
-- orchestration and ordered stdout writes
-- bounded in-memory reorder ring
+Per-request timeout uses `total_timeout_ms`.
 
-2. Relay transport thread (inside the Relay client):
-- libcurl multi request execution
-- transport completion delivery to main-thread scheduler
+### 7.2 OCR response parsing
 
-No renderer thread and no writer thread exist in this design.
+- Successful HTTP responses are parsed as `ChatCreateResult`.
+- Text extraction uses `firstText(...)`.
+- Parse failure becomes terminal `ParseError`.
 
----
+## 8. Retry and Final Error Semantics
 
-## 9. Communication Model
+### 8.1 Attempt accounting
 
-Main thread drives a local `NetworkScheduler` state machine and submits requests to Relay.
-Relay internally manages transport concurrency with capacity `K = max_inflight`.
+- Initial network attempt is `1`.
+- `maxAttempts = max(1, max_retries + 1)`.
+- Render/encode failures are terminal with `attempts = 1`.
 
-`main` maintains:
+### 8.2 Retryable conditions
 
-- `next_render` (next page seq to render)
-- `next_write` (next seq expected on stdout)
-- `outstanding` (submitted pages not yet written), invariant `0 <= outstanding <= K`
-- fixed-size pending ring keyed by `seq_id mod K`
+Retry is allowed only when `attempt < maxAttempts` and condition is retryable.
 
----
+Retryable transport kinds:
 
-## 10. Page Identification and Ordering
+- `teTimeout`
+- `teNetwork`
+- `teDns`
+- `teTls`
+- `teInternal`
 
-Let normalized page list be `selected_pages` of length `N`.
+Retryable HTTP statuses:
 
-- `seq_id` is in `[0, N-1]`
-- `page = selected_pages[seq_id]`
+- `408`, `409`, `425`, `429`
+- any `5xx`
 
-Internal ordering is by `seq_id`; emitted JSON uses `page`.
+### 8.3 Backoff policy
 
----
+`openai_retry.defaultRetryPolicy(maxAttempts = maxAttempts)` is used:
 
-## 11. Logical Data Types
+- base delay `250ms`
+- exponential growth with cap `8000ms`
+- additive jitter (`divisor = 4`)
 
-### 11.1 OcrTask
+### 8.4 Final classification
 
-- `seq_id`
-- `page`
-- `webp_bytes`
+When no more retries occur:
 
-### 11.2 PageResult
+- Transport timeout -> `Timeout`
+- Other transport error -> `NetworkError`
+- HTTP `429` -> `RateLimit`
+- HTTP `408` or `504` -> `Timeout`
+- Other non-success HTTP -> `HttpError`
+- Parse failure after HTTP success -> `ParseError`
 
-- `seq_id`
-- `page`
-- `status`
-- `attempts`
-- `text` (if success)
-- `error_kind`, `error_message`, `http_status` (if error)
+## 9. Request ID Encoding Contract
 
----
+`request_id` packs `(seqId, attempt)` into a signed 64-bit integer.
 
-## 12. Main Thread Algorithm
+- low 16 bits: attempt (`1..65535`)
+- remaining 47 bits: sequence id (`0..2^47-1`)
 
-For each selected page sequence:
+Capacity is validated before pipeline start:
 
-1. Fill pipeline while capacity is available (`outstanding < K`) and pages remain:
-   - render+encode next page
-   - render/encode failure: stage immediate final error result in pending ring (attempts=1)
-   - render/encode success: submit task to `NetworkScheduler`
-2. Drain available network results into pending ring.
-3. If ordered writer is blocked and `outstanding > 0`, wait for next network result.
-4. Flush the longest contiguous ready prefix from `next_write` to stdout.
-5. Repeat until `next_write == N`.
+- selected page count must fit sequence range
+- `maxAttempts` must be `<= 65535`
 
-After completion:
+## 10. Logging, Shutdown, and Exit Codes
 
-- flush stdout
-- close `NetworkScheduler` / Relay client
-- return exit code based on whether any page failed.
+- Logs/diagnostics go to stderr only.
+- API keys must not be logged.
+- Normal completion closes Relay (`client.close()`).
+- Fatal unwind aborts Relay (`client.abort()`) for prompt shutdown.
 
----
+Exit codes:
 
-## 13. Network Thread Algorithm
+- `0`: all emitted page results are `"ok"`
+- `2`: non-fatal completion with at least one `"error"` page result
+- `3`: fatal startup/runtime failure (stdout may be incomplete)
 
-Main-thread scheduler SHALL:
+## 11. Acceptance Criteria
 
-1. submit initial request attempts and ready retries while Relay has capacity,
-2. process Relay completions and classify outcomes,
-3. emit exactly one final `PageResult` per task,
-4. retry only retryable failures up to max attempts.
+Implementation is conformant when:
 
-Relay transport thread SHALL:
-
-1. keep up to `K` active requests using curl multi,
-2. run transfer I/O and surface transport completions.
-
----
-
-## 14. Retry and Error Semantics
-
-### 14.1 Error Classes
-
-- `PdfError`
-- `EncodeError`
-- `NetworkError`
-- `Timeout`
-- `RateLimit`
-- `HttpError`
-- `ParseError`
-
-### 14.2 Retryable Conditions
-
-- transport/network failures
-- timeout failures
-- HTTP 429
-- HTTP 5xx
-
-Non-retryable by default:
-
-- HTTP 4xx except 429
-- parse errors
-
-### 14.3 Attempts
-
-- first network attempt is `1`
-- max attempts is `1 + MaxRetries`
-- render/encode failures emit terminal result with `attempts = 1`
-
-### 14.4 Backoff
-
-Exponential backoff with jitter and max cap.
-
-Fatal main-thread unwind is an exception: retry/backoff may be skipped and pending work may
-be dropped to ensure prompt process exit.
-
----
-
-## 15. Deadlock and Backpressure Rules
-
-The following are required for progress safety:
-
-1. `main` MUST NOT render beyond bounded window / outstanding limits.
-2. When `outstanding == K`, `main` switches from rendering to draining network results.
-3. `main` may block waiting for network results only when `outstanding > 0`.
-
-If stdout blocks, whole pipeline may stall intentionally.
-This is external backpressure, not an internal deadlock.
-Memory remains bounded by `K` and ring/scheduler state.
-
----
-
-## 16. Diagnostics
-
-The implementation may expose counters for diagnostics/progress (for example, total retries).
-These counters are not required for correctness of ordering.
-
----
-
-## 17. Shutdown and Exit Codes
-
-### 17.1 Normal Completion
-
-Program completes when all selected pages have emitted and written final results.
-
-### 17.2 Exit Codes
-
-- `0`: all pages `ok`
-- `2`: at least one page `error`
-- `>2` (current implementation uses `3`): fatal startup/runtime failure preventing full stream completion
-
-### 17.3 Fatal Failures
-
-Fatal errors are logged to stderr and may leave stdout stream incomplete.
-After a fatal failure, `main` aborts Relay and shutdown does not wait for retry/timeout
-exhaustion or completion of pending requests.
-
----
-
-## 18. Security and Privacy
-
-- API key must never appear in logs.
-- TLS verification must remain enabled.
-- Output may contain sensitive OCR text; by design results are streamed to stdout only.
-
----
-
-## 19. Acceptance Criteria
-
-Implementation is conformant when all are true:
-
-1. CLI parsing/validation/normalization behaves as specified.
-2. on non-fatal completion, stdout contains exactly one JSON object per selected page,
-   in strict order.
-3. stdout is pure JSONL, stderr carries diagnostics.
-4. retries apply to retryable failures with bounded attempts and jittered backoff.
-5. memory remains bounded under slow/blocked stdout.
-6. two-thread runtime (`main` + Relay transport thread) and `K`-bounded in-flight behavior are preserved.
-7. shutdown is deterministic with correct exit codes.
+1. CLI behavior and page normalization match Section 2.
+2. Runtime config resolution and fallback rules match Section 3.
+3. On non-fatal completion, stdout is pure JSONL with one ordered result per selected page.
+4. Retry/backoff/final-error mapping matches Section 8.
+5. Two-thread architecture and `K`-bounded active/in-flight behavior are preserved.
+6. Exit codes and fatal abort semantics match Section 10.
