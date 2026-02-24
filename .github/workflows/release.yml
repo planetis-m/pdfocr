@@ -134,7 +134,7 @@ jobs:
         uses: johnwason/vcpkg-action@v7
         id: vcpkg
         with:
-          pkgs: curl libwebp
+          pkgs: curl[http2,ssl,c-ares] libwebp
           triplet: x64-windows-release
           token: ${{ github.token }}
 

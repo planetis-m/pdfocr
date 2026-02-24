@@ -1,0 +1,18 @@
+# Local environment
+.env
+
+# Atlas-generated dependency tree and compiler paths
+deps/
+nim.cfg
+
+# Local build output
+src/app
+
+# Compiled test executables (keep Nim sources tracked)
+tests/test_*
+!tests/test_*.nim
+!tests/test_*.nims
+
+# Skip libraries
+third_party/
+

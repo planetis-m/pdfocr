@@ -9,18 +9,21 @@ Repository-specific instructions for coding agents working in `pdfocr`.
 - Usage and operator-facing commands are documented in `README.md`.
 - Compiler flags and memory model are defined by `config.nims` files:
   root `config.nims`, `src/config.nims`, and test configs under `tests/`.
-- There is no active `plans/` workflow in this repo; do not assume plan files exist.
 
 ## 2. Repository Layout
 
 - `src/app.nim`: CLI entrypoint.
-- `src/pdfocr/orchestrator.nim`: main orchestration loop (render, submit, ordered write).
-- `src/pdfocr/network_scheduler.nim`: network worker, retries, backoff/jitter.
-- `src/pdfocr/runtime_config.nim`: config loading and environment overrides.
-- `src/pdfocr/json_codec.nim`: JSONL encode/decode for page results.
-- `src/pdfocr/bindings/`: low-level C bindings (`curl`, `pdfium`, `webp`).
-- `tests/phase08/`: current acceptance suite.
-- `tests/`: lower-level bindings/wrapper and optional live tests.
+- `src/pipeline.nim`: main orchestration loop (render, submit, ordered write).
+- `src/runtime_config.nim`: CLI parsing, config loading, and environment overrides.
+- `src/ocr_client.nim`: OpenAI-compatible request construction and response parsing.
+- `src/pdf_render.nim`: page render + WebP encode composition.
+- `src/pdfium_wrap.nim`, `src/webp_wrap.nim`: ergonomic wrappers over low-level bindings.
+- `src/page_selection.nim`: page selector parsing/normalization.
+- `src/request_id_codec.nim`: request-id packing/unpacking and bounds checks.
+- `src/retry_and_errors.nim`: retry decisions and final error classification.
+- `src/types.nim`, `src/constants.nim`, `src/logging.nim`: shared types/constants/log helpers.
+- `src/pdfocr/bindings/`: low-level C bindings (currently `pdfium`, `webp`).
+- `tests/`: current test suite and CI test task.
 
 ## 3. Dependencies and Build System
 
@@ -33,7 +36,7 @@ Common commands:
 
 ```bash
 atlas install
-nim c -d:release -o:app src/app.nim
+nim c -d:release -o:pdfocr src/app.nim
 ```
 
 ## 4. Build Flags and Memory Model
@@ -56,40 +59,40 @@ nim c -d:release -o:app src/app.nim
 
 ## 6. Concurrency Rules
 
-- Use `threading/channels` (external package), not `std/channels`.
-- Keep the two-thread architecture unless explicitly asked to change it:
-  - `main`: CLI/config, render/encode, ordered write
-  - `network`: HTTP + retries + final result emission
-- Keep channel payloads simple/value-oriented at boundaries.
+- Keep the two-context architecture unless explicitly asked to change it:
+  - `main` thread: CLI/config, render/encode, retry policy, ordered write
+  - Relay transport thread (inside Relay): HTTP/libcurl execution
+- Keep orchestration state explicit in `PipelineState`; avoid hidden shared mutable state.
+- If introducing channels, use `threading/channels` (external package), not `std/channels`.
 - Avoid nested helper procs that capture mutable orchestration locals; extract helpers and pass explicit state.
 
 ## 7. JSON and Config Handling
 
-- Prefer `jsonx` for runtime config and JSON codec behavior.
+- Prefer `jsonx` for runtime config and JSONL encoding/decoding behavior.
 - Keep lenient parsing behavior where expected (`jsonxLenient` is enabled).
 - Avoid introducing `std/json` in production paths unless explicitly required by the task.
 
 ## 8. Testing and Verification
 
-Run from repository root.
-- Keep default compiler settings from `tests/config.nims` and `tests/phase08/config.nims`.
+Primary CI test task runs from `tests/`.
+- Keep default compiler settings from `tests/config.nims`.
 - Do not override memory model flags in test commands.
 
-- Current acceptance suite:
-  - `nim test tests/phase08/ci.nims`
-- Legacy wrapper/bindings CI task:
-  - `nim test tests/ci.nims`
+- Current CI task:
+  - `cd tests && nim test ci.nims`
 - Single-test example:
-  - `nim c -r tests/phase08/test_data_contracts.nim`
-- Live network tests are opt-in and require `DEEPINFRA_API_KEY`.
-- In Codex/sandbox sessions, always request terminal permission approval before running any live network test.
-- Live ASan test command (repository root):
+  - `cd tests && nim c -r test_retry_and_errors.nim`
+- Repository-root equivalent for CI task:
+  - `(cd tests && nim test ci.nims)`
+- Optional live/manual runs require `DEEPINFRA_API_KEY`.
+- In Codex/sandbox sessions, always request terminal permission approval before running live network commands.
+- ASan build/run example (repository root):
   - `nim c -d:addressSanitizer -o:pdfocr_asan src/app.nim`
   - `set -a; source .env; set +a` to export `DEEPINFRA_API_KEY` from `.env` into the shell environment.
-  - `ASAN_OPTIONS=detect_leaks=0 LD_LIBRARY_PATH=./third_party/pdfium/lib:./tests ./pdfocr_asan tests/input.pdf --all-pages`
+  - `ASAN_OPTIONS=detect_leaks=0 LD_LIBRARY_PATH=./third_party/pdfium/lib ./pdfocr_asan test_files/input.pdf --all-pages`
   - `ASAN_OPTIONS=detect_leaks=0` is required in this environment because LeakSanitizer is not usable under ptrace/sandbox.
 
-When behavior changes, update or add tests in `tests/phase08/` first.
+When behavior changes, update or add tests under `tests/` first.
 
 ## 9. Code Change Policy
 

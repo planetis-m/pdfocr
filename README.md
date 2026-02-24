@@ -11,35 +11,28 @@ Ordered PDF page OCR to JSONL for shell pipelines and LLM workflows.
 - on non-fatal completion: strict output order by normalized page list
 - bounded memory under backpressure
 - retry handling for transient network/API failures
-- fatal unwind stops channels and drops pending work for prompt exit
+- fatal unwind aborts in-flight network work for prompt exit
 
 ## Design
 
-`pdfocr` uses a two-thread design with bounded in-flight work:
+`pdfocr` uses a two-thread runtime with bounded in-flight work:
 
 1. `main` thread:
 - parses CLI and page selection
 - renders PDF pages and encodes WebP
-- submits OCR tasks
+- runs retry scheduling and response classification
 - writes ordered JSONL to stdout
 
-2. `network` thread:
+2. Relay transport thread (inside the Relay client):
 - runs HTTP requests via libcurl multi
 - keeps up to `K = max_inflight` requests active
-- applies retries/backoff/jitter
-- exits promptly when `main` stops channels during fatal unwind, without draining pending items
-- returns final per-page results
-
-Bounded channels:
-- `TaskQ` (`main -> network`) capacity `K`
-- `ResultQ` (`network -> main`) capacity `K`
-- shutdown uses `TaskQ.stop()` to wake blocked network receives
+- returns transport completions to the main thread
 
 The main thread keeps a fixed-size reorder ring and only allows at most `K` outstanding pages at a time.
 
 ## Measured performance
 
-Live benchmark on February 17, 2026 against `tests/slides.pdf` (72 pages):
+Live benchmark on February 17, 2026 against `test_inputs/slides.pdf` (72 pages):
 
 - Result quality: `72/72` pages succeeded
 - Output contract: strict page order preserved, exit code `0`

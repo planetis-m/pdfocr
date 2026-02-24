@@ -3,8 +3,6 @@ proc runTest(cmd: string) =
   exec cmd
 
 task test, "Run CI tests (network live tests disabled)":
-  runTest "nim c -r test_pdfium_bindings.nim input.pdf"
-  runTest "nim c -r test_pdfium_wrapper.nim input.pdf"
-  runTest "nim c -r test_webp_encode.nim input.pdf"
-  runTest "nim c -r test_curl_bindings.nim"
-  runTest "nim c -r test_curl_wrapper.nim"
+  runTest "nim c -r test_page_selection.nim"
+  runTest "nim c -r test_retry_and_errors.nim"
+  runTest "nim c -r test_request_id_codec.nim"

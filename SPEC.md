@@ -161,14 +161,14 @@ Exactly two threads:
 1. `main` thread:
 - CLI parsing and page normalization
 - PDF rendering and WebP encoding
+- retry scheduling / backoff decisions
+- response parsing and final result classification
 - orchestration and ordered stdout writes
 - bounded in-memory reorder ring
 
-2. `network` thread:
+2. Relay transport thread (inside the Relay client):
 - libcurl multi request execution
-- retries/backoff/jitter
-- response parsing
-- final page result emission
+- transport completion delivery to main-thread scheduler
 
 No renderer thread and no writer thread exist in this design.
 
@@ -176,16 +176,14 @@ No renderer thread and no writer thread exist in this design.
 
 ## 9. Communication Model
 
-Two bounded channels, both capacity `K = max_inflight`:
-
-1. `TaskQ` (`main -> network`) carrying `OcrTask`
-2. `ResultQ` (`network -> main`) carrying final `PageResult`
+Main thread drives a local `NetworkScheduler` state machine and submits requests to Relay.
+Relay internally manages transport concurrency with capacity `K = max_inflight`.
 
 `main` maintains:
 
 - `next_render` (next page seq to render)
 - `next_write` (next seq expected on stdout)
-- `outstanding` (submitted to network, not yet written), invariant `0 <= outstanding <= K`
+- `outstanding` (submitted pages not yet written), invariant `0 <= outstanding <= K`
 - fixed-size pending ring keyed by `seq_id mod K`
 
 ---
@@ -227,32 +225,33 @@ For each selected page sequence:
 1. Fill pipeline while capacity is available (`outstanding < K`) and pages remain:
    - render+encode next page
    - render/encode failure: stage immediate final error result in pending ring (attempts=1)
-   - render/encode success: try to submit task to `TaskQ`
-2. If submission cannot proceed (queue/capacity bound), switch to draining `ResultQ`.
-3. Drain at least one network result when needed; store in pending ring.
+   - render/encode success: submit task to `NetworkScheduler`
+2. Drain available network results into pending ring.
+3. If ordered writer is blocked and `outstanding > 0`, wait for next network result.
 4. Flush the longest contiguous ready prefix from `next_write` to stdout.
 5. Repeat until `next_write == N`.
 
 After completion:
 
 - flush stdout
-- stop `TaskQ` to wake/terminate network intake
-- join network thread
+- close `NetworkScheduler` / Relay client
 - return exit code based on whether any page failed.
 
 ---
 
 ## 13. Network Thread Algorithm
 
-Network thread SHALL:
+Main-thread scheduler SHALL:
+
+1. submit initial request attempts and ready retries while Relay has capacity,
+2. process Relay completions and classify outcomes,
+3. emit exactly one final `PageResult` per task,
+4. retry only retryable failures up to max attempts.
+
+Relay transport thread SHALL:
 
 1. keep up to `K` active requests using curl multi,
-2. pull new tasks from `TaskQ` and ready retries,
-3. process completions and classify outcomes,
-4. emit exactly one final `PageResult` per task,
-5. retry only retryable failures up to max attempts,
-6. stop cleanly after `TaskQ` stop signal and draining active/retry work.
-7. if `ResultQ` is stopped (fatal main-thread unwind), stop promptly without draining pending work.
+2. run transfer I/O and surface transport completions.
 
 ---
 
@@ -299,29 +298,20 @@ be dropped to ensure prompt process exit.
 
 The following are required for progress safety:
 
-1. `main` MUST NOT block indefinitely trying to enqueue work.
-   - It attempts non-blocking submit.
-   - If submit is not possible, it drains `ResultQ`.
-2. When `outstanding == K` or `TaskQ` cannot accept new work, `main` switches to draining.
-3. `network` is allowed to block on sending to `ResultQ`.
+1. `main` MUST NOT render beyond bounded window / outstanding limits.
+2. When `outstanding == K`, `main` switches from rendering to draining network results.
+3. `main` may block waiting for network results only when `outstanding > 0`.
 
 If stdout blocks, whole pipeline may stall intentionally.
 This is external backpressure, not an internal deadlock.
-Memory remains bounded by `K`, channel capacities, and ring size.
+Memory remains bounded by `K` and ring/scheduler state.
 
 ---
 
-## 16. Shared Atomics
+## 16. Diagnostics
 
-The implementation may expose atomic counters for diagnostics/progress:
-
-- `NextToWrite`
-- `OkCount`
-- `ErrCount`
-- `RetryCount`
-- `InflightCount`
-
-These are not required for correctness of ordering.
+The implementation may expose counters for diagnostics/progress (for example, total retries).
+These counters are not required for correctness of ordering.
 
 ---
 
@@ -340,7 +330,7 @@ Program completes when all selected pages have emitted and written final results
 ### 17.3 Fatal Failures
 
 Fatal errors are logged to stderr and may leave stdout stream incomplete.
-After a fatal failure, `main` stops channels and shutdown does not wait for retry/timeout
+After a fatal failure, `main` aborts Relay and shutdown does not wait for retry/timeout
 exhaustion or completion of pending requests.
 
 ---
@@ -363,5 +353,5 @@ Implementation is conformant when all are true:
 3. stdout is pure JSONL, stderr carries diagnostics.
 4. retries apply to retryable failures with bounded attempts and jittered backoff.
 5. memory remains bounded under slow/blocked stdout.
-6. two-thread architecture and `K`-bounded in-flight behavior are preserved.
+6. two-thread runtime (`main` + Relay transport thread) and `K`-bounded in-flight behavior are preserved.
 7. shutdown is deterministic with correct exit codes.
