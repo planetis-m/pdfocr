@@ -211,7 +211,7 @@ Error line:
 
 - DeepInfra API key (via `DEEPINFRA_API_KEY` or `config.json`)
 - input PDF file
-- if building from source: Nim `>= 2.2.6`, Atlas, platform dev packages for `libcurl`/`libwebp`, and a downloaded PDFium binary in `third_party/pdfium`
+- if building from source: Nim `>= 2.2.8`, Atlas, platform dev packages for `libcurl`/`libwebp`, and a downloaded PDFium binary in `third_party/pdfium`
 
 ## License
 
