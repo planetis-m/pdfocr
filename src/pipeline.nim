@@ -16,6 +16,7 @@ type
     submitBatch: RequestBatch
     allSucceeded: bool
     rng: Rand
+    output: Stream
 
 proc okPageResult(page: int; attempts: int; text: sink string): PageResult {.inline.} =
   PageResult(
@@ -48,11 +49,11 @@ proc initPipelineState(total: int): PipelineState =
     nextEmitSeqId: 0,
     remaining: total,
     allSucceeded: true,
-    rng: initRand(epochTime().int64)
+    rng: initRand(epochTime().int64),
+    output: streams.open(stdout)
   )
 
-proc emitPageResult(value: PageResult): bool =
-  let output = streams.open(stdout)
+proc emitPageResult(output: Stream; value: PageResult): bool =
   output.writeJson(value)
   streams.write(output, '\n')
   result = value.status == PageOk
@@ -61,7 +62,7 @@ proc flushOrderedResults(state: var PipelineState) =
   while state.nextEmitSeqId < state.staged.len and
       state.staged[state.nextEmitSeqId].status != PagePending:
     let pageResult = state.staged[state.nextEmitSeqId]
-    if not emitPageResult(pageResult):
+    if not emitPageResult(state.output, pageResult):
       state.allSucceeded = false
     state.staged[state.nextEmitSeqId] = PageResult(status: PagePending)
     inc state.nextEmitSeqId
