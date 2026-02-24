@@ -127,7 +127,7 @@ proc submitFreshAttempts(cfg: RuntimeConfig; doc: PdfDocument; client: Relay;
     flushOrderedResults(state)
 
 proc runPipeline*(cfg: RuntimeConfig; client: Relay): bool =
-  let total = cfg.selectedCount
+  let total = cfg.selectedPages.len
   let maxInFlight = max(1, cfg.networkConfig.maxInflight)
   let maxAttempts = max(1, cfg.networkConfig.maxRetries + 1)
   let retryPolicy = defaultRetryPolicy(maxAttempts = maxAttempts)

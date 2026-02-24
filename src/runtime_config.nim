@@ -151,7 +151,6 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
     inputPath: parsed.inputPath,
     apiKey: resolveApiKey(rawConfig.api_key),
     selectedPages: selectedPages,
-    selectedCount: selectedPages.len,
     networkConfig: NetworkConfig(
       apiUrl: ifNonEmpty(rawConfig.api_url, ApiUrl),
       model: ifNonEmpty(rawConfig.model, Model),

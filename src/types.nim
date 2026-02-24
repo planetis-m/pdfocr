@@ -15,7 +15,6 @@ type
     inputPath*: string
     apiKey*: string
     selectedPages*: seq[int] # seq_id -> selectedPages[seq_id]
-    selectedCount*: int
     networkConfig*: NetworkConfig
     renderConfig*: RenderConfig
 
