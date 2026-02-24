@@ -1,4 +1,4 @@
-version       = "0.2.2"
+version       = "0.2.3"
 author        = "planetis"
 description   = "High-throughput PDF OCR extractor"
 license       = "MIT"

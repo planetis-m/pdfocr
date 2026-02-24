@@ -14,7 +14,7 @@ proc runApp*(): int =
 
   try:
     let cfg = buildRuntimeConfig(commandLineParams())
-    if cfg.apiKey.len == 0:
+    if cfg.openaiConfig.apiKey.len == 0:
       raise newException(ValueError,
         "missing API key; set DEEPINFRA_API_KEY or api_key in config.json")
 

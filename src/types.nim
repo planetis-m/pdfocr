@@ -1,9 +1,9 @@
 import jsonx
 import jsonx/streams
+import openai
 
 type
   NetworkConfig* = object
-    apiUrl*: string
     model*: string
     prompt*: string
     maxInflight*: int
@@ -16,8 +16,8 @@ type
 
   RuntimeConfig* = object
     inputPath*: string
-    apiKey*: string
     selectedPages*: seq[int] # seq_id -> selectedPages[seq_id]
+    openaiConfig*: OpenAIConfig
     networkConfig*: NetworkConfig
     renderConfig*: RenderConfig
 

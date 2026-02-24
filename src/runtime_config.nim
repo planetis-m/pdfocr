@@ -1,6 +1,7 @@
 import std/[envvars, parseopt, paths, files]
 from std/os import getAppDir
 import jsonx
+import openai
 import ./[constants, logging, page_selection, pdfium_wrap, types]
 
 {.define: jsonxLenient.}
@@ -135,6 +136,8 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
     raise newException(IOError, "input PDF not found: " & parsed.inputPath)
   let configPath = Path(getAppDir()) / Path(DefaultConfigPath)
   let rawConfig = loadOptionalJsonRuntimeConfig(configPath)
+  let resolvedApiKey = resolveApiKey(rawConfig.api_key)
+  let resolvedApiUrl = ifNonEmpty(rawConfig.api_url, ApiUrl)
 
   let totalPages = getPdfPageCount(parsed.inputPath)
   let selectedPages =
@@ -149,10 +152,12 @@ proc buildRuntimeConfig*(cliArgs: seq[string]): RuntimeConfig =
 
   result = RuntimeConfig(
     inputPath: parsed.inputPath,
-    apiKey: resolveApiKey(rawConfig.api_key),
     selectedPages: selectedPages,
+    openaiConfig: OpenAIConfig(
+      url: resolvedApiUrl,
+      apiKey: resolvedApiKey
+    ),
     networkConfig: NetworkConfig(
-      apiUrl: ifNonEmpty(rawConfig.api_url, ApiUrl),
       model: ifNonEmpty(rawConfig.model, Model),
       prompt: ifNonEmpty(rawConfig.prompt, Prompt),
       maxInflight: ifPositive(rawConfig.max_inflight, MaxInflight),
