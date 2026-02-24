@@ -58,7 +58,6 @@ proc writeJson*(s: Stream; x: PageResult) =
   writeJsonField(s, "page", x.page)
   writeJsonField(s, "status", x.status)
   writeJsonField(s, "attempts", x.attempts)
-
   case x.status
   of PageOk:
     writeJsonField(s, "text", x.text)
@@ -69,5 +68,4 @@ proc writeJson*(s: Stream; x: PageResult) =
       writeJsonField(s, "http_status", x.httpStatus)
   of PagePending:
     discard
-
   streams.write(s, "}")
