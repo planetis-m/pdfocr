@@ -1,3 +1,6 @@
+import jsonx
+import jsonx/streams
+
 type
   NetworkConfig* = object
     apiUrl*: string
@@ -19,6 +22,7 @@ type
     renderConfig*: RenderConfig
 
   PageErrorKind* = enum
+    NoError,
     PdfError,
     EncodeError,
     NetworkError,
@@ -28,9 +32,9 @@ type
     ParseError
 
   PageResultStatus* = enum
-    PagePending,
-    PageOk,
-    PageError
+    PagePending = "pending",
+    PageOk = "ok",
+    PageError = "error"
 
   PageResult* = object
     page*: int
@@ -40,3 +44,30 @@ type
     errorKind*: PageErrorKind
     errorMessage*: string
     httpStatus*: int
+
+template writeJsonField(s: Stream; name: string; value: untyped) =
+  if comma: streams.write(s, ",")
+  else: comma = true
+  escapeJson(s, name)
+  streams.write(s, ":")
+  writeJson(s, value)
+
+proc writeJson*(s: Stream; x: PageResult) =
+  var comma = false
+  streams.write(s, "{")
+  writeJsonField(s, "page", x.page)
+  writeJsonField(s, "status", x.status)
+  writeJsonField(s, "attempts", x.attempts)
+
+  case x.status
+  of PageOk:
+    writeJsonField(s, "text", x.text)
+  of PageError:
+    writeJsonField(s, "error_kind", x.errorKind)
+    writeJsonField(s, "error_message", x.errorMessage)
+    if x.httpStatus != 0:
+      writeJsonField(s, "http_status", x.httpStatus)
+  of PagePending:
+    discard
+
+  streams.write(s, "}")

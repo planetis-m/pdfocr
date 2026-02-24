@@ -22,7 +22,7 @@ proc okPageResult(page: int; attempts: int; text: sink string): PageResult {.inl
     attempts: attempts,
     status: PageOk,
     text: text,
-    errorKind: ParseError,
+    errorKind: NoError,
     errorMessage: "",
     httpStatus: 0
   )
