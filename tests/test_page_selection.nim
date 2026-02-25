@@ -1,4 +1,4 @@
-import ../src/page_selection
+import pdfocr/page_selection
 
 proc expectValueError(spec: string; totalPages: int) =
   var raised = false

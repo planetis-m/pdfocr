@@ -1,5 +1,5 @@
 import jsonx
-import ../src/types
+import pdfocr/types
 
 proc main() =
   let okResult = PageResult(

@@ -1,4 +1,4 @@
-import ../src/retry_queue
+import pdfocr/retry_queue
 import std/[monotimes, times]
 
 proc main() =

@@ -1,4 +1,4 @@
-import ../src/request_id_codec
+import pdfocr/request_id_codec
 
 proc expectValueError(action: proc()) =
   var raised = false

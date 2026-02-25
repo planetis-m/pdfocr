@@ -1,6 +1,6 @@
 # Ergonomic libwebp helpers built on top of the raw bindings.
 
-import ./pdfocr/bindings/webp
+import ./bindings/webp
 
 proc webpWrite(data: ptr WebPByte; dataSize: csize_t; picture: ptr WebPPicture): cint {.cdecl.} =
   let buffer = cast[ptr seq[byte]](picture.custom_ptr)

@@ -1,5 +1,5 @@
 import relay
-import ../src/[retry_and_errors, types]
+import pdfocr/[retry_and_errors, types]
 
 proc makeResponse(code: int; requestId: int64): Response =
   Response(

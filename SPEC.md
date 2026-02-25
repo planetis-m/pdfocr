@@ -41,7 +41,7 @@ CLI parse errors (missing input, multiple input files, unknown option, invalid s
 
 ### 3.1 Configuration sources
 
-- Built-in defaults from `src/constants.nim`.
+- Built-in defaults from `src/pdfocr/constants.nim`.
 - Optional `config.json` loaded from executable directory (`getAppDir()/config.json`).
 - `DEEPINFRA_API_KEY` environment variable overrides `config.json.api_key` when non-empty.
 

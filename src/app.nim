@@ -1,6 +1,6 @@
 import std/os
 import relay
-import ./[constants, logging, pipeline, runtime_config]
+import ./pdfocr/[constants, logging, pipeline, runtime_config]
 
 proc shutdownRelay(client: Relay; shouldAbort: bool) =
   if shouldAbort:

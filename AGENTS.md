@@ -13,15 +13,15 @@ Repository-specific instructions for coding agents working in `pdfocr`.
 ## 2. Repository Layout
 
 - `src/app.nim`: CLI entrypoint.
-- `src/pipeline.nim`: main orchestration loop (render, submit, ordered write).
-- `src/runtime_config.nim`: CLI parsing, config loading, and environment overrides.
-- `src/ocr_client.nim`: OpenAI-compatible request construction and response parsing.
-- `src/pdf_render.nim`: page render + WebP encode composition.
-- `src/pdfium_wrap.nim`, `src/webp_wrap.nim`: ergonomic wrappers over low-level bindings.
-- `src/page_selection.nim`: page selector parsing/normalization.
-- `src/request_id_codec.nim`: request-id packing/unpacking and bounds checks.
-- `src/retry_and_errors.nim`: retry decisions and final error classification.
-- `src/types.nim`, `src/constants.nim`, `src/logging.nim`: shared types/constants/log helpers.
+- `src/pdfocr/pipeline.nim`: main orchestration loop (render, submit, ordered write).
+- `src/pdfocr/runtime_config.nim`: CLI parsing, config loading, and environment overrides.
+- `src/pdfocr/ocr_client.nim`: OpenAI-compatible request construction and response parsing.
+- `src/pdfocr/pdf_render.nim`: page render + WebP encode composition.
+- `src/pdfocr/pdfium_wrap.nim`, `src/pdfocr/webp_wrap.nim`: ergonomic wrappers over low-level bindings.
+- `src/pdfocr/page_selection.nim`: page selector parsing/normalization.
+- `src/pdfocr/request_id_codec.nim`: request-id packing/unpacking and bounds checks.
+- `src/pdfocr/retry_and_errors.nim`: retry decisions and final error classification.
+- `src/pdfocr/types.nim`, `src/pdfocr/constants.nim`, `src/pdfocr/logging.nim`: shared types/constants/log helpers.
 - `src/pdfocr/bindings/`: low-level C bindings (currently `pdfium`, `webp`).
 - `tests/`: current test suite and CI test task.
 
