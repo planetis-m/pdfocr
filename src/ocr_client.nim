@@ -3,13 +3,12 @@ import openai
 import ./[constants, types]
 
 proc buildOcrParams*(network: NetworkConfig; webpBytes: seq[byte]): ChatCreateParams =
-  let imageDataUrl = "data:image/webp;base64," & encode(webpBytes)
   result = chatCreate(
     model = network.model,
     messages = @[
       userMessageParts(@[
         partText(network.prompt),
-        partImageUrl(imageDataUrl)
+        partImageUrl("data:image/webp;base64," & encode(webpBytes))
       ])
     ],
     temperature = 0.0,

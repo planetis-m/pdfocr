@@ -24,13 +24,15 @@ proc popDueRetry*(queue: var RetryQueue; now = getMonoTime();
   if queue.len > 0 and queue[0].dueAt <= now:
     item = queue.pop()
     result = true
-  else: result = false
+  else:
+    result = false
 
 proc nextRetryDueAt*(queue: RetryQueue; dueAt: var MonoTime): bool =
   if queue.len > 0:
     dueAt = queue[0].dueAt
     result = true
-  else: result = false
+  else:
+    result = false
 
 proc nextRetryDelayMs*(queue: RetryQueue; now = getMonoTime()): int =
   var dueAt: MonoTime
