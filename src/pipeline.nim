@@ -73,10 +73,9 @@ proc emitPageResult(output: Stream; value: PageResult): bool =
 proc flushOrderedResults(state: var PipelineState) =
   while state.nextEmitSeqId < state.staged.len and
       state.staged[state.nextEmitSeqId].status != PagePending:
-    let pageResult = state.staged[state.nextEmitSeqId]
+    let pageResult = move state.staged[state.nextEmitSeqId]
     if not emitPageResult(state.output, pageResult):
       state.allSucceeded = false
-    state.staged[state.nextEmitSeqId] = PageResult(status: PagePending)
     inc state.nextEmitSeqId
     dec state.remaining
 
