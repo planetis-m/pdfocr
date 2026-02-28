@@ -29,24 +29,24 @@ proc classifyFinalError*(item: RequestResult): FinalError =
         item.error.message
       else:
         "transport error"
-    return FinalError(kind: kind, httpStatus: 0, message: message)
-
-  let code = item.response.code
-  if code == 429:
-    result = FinalError(
-      kind: RateLimit,
-      httpStatus: code,
-      message: "rate limited (http 429)"
-    )
-  elif code == 408 or code == 504:
-    result = FinalError(
-      kind: Timeout,
-      httpStatus: code,
-      message: "request timed out (http " & $code & ")"
-    )
+    result = FinalError(kind: kind, httpStatus: 0, message: message)
   else:
-    result = FinalError(
-      kind: HttpError,
-      httpStatus: code,
-      message: "http status " & $code
-    )
+    let code = item.response.code
+    if code == 429:
+      result = FinalError(
+        kind: RateLimit,
+        httpStatus: code,
+        message: "rate limited (http 429)"
+      )
+    elif code == 408 or code == 504:
+      result = FinalError(
+        kind: Timeout,
+        httpStatus: code,
+        message: "request timed out (http " & $code & ")"
+      )
+    else:
+      result = FinalError(
+        kind: HttpError,
+        httpStatus: code,
+        message: "http status " & $code
+      )
