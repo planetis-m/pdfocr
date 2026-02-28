@@ -215,4 +215,4 @@ Error line:
 
 ## License
 
-MIT. See `LICENSE.md`.
+GNU AGPLv3. See `LICENSE.md`.

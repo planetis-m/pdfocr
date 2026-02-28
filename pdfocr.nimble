@@ -1,7 +1,7 @@
-version       = "0.2.5"
+version       = "0.2.6"
 author        = "planetis"
 description   = "High-throughput PDF OCR extractor"
-license       = "MIT"
+license       = "AGPL-3.0"
 srcDir        = "src"
 bin           = @["app"]
 
