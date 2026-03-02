@@ -2,7 +2,7 @@
   "api_key": "replace-with-key",
   "api_url": "https://api.deepinfra.com/v1/openai/chat/completions",
   "model": "allenai/olmOCR-2-7B-1025",
-  "prompt": "Extract the content of this lecture slide into structured Markdown. Use headers for titles, bullet points for lists, and LaTeX for any mathematical formulas. Ignore background graphics and slide numbers.",
+  "prompt": "Extract the content of this lecture slide into structured Markdown. Use headers for titles, bullet points for lists, and LaTeX for any mathematical formulas. For diagrams and flowcharts, extract all text labels and represent their logical relationships using text (e.g., A -> B) or nested lists. Ignore background graphics and slide numbers.",
   "max_inflight": 32,
   "total_timeout_ms": 120000,
   "max_retries": 5,
