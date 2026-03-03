@@ -9,9 +9,12 @@ type
   RetryQueue* = HeapQueue[RetryItem]
 
 proc `<`(a, b: RetryItem): bool =
-  if a.dueAt != b.dueAt: a.dueAt < b.dueAt
-  elif a.seqId != b.seqId: a.seqId < b.seqId
-  else: a.attempt < b.attempt
+  if a.dueAt != b.dueAt:
+    result = a.dueAt < b.dueAt
+  elif a.seqId != b.seqId:
+    result = a.seqId < b.seqId
+  else:
+    result = a.attempt < b.attempt
 
 proc initRetryQueue*(): RetryQueue =
   result = initHeapQueue[RetryItem]()
