@@ -1,9 +1,9 @@
 import std/[algorithm, parseutils]
 
 proc allPagesSelection*(totalPages: int): seq[int] =
-  result = newSeqOfCap[int](totalPages)
-  for page in 1..totalPages:
-    result.add(page)
+  result = newSeq[int](totalPages)
+  for idx in 0..<totalPages:
+    result[idx] = idx + 1
 
 proc parsePageAt(spec: string; idx: var int): int =
   let consumed = parseInt(spec, result, idx)
