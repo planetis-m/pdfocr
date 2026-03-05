@@ -3,7 +3,7 @@ const
 
   ApiUrl* = "https://api.deepinfra.com/v1/openai/chat/completions"
   Model* = "allenai/olmOCR-2-7B-1025"
-  Prompt* = "Extract all readable text exactly."
+  Prompt* = ""
   MaxInflight* = 32
   TotalTimeoutMs* = 120_000
   MaxRetries* = 5
