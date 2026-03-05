@@ -4,14 +4,13 @@ import ./[constants, types]
 
 proc buildOcrParams*(network: NetworkConfig; webpBytes: seq[byte]): ChatCreateParams =
   let imageDataUrl = "data:image/webp;base64," & encode(webpBytes)
-  var parts = newSeq[ChatCompletionContentPart]()
-  if network.prompt.len > 0:
-    parts.add(partText(network.prompt))
-  parts.add(partImageUrl(imageDataUrl))
   result = chatCreate(
     model = network.model,
     messages = @[
-      userMessageParts(parts)
+      userMessageParts(@[
+        partText(network.prompt),
+        partImageUrl(imageDataUrl)
+      ])
     ],
     temperature = 0.0,
     maxTokens = MaxOutputTokens,
