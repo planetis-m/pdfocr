@@ -199,6 +199,7 @@ proc processResult(cfg: RuntimeConfig; item: RequestResult; maxAttempts: int;
 
 proc drainReadyResults(cfg: RuntimeConfig; client: Relay; maxAttempts: int;
     retryPolicy: RetryPolicy; state: var PipelineState): bool =
+  result = false
   var item: RequestResult
   while client.pollForResult(item):
     processResult(cfg, item, maxAttempts, retryPolicy, state)

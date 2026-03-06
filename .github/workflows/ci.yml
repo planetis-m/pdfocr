@@ -41,11 +41,10 @@ jobs:
         run: nim c -d:release -o:app src/app.nim
 
       - name: Run Tests
-        working-directory: tests
         run: |
           # Copy pdfium library next to exe for portability
-          cp ../third_party/pdfium/lib/libpdfium.so ./
-          nim test ci.nims
+          cp third_party/pdfium/lib/libpdfium.so tests/
+          nim test tests/ci.nims
 
   macos:
     runs-on: macos-latest
@@ -78,11 +77,10 @@ jobs:
         run: nim c -d:release -o:app src/app.nim
 
       - name: Run Tests
-        working-directory: tests
         run: |
           # Copy pdfium library next to exe for portability
-          cp ../third_party/pdfium/lib/libpdfium.dylib ./
-          nim test ci.nims
+          cp third_party/pdfium/lib/libpdfium.dylib tests/
+          nim test tests/ci.nims
 
   windows:
     runs-on: windows-latest
@@ -123,12 +121,11 @@ jobs:
         run: nim c -d:release -o:app.exe src/app.nim
 
       - name: Run Tests
-        working-directory: tests
         shell: pwsh
         env:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg\installed\x64-windows-release
         run: |
           $env:PATH = "$env:VCPKG_ROOT\\bin;" + $env:PATH
           # Copy pdfium library next to exe for portability
-          Copy-Item ..\third_party\pdfium\bin\pdfium.dll .
-          nim test ci.nims
+          Copy-Item third_party\pdfium\bin\pdfium.dll tests\
+          nim test tests/ci.nims

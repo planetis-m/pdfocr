@@ -74,16 +74,14 @@ nim c -d:release -o:pdfocr src/app.nim
 
 ## 8. Testing and Verification
 
-Primary CI test task runs from `tests/`.
+Primary CI test task is invoked from the repository root.
 - Keep default compiler settings from `tests/config.nims`.
 - Do not override memory model flags in test commands.
 
 - Current CI task:
-  - `cd tests && nim test ci.nims`
+  - `nim test tests/ci.nims`
 - Single-test example:
-  - `cd tests && nim c -r test_retry_and_errors.nim`
-- Repository-root equivalent for CI task:
-  - `(cd tests && nim test ci.nims)`
+  - `nim c -r tests/test_retry_and_errors.nim`
 - Optional live/manual runs require `DEEPINFRA_API_KEY`.
 - In Codex/sandbox sessions, always request terminal permission approval before running live network commands.
 - ASan build/run example (repository root):
