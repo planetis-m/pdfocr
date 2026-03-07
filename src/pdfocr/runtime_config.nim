@@ -100,12 +100,12 @@ proc loadOptionalJsonRuntimeConfig(path: Path): JsonRuntimeConfig =
   if fileExists(path):
     try:
       jsonx.fromFile(path, result)
-      logInfo("loaded config from " & $absolutePath(path))
+      logInfo("loaded config from " & $path)
     except CatchableError:
-      logWarn("failed to parse config file at " & $absolutePath(path) &
+      logWarn("failed to parse config file at " & $path &
         "; using built-in defaults")
   else:
-    logInfo("config file not found at " & $absolutePath(path) & "; using built-in defaults")
+    logInfo("config file not found at " & $path & "; using built-in defaults")
 
 proc resolveApiKey(configApiKey: string): string =
   let envApiKey = getEnv("DEEPINFRA_API_KEY")

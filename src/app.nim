@@ -18,6 +18,9 @@ proc runApp*(): int =
       raise newException(ValueError,
         "missing API key; set DEEPINFRA_API_KEY or api_key in config.json")
 
+    logInfo("starting OCR pipeline for " & $cfg.selectedPages.len &
+      " selected page(s) from " & cfg.inputPath & ", please wait...")
+
     client = newRelay(
       maxInFlight = cfg.networkConfig.maxInflight,
       defaultTimeoutMs = cfg.networkConfig.totalTimeoutMs
