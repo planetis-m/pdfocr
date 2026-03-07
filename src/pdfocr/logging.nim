@@ -2,11 +2,7 @@ type
   LogLevel* = enum
     info, warn, error, off
 
-const configuredLogLevel =
-  when defined(release):
-    LogLevel.warn
-  else:
-    LogLevel.info
+const configuredLogLevel = LogLevel.info
 
 proc shouldLog(level: LogLevel): bool =
   configuredLogLevel != LogLevel.off and ord(level) >= ord(configuredLogLevel)
