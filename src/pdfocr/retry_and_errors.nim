@@ -1,5 +1,5 @@
 import relay
-import openai_retry
+import openai/retry
 import ./types
 
 type

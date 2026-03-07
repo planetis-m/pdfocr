@@ -1,5 +1,5 @@
 import std/base64
-import openai
+import openai/chat
 import ./[constants, types]
 
 proc buildOcrParams*(network: NetworkConfig; webpBytes: seq[byte]): ChatCreateParams =

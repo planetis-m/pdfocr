@@ -1,7 +1,7 @@
 import std/[monotimes, os, random, times]
 import jsonx/streams
 import relay
-import openai, openai_retry
+import openai/[chat, retry]
 import ./[ocr_client, pdf_render, pdfium_wrap, request_id_codec,
   retry_and_errors, retry_queue, types]
 

@@ -1,7 +1,7 @@
 import std/[envvars, parseopt, paths, files]
 from std/os import getAppDir
 import jsonx
-import openai
+import openai/chat
 import ./[constants, logging, page_selection, pdfium_wrap, types]
 
 {.define: jsonxLenient.}

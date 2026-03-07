@@ -1,6 +1,6 @@
 import jsonx
 import jsonx/streams
-import openai
+import openai/chat
 
 type
   NetworkConfig* = object
